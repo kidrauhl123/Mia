@@ -125,15 +125,12 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
         .find(|tool| tool["name"] == "memory")
         .unwrap()["inputSchema"]
         .clone();
-    assert_eq!(memory_schema["required"], json!(["action", "target"]));
+    assert_eq!(memory_schema["required"], json!(["action"]));
     assert_eq!(
         memory_schema["properties"]["action"]["enum"],
         json!(["add", "replace", "remove"])
     );
-    assert_eq!(
-        memory_schema["properties"]["target"]["enum"],
-        json!(["user", "memory"])
-    );
+    assert!(memory_schema["properties"].get("target").is_none());
     assert_eq!(
         memory_schema["allOf"],
         json!([
@@ -178,7 +175,7 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
                 "arguments":{
                     "context":{"conversationId":"spoofed","botId":"spoofed"},
                     "action":"add",
-                    "target":"memory",
+                    "target":"user",
                     "content":"可信路由"
                 }
             }
@@ -195,6 +192,7 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
     assert_eq!(memory_payload["context"]["conversationId"], "conv_real");
     assert_eq!(memory_payload["context"]["botId"], "bot_real");
     assert_eq!(memory_payload["context"]["userId"], "local");
+    assert!(memory_payload.get("target").is_none());
 
     let failed = rpc(
         &mut child,
@@ -206,7 +204,6 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
                 "name":"memory",
                 "arguments":{
                     "action":"add",
-                    "target":"memory",
                     "content":"trigger_server_error"
                 }
             }

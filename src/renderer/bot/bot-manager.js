@@ -928,6 +928,7 @@
           ${renderBotRuntimeTargetPanel(bot)}
           ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
           ${renderBotPersonaPanel(bot)}
+          ${window.miaBotMemoryPanel?.renderBotMemoryPanel?.(bot) || ""}
         </section>
       </article>
     `;
@@ -946,6 +947,7 @@
       if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
       wireBotPersonaPanel(bot);
       wireBotRuntimeTargets(bot);
+      window.miaBotMemoryPanel?.wireBotMemoryPanel?.(bot, els.contactDetail);
     }
     if (htmlChanged || els.contactDetail.__miaContactDetailAvatarKey !== avatarKey) {
       window.miaAvatar.applyAvatarMedia(

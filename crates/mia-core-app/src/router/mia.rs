@@ -173,7 +173,6 @@ pub async fn mutate_mia_memory(
             tracing::error!(
                 conversation_id,
                 action = ?request.action,
-                target = ?request.target,
                 error = %error,
                 "[MiaMemory] failed to read conversation owner"
             );
@@ -215,7 +214,6 @@ pub async fn mutate_mia_memory(
             tracing::error!(
                 conversation_id,
                 action = ?request.action,
-                target = ?request.target,
                 error = %error,
                 "[MiaMemory] failed to read user owner"
             );
@@ -223,14 +221,12 @@ pub async fn mutate_mia_memory(
         }
     };
     let action = request.action;
-    let target = request.target;
     match states.memory.mutate(&user_id, bot_id, request).await {
         Ok(response) => Json(response).into_response(),
         Err(error) => {
             tracing::error!(
                 conversation_id,
                 action = ?action,
-                target = ?target,
                 error = %error,
                 "[MiaMemory] mutation failed"
             );

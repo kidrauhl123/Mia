@@ -8,8 +8,8 @@ use super::agent_command::{execute_agent_command, list_agent_commands};
 use super::attachment::{fetch_file_attachment, save_attachment};
 use super::bot::{
     bot_capability_options, bot_runtime_control_options, bot_runtime_target_options, create_bot,
-    delete_bot, ensure_bot_session_conversation, ensure_starter_bots, get_bot, get_bot_runtime,
-    list_bots, save_bot_runtime, update_bot,
+    delete_bot, ensure_bot_session_conversation, ensure_starter_bots, get_bot, get_bot_memory,
+    get_bot_runtime, list_bots, replace_bot_memory_entry, save_bot_runtime, update_bot,
 };
 use super::cloud::{
     cancel_cloud_bridge_run, cloud_status, connect_cloud, disconnect_cloud, get_cloud_settings,
@@ -120,6 +120,10 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route(
             "/api/bots/{bot_id}",
             get(get_bot).patch(update_bot).delete(delete_bot),
+        )
+        .route(
+            "/api/bots/{bot_id}/memory",
+            get(get_bot_memory).patch(replace_bot_memory_entry),
         )
         .route(
             "/api/bots/{bot_id}/runtime",
@@ -1292,7 +1296,7 @@ mod tests {
                 .document(
                     "user_real",
                     "bot_real",
-                    mia_core_api_types::MiaMemoryTarget::User
+                    mia_core_api_types::MiaMemoryTarget::Memory
                 )
                 .await
                 .unwrap()
@@ -1302,11 +1306,7 @@ mod tests {
         assert!(
             services
                 .memory
-                .document(
-                    "user_spoofed",
-                    "bot_real",
-                    mia_core_api_types::MiaMemoryTarget::User
-                )
+                .document("user_real", "", mia_core_api_types::MiaMemoryTarget::User)
                 .await
                 .unwrap()
                 .text
@@ -1429,6 +1429,117 @@ mod tests {
                 .unwrap();
             assert_eq!(old_route.status(), StatusCode::NOT_FOUND, "{route}");
         }
+    }
+
+    #[tokio::test]
+    async fn bot_memory_management_route_supports_cloud_owned_bot_keys() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        services
+            .system
+            .patch_client_settings(json!({ "userId": "user_real" }))
+            .await
+            .unwrap();
+        services
+            .memory
+            .mutate(
+                "user_real",
+                "bot_cloud_owned",
+                mia_core_api_types::MiaMemoryToolRequest {
+                    context: json!({}),
+                    action: mia_core_api_types::MiaMemoryAction::Add,
+                    old_text: None,
+                    content: Some("Codex 回复时保持简洁。".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+        let app = create_router(&services);
+
+        let read_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bots/bot_cloud_owned/memory")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(read_response.status(), StatusCode::OK);
+        let read_body = to_bytes(read_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let read: Value = serde_json::from_slice(&read_body).unwrap();
+        assert_eq!(read["mode"], "mia");
+        assert_eq!(read["entries"], json!(["Codex 回复时保持简洁。"]));
+        assert!(read.get("text").is_none());
+
+        let edit_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/bots/bot_cloud_owned/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"oldText":"Codex 回复时保持简洁。","content":"Codex 回复要简洁、直接。"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(edit_response.status(), StatusCode::OK);
+        let edit_body = to_bytes(edit_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let edited: Value = serde_json::from_slice(&edit_body).unwrap();
+        assert_eq!(edited["entries"], json!(["Codex 回复要简洁、直接。"]));
+        assert_eq!(edited["revision"], 2);
+
+        services
+            .system
+            .save_memory_settings(mia_core_api_types::SaveMemorySettingsRequest {
+                mode: Some(mia_core_api_types::MemoryMode::Native),
+                enabled: None,
+            })
+            .await
+            .unwrap();
+        let native_read_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/bots/bot_cloud_owned/memory")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(native_read_response.status(), StatusCode::OK);
+        let native_read_body = to_bytes(native_read_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let native_read: Value = serde_json::from_slice(&native_read_body).unwrap();
+        assert_eq!(native_read["mode"], "native");
+        assert_eq!(native_read["entries"], json!([]));
+
+        let native_edit_response = app
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri("/api/bots/bot_cloud_owned/memory")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"oldText":"Codex 回复要简洁、直接。","content":"不应写入"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(native_edit_response.status(), StatusCode::CONFLICT);
     }
 
     #[tokio::test]

@@ -257,7 +257,6 @@ pub struct MiaMemoryToolRequest {
     #[serde(default)]
     pub context: Value,
     pub action: MiaMemoryAction,
-    pub target: MiaMemoryTarget,
     #[serde(default)]
     pub old_text: Option<String>,
     #[serde(default)]
@@ -269,7 +268,6 @@ pub struct MiaMemoryToolRequest {
 pub struct MiaMemoryToolResponse {
     pub success: bool,
     pub action: MiaMemoryAction,
-    pub target: MiaMemoryTarget,
     pub current_entries: Vec<String>,
     pub used_chars: usize,
     pub limit_chars: usize,
@@ -289,6 +287,28 @@ pub struct MiaMemoryDocument {
     pub revision: i64,
     pub updated_at: String,
     pub deleted_at: String,
+}
+
+/// The Bot-scoped memory projection used by Mia's own management UI.
+///
+/// This intentionally exposes entries instead of the backing delimiter-based
+/// document so the UI can edit one durable fact without owning serialization.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BotMemoryEntriesResponse {
+    pub mode: MemoryMode,
+    pub entries: Vec<String>,
+    pub used_chars: usize,
+    pub limit_chars: usize,
+    pub revision: i64,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceBotMemoryEntryRequest {
+    pub old_text: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

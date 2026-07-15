@@ -122,6 +122,24 @@
     return html;
   }
 
+  function isMiaMemoryTool(name) {
+    const normalized = String(name || "").trim().toLowerCase();
+    return normalized === "memory"
+      || normalized === "mcp.mia-app.memory"
+      || normalized === "mcp__mia_app__memory";
+  }
+
+  function miaMemoryToolPresentation(tool = {}, status = "run") {
+    if (!isMiaMemoryTool(tool.name)) return null;
+    if (status === "err") {
+      return { glyph: "🧠", title: "记忆未更新", body: "未能更新当前 Bot 的记忆。" };
+    }
+    if (status === "run") {
+      return { glyph: "🧠", title: "正在记录记忆", body: "正在更新当前 Bot 的记忆。" };
+    }
+    return { glyph: "🧠", title: "记忆已更新", body: "已更新当前 Bot 的记忆。" };
+  }
+
   function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
@@ -180,19 +198,23 @@
         : (tool.duration != null ? `${Number(tool.duration).toFixed(2)}s` : "");
       const name = String(tool.name || "tool");
       const preview = String(tool.preview || "");
-      const previewInline = preview.replace(/\s+/g, " ").slice(0, 120);
+      const memoryPresentation = miaMemoryToolPresentation(tool, status);
+      const displayName = memoryPresentation?.title || name;
+      const displayGlyph = memoryPresentation?.glyph || glyph;
+      const displayBody = memoryPresentation?.body || preview;
+      const previewInline = (memoryPresentation?.body || preview).replace(/\s+/g, " ").slice(0, 120);
       const key = scopeKey ? `${scopeKey}::tool::${tool.id || idx}` : "";
       const stateForKey = openState(key);
       rows.push(
-        `<details class="trace-row tool${animClass(key)}" data-status="${status}" data-accordion="true"${rowAttrs(key, rows.length, stateForKey)}>` +
+        `<details class="trace-row tool${memoryPresentation ? " memory-tool" : ""}${animClass(key)}" data-status="${status}" data-accordion="true"${rowAttrs(key, rows.length, stateForKey)}>` +
           `<summary>` +
             `<span class="trace-chevron">▸</span>` +
-            `<span class="trace-glyph">${glyph}</span>` +
-            `<span class="trace-cmd">${window.miaMarkdown.escapeHtml(name)}</span>` +
+            `<span class="trace-glyph${memoryPresentation ? " trace-memory-glyph" : ""}">${displayGlyph}</span>` +
+            `<span class="trace-cmd">${window.miaMarkdown.escapeHtml(displayName)}</span>` +
             (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
             (meta ? `<span class="trace-meta">${window.miaMarkdown.escapeHtml(meta)}</span>` : "") +
           `</summary>` +
-          traceAccordionBody(preview ? `<pre class="trace-body">${renderTraceText(preview)}</pre>` : "") +
+          traceAccordionBody(displayBody ? `<pre class="trace-body">${renderTraceText(displayBody)}</pre>` : "") +
         `</details>`
       );
     }
@@ -487,6 +509,8 @@
     isDuplicateTraceReasoning,
     traceReasoningForDisplay,
     renderTraceText,
+    isMiaMemoryTool,
+    miaMemoryToolPresentation,
     renderTraceBlocks,
     renderAssistantContentBlocks,
     markRenderedTraceBlocks,

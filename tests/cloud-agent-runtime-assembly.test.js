@@ -110,7 +110,7 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
     });
 
     assert.match(result.instructions, /Mia Runtime Context/);
-    assert.match(result.promptPrefix, /User likes compact implementation notes/);
+    assert.doesNotMatch(result.promptPrefix, /User likes compact implementation notes/);
     assert.match(result.memoryBlock, /Writer should answer in Chinese/);
     assert.doesNotMatch(result.memoryBlock, /Other bot memory/);
     assert.deepEqual(result.nativeSkillNames, ["flashcards"]);

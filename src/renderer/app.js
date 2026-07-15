@@ -5932,6 +5932,12 @@ async function initializeRuntime(options = {}) {
       deleteBot,
     });
   }
+  if (window.miaBotMemoryPanel && window.miaBotMemoryPanel.initBotMemoryPanel) {
+    window.miaBotMemoryPanel.initBotMemoryPanel({
+      state,
+      renderContacts: () => window.miaBotManager?.renderContacts?.(),
+    });
+  }
   if (window.miaSkillLibrary && window.miaSkillLibrary.initSkillLibrary) {
     window.miaSkillLibrary.initSkillLibrary({
       state,

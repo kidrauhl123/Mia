@@ -12,15 +12,20 @@ fn bounded_memory_contract_serializes_modes_and_tool_operations() {
     let request: MiaMemoryToolRequest = serde_json::from_value(json!({
         "context": { "conversationId": "conv_1" },
         "action": "replace",
-        "target": "memory",
+        "target": "user",
         "oldText": "旧约定",
         "content": "新约定"
     }))
     .unwrap();
     assert_eq!(request.action, MiaMemoryAction::Replace);
-    assert_eq!(request.target, MiaMemoryTarget::Memory);
     assert_eq!(request.old_text.as_deref(), Some("旧约定"));
     assert_eq!(request.content.as_deref(), Some("新约定"));
+    assert!(
+        serde_json::to_value(request)
+            .unwrap()
+            .get("target")
+            .is_none()
+    );
 }
 
 #[test]
@@ -44,7 +49,6 @@ fn bounded_memory_result_and_document_use_the_shared_transport_shape() {
     let response = MiaMemoryToolResponse {
         success: true,
         action: MiaMemoryAction::Add,
-        target: MiaMemoryTarget::User,
         current_entries: vec!["用户喜欢简洁中文".into()],
         used_chars: 8,
         limit_chars: 1_375,
@@ -57,6 +61,7 @@ fn bounded_memory_result_and_document_use_the_shared_transport_shape() {
     assert_eq!(serialized["currentEntries"][0], "用户喜欢简洁中文");
     assert_eq!(serialized["usedChars"], 8);
     assert_eq!(serialized["limitChars"], 1_375);
+    assert!(serialized.get("target").is_none());
 
     let document = MiaMemoryDocument {
         user_id: "user_1".into(),
@@ -72,6 +77,30 @@ fn bounded_memory_result_and_document_use_the_shared_transport_shape() {
     assert_eq!(serialized["target"], "user");
     assert_eq!(serialized["revision"], 3);
     assert_eq!(serialized["deletedAt"], "");
+}
+
+#[test]
+fn bot_memory_management_contract_exposes_entries_without_exposing_the_document_format() {
+    let response = BotMemoryEntriesResponse {
+        mode: MemoryMode::Mia,
+        entries: vec!["Mia 喜欢简洁的中文回答。".into()],
+        used_chars: 12,
+        limit_chars: 2_200,
+        revision: 4,
+        updated_at: "2026-07-14T00:00:00Z".into(),
+    };
+    let serialized = serde_json::to_value(response).unwrap();
+    assert_eq!(serialized["mode"], "mia");
+    assert_eq!(serialized["entries"][0], "Mia 喜欢简洁的中文回答。");
+    assert!(serialized.get("text").is_none());
+
+    let request: ReplaceBotMemoryEntryRequest = serde_json::from_value(json!({
+        "oldText": "旧条目",
+        "content": "新条目"
+    }))
+    .unwrap();
+    assert_eq!(request.old_text, "旧条目");
+    assert_eq!(request.content, "新条目");
 }
 
 #[test]

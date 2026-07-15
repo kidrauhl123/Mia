@@ -1376,6 +1376,16 @@
   font-weight: 400;
 }
 
+.trace-row.memory-tool > summary > .trace-memory-glyph {
+  width: 16px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.trace-row.memory-tool > summary > .trace-cmd {
+  font-weight: 450;
+}
+
 .trace-row[data-status="run"] > summary > .trace-glyph {
   color: #6366f1;
   animation: traceGlyphPulse 1.2s ease-in-out infinite;

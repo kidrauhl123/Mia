@@ -4,13 +4,17 @@ use std::collections::HashMap;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use mia_core_api_types::{
-    BotCapabilityOptionsRequest, BotCapabilityOptionsResponse, BotListResponse, BotResponse,
-    BotRuntimeControlOptionsRequest, BotRuntimeControlOptionsResponse, BotRuntimeResponse,
-    BotRuntimeTargetOptionsRequest, BotRuntimeTargetOptionsResponse, CreateBotRequest,
-    EmptyResponse, EnsureBotSessionConversationRequest, EnsureBotSessionConversationResponse,
+    BotCapabilityOptionsRequest, BotCapabilityOptionsResponse, BotListResponse,
+    BotMemoryEntriesResponse, BotResponse, BotRuntimeControlOptionsRequest,
+    BotRuntimeControlOptionsResponse, BotRuntimeResponse, BotRuntimeTargetOptionsRequest,
+    BotRuntimeTargetOptionsResponse, CreateBotRequest, EmptyResponse,
+    EnsureBotSessionConversationRequest, EnsureBotSessionConversationResponse, MemoryMode,
+    MiaMemoryAction, MiaMemoryTarget, MiaMemoryToolRequest, ReplaceBotMemoryEntryRequest,
     SaveBotRuntimeRequest, StarterBotEnsureRequest, StarterBotEnsureResponse, UpdateBotRequest,
 };
 use mia_core_conversation::with_memory_mode;
+use mia_core_memory::{count_chars, deserialize_entries, target_limit};
+use serde_json::json;
 use sqlx::Error;
 
 use super::state::ModuleStates;
@@ -105,6 +109,59 @@ pub async fn get_bot_runtime(
         .map_err(map_sqlx_status)
 }
 
+/// A product-management projection of one Bot's Mia memory.
+///
+/// The agent-facing MCP intentionally has no read action. This endpoint is for
+/// the authenticated Mia UI only and returns entries rather than the backing
+/// delimiter-based text document.
+pub async fn get_bot_memory(
+    State(states): State<ModuleStates>,
+    Path(bot_id): Path<String>,
+) -> Result<Json<BotMemoryEntriesResponse>, StatusCode> {
+    bot_memory_entries_response(&states, &bot_id)
+        .await
+        .map(Json)
+}
+
+/// Replaces one displayed durable fact. `old_text` is matched by the bounded
+/// memory service, so a concurrent Agent update cannot overwrite a different
+/// entry by accident.
+pub async fn replace_bot_memory_entry(
+    State(states): State<ModuleStates>,
+    Path(bot_id): Path<String>,
+    Json(request): Json<ReplaceBotMemoryEntryRequest>,
+) -> Result<Json<BotMemoryEntriesResponse>, StatusCode> {
+    let settings = states
+        .system
+        .memory_settings()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if settings.mode != MemoryMode::Mia {
+        return Err(StatusCode::CONFLICT);
+    }
+    let user_id = current_memory_user_id(&states).await?;
+    let result = states
+        .memory
+        .mutate(
+            &user_id,
+            &bot_id,
+            MiaMemoryToolRequest {
+                context: json!({}),
+                action: MiaMemoryAction::Replace,
+                old_text: Some(request.old_text),
+                content: Some(request.content),
+            },
+        )
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !result.success {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    bot_memory_entries_response(&states, &bot_id)
+        .await
+        .map(Json)
+}
+
 pub async fn bot_runtime_target_options(
     State(states): State<ModuleStates>,
     Json(request): Json<BotRuntimeTargetOptionsRequest>,
@@ -160,6 +217,60 @@ pub async fn ensure_bot_session_conversation(
         .await
         .map(Json)
         .map_err(map_sqlx_status)
+}
+
+async fn bot_memory_entries_response(
+    states: &ModuleStates,
+    bot_id: &str,
+) -> Result<BotMemoryEntriesResponse, StatusCode> {
+    let settings = states
+        .system
+        .memory_settings()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if settings.mode != MemoryMode::Mia {
+        return Ok(BotMemoryEntriesResponse {
+            mode: MemoryMode::Native,
+            entries: Vec::new(),
+            used_chars: 0,
+            limit_chars: target_limit(MiaMemoryTarget::Memory),
+            revision: 0,
+            updated_at: String::new(),
+        });
+    }
+    let user_id = current_memory_user_id(states).await?;
+    let document = states
+        .memory
+        .document(&user_id, bot_id, MiaMemoryTarget::Memory)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let entries =
+        deserialize_entries(&document.text).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(BotMemoryEntriesResponse {
+        mode: MemoryMode::Mia,
+        used_chars: count_chars(&document.text),
+        limit_chars: target_limit(MiaMemoryTarget::Memory),
+        revision: document.revision,
+        updated_at: document.updated_at,
+        entries,
+    })
+}
+
+async fn current_memory_user_id(states: &ModuleStates) -> Result<String, StatusCode> {
+    let settings = states
+        .system
+        .client_settings()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let user_id = settings
+        .settings
+        .get("userId")
+        .or_else(|| settings.settings.get("user_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("local");
+    Ok(user_id.to_string())
 }
 
 fn map_sqlx_status(error: Error) -> StatusCode {

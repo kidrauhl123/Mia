@@ -162,12 +162,13 @@ test("memory mutate API enforces member, bot identity, and fixed Mia mode", asyn
       clientOpId: "mutate_doc_1",
       conversationId: "conv_mia",
       action: "add",
-      target: "memory",
+      target: "user",
       content: "双方约定简洁回答"
     }
   });
   assert.equal(saved.status, 200);
   assert.equal(saved.body.success, true);
+  assert.equal(saved.body.target, "memory");
   assert.deepEqual(saved.body.currentEntries, ["双方约定简洁回答"]);
   assert.equal(events.length, 1);
   assert.deepEqual(events[0], {

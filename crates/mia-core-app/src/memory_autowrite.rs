@@ -1,4 +1,6 @@
-use mia_core_api_types::{MemoryMode, MiaMemoryAction, MiaMemoryTarget, MiaMemoryToolRequest};
+#[cfg(test)]
+use mia_core_api_types::MiaMemoryTarget;
+use mia_core_api_types::{MemoryMode, MiaMemoryAction, MiaMemoryToolRequest};
 use mia_core_memory::{BoundedMemoryService, validate_memory_write};
 use mia_core_runtime::RuntimeTurnPlan;
 use mia_core_system::SystemService;
@@ -79,7 +81,6 @@ pub async fn apply_explicit_memory_autowrite_for_owner(
                     "origin": "mia-explicit-autowrite",
                 }),
                 action: MiaMemoryAction::Add,
-                target: MiaMemoryTarget::Memory,
                 old_text: None,
                 content: Some(detected.content.clone()),
             },

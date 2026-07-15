@@ -107,6 +107,36 @@ test("renderTraceBlocks exposes trace bodies as managed accordions", () => {
   );
 });
 
+test("Mia memory traces use a brain status and never render raw MCP payloads", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const payload = JSON.stringify({
+    result: {
+      content: [{
+        type: "text",
+        text: JSON.stringify({ currentEntries: ["用户说喜欢 Mia。"], success: true })
+      }]
+    }
+  });
+  const html = traceBlocks.renderTraceBlocks({
+    reasoning: "",
+    tools: [{
+      id: "memory_1",
+      name: "mcp.mia-app.memory",
+      status: "completed",
+      preview: payload
+    }],
+    content: "",
+    expanded: false,
+    scopeKey: "msg:m_memory"
+  });
+
+  assert.match(html, /class="trace-row tool memory-tool/);
+  assert.match(html, /🧠/);
+  assert.match(html, /记忆已更新/);
+  assert.match(html, /已更新当前 Bot 的记忆。/);
+  assert.doesNotMatch(html, /mcp\.mia-app\.memory|currentEntries|用户说喜欢 Mia/);
+});
+
 test("renderTraceBlocks linkifies URL and local path text only inside trace bodies", () => {
   const { traceBlocks } = loadTraceBlocks();
   const preview = "open https://example.com/docs?x=1, then /Users/jung/GitHub/Mia/src/shared/trace-blocks.js:42:7";

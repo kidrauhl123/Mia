@@ -3274,9 +3274,10 @@ test("contact capability checkboxes use Rust Core capability options", () => {
   assert.doesNotMatch(botManagerSource, /botCapabilitiesWithPresetDefaults/);
 });
 
-test("bot-only contact detail renders capabilities and persona without manual memory controls", () => {
+test("bot-only contact detail renders capabilities, persona, and scoped Mia memory entries", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
-  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const memoryPanelSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-memory-panel.js"), "utf8");
+  const memoryStyleSource = fs.readFileSync(path.join(root, "src/renderer/styles/contact-memory.css"), "utf8");
 
   assert.match(botManagerSource, /function renderBotCapabilitiesPanel\(bot\)/);
   assert.match(botManagerSource, /<details class="contact-capabilities accordion-details"/);
@@ -3287,23 +3288,37 @@ test("bot-only contact detail renders capabilities and persona without manual me
   assert.match(botManagerSource, /botPersonaText\(bot\)/);
   assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
   assert.match(botManagerSource, /contactUid\(bot\)/);
+  assert.match(botManagerSource, /miaBotMemoryPanel\?\.renderBotMemoryPanel/);
+  assert.match(botManagerSource, /miaBotMemoryPanel\?\.wireBotMemoryPanel/);
+  assert.match(memoryPanelSource, /function renderBotMemoryPanel\(bot = \{\}\)/);
+  assert.match(memoryPanelSource, /<details class="contact-memory accordion-details"/);
+  assert.match(memoryPanelSource, /<strong>🧠 记忆<\/strong>/);
+  assert.match(memoryPanelSource, /window\.mia\?\.social\?\.getBotMemory/);
+  assert.match(memoryPanelSource, /window\.mia\?\.social\?\.replaceBotMemoryEntry/);
+  assert.match(memoryPanelSource, /data-memory-edit-index/);
+  assert.match(memoryPanelSource, /data-memory-action="save"/);
   assert.doesNotMatch(botManagerSource, /contact-memory|ContactMemory|contactMemory/);
-  assert.doesNotMatch(botManagerSource, /window\.mia\.memory/);
-  assert.doesNotMatch(botManagerSource, /data-memory-action/);
   assert.doesNotMatch(botManagerSource, /renderHumanPersonaPanel/);
-  assert.match(styleSource, /\.contact-persona-card/);
-  assert.doesNotMatch(styleSource, /\.contact-memory-/);
-  assert.match(styleSource, /\.contact-persona-text/);
+  assert.doesNotMatch(memoryPanelSource, /window\.mia\.memory/);
+  assert.match(memoryStyleSource, /\.contact-memory-entry\s*\{/);
+  assert.match(memoryStyleSource, /\.contact-memory-entry > p\s*\{[\s\S]*font-family:\s*"Kaiti SC"/);
+  assert.match(memoryStyleSource, /\.contact-memory-edit\s*\{/);
+  assert.match(memoryStyleSource, /\.contact-memory-entry-editor textarea/);
 });
 
-test("manual memory list panes and renderer CRUD calls stay removed", () => {
-  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+test("Mia memory entry editing uses the narrow Bot Core contract", () => {
+  const memoryPanelSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-memory-panel.js"), "utf8");
+  const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const settingsMemorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
-  const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.doesNotMatch(botManagerSource, /window\.mia\.memory|data-memory-action|contact-memory/);
-  assert.doesNotMatch(settingsMemorySource, /window\.mia\.memory|data-memory-action|settingsMemoryList/);
-  assert.doesNotMatch(styleSource, /\.(?:contact|settings)-memory-(?:list|row|editor|actions|error|empty)/);
+  assert.match(memoryPanelSource, /getBotMemory/);
+  assert.match(memoryPanelSource, /replaceBotMemoryEntry/);
+  assert.doesNotMatch(memoryPanelSource, /window\.mia\.memory/);
+  assert.doesNotMatch(settingsMemorySource, /window\.mia\.memory|settingsMemoryList/);
+  assert.match(preloadSource, /function getCoreBotMemory\(botId\)/);
+  assert.match(preloadSource, /function replaceCoreBotMemoryEntry\(botId, input = \{\}\)/);
+  assert.match(preloadSource, /getBotMemory:\s*\(botId\)\s*=>\s*getCoreBotMemory\(botId\)/);
+  assert.match(preloadSource, /replaceBotMemoryEntry:\s*\(botId, input\)\s*=>\s*replaceCoreBotMemoryEntry\(botId, input\)/);
 });
 
 test("bot edit dialog keeps memory out of the create/edit modal", () => {

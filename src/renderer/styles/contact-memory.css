@@ -1,0 +1,190 @@
+/* Contact detail — a Bot's bounded Mia memory, presented as editable facts. */
+.contact-memory {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.contact-memory > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  min-height: 64px;
+  padding: 13px 28px;
+  list-style: none;
+  cursor: default;
+}
+
+.contact-memory > summary::-webkit-details-marker {
+  display: none;
+}
+
+.contact-memory[open] .runtime-target-chevron {
+  transform: rotate(180deg);
+}
+
+.contact-memory > summary div {
+  min-width: 0;
+}
+
+.contact-memory > summary strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 430;
+}
+
+.contact-memory > summary p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-memory .accordion-body {
+  padding: 0 28px 16px;
+}
+
+.contact-memory-state {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.contact-memory-state.error,
+.contact-memory-editor-error {
+  color: var(--danger, #d64a4a);
+}
+
+.contact-memory-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contact-memory-entry {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 28px;
+  align-items: start;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.contact-memory-entry:last-child {
+  border-bottom: 0;
+}
+
+.contact-memory-entry.editing {
+  grid-template-columns: 22px minmax(0, 1fr);
+}
+
+.contact-memory-index {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.contact-memory-entry > p {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  font-family: "Kaiti SC", "STKaiti", "KaiTi", "楷体", serif;
+  font-size: 13px;
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.contact-memory-edit {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  margin: -4px 0 0;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.contact-memory-edit:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.contact-memory-edit:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent);
+  outline-offset: 1px;
+}
+
+.contact-memory-edit-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.contact-memory-entry-editor {
+  display: grid;
+  gap: 8px;
+}
+
+.contact-memory-entry-editor textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent));
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.contact-memory-editor-error {
+  margin: -2px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.contact-memory-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.contact-memory-editor-actions button {
+  min-width: 58px;
+}
+
+@media (max-width: 720px) {
+  .app-shell[data-active-view="contacts"] .contact-memory > summary {
+    min-height: 58px;
+    padding: 12px 18px;
+  }
+
+  .app-shell[data-active-view="contacts"] .contact-memory .accordion-body {
+    padding: 0 18px 14px;
+  }
+}

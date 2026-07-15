@@ -194,16 +194,12 @@ function visibleMemoryEntries({ memoryDocumentStore, ownerId = "", botId = "", l
   for (const document of documents) {
     if (document?.deletedAt) continue;
     const target = cleanText(document?.target || "");
-    if (target === "memory" && cleanText(document?.botId || "") !== botId) continue;
-    if (target !== "user" && target !== "memory") continue;
+    if (target !== "memory" || cleanText(document?.botId || "") !== botId) continue;
     for (const text of splitMemoryDocumentText(document?.text || "")) {
       const key = text.toLowerCase().replace(/\s+/g, " ");
       if (seen.has(key)) continue;
       seen.add(key);
-      out.push({
-        scope: target === "user" ? "user" : "bot",
-        text
-      });
+      out.push({ text });
       if (out.length >= perScopeLimit) return out;
     }
   }
@@ -216,9 +212,9 @@ function buildMemoryBlock(entries = []) {
   return [
     "## Mia Memory",
     "",
-    "The following scoped Mia memories are visible to this bot and conversation. Use them as context, but do not quote this section unless the user asks.",
+    "The following facts belong to this Mia bot. Use them as context, but do not quote this section unless the user asks.",
     "",
-    ...rows.map((entry) => `- [${entry.scope || "bot"}] ${sanitizeMiaMemorySpoof(entry.text)}`)
+    ...rows.map((entry) => `- ${sanitizeMiaMemorySpoof(entry.text)}`)
   ].join("\n");
 }
 
@@ -324,12 +320,14 @@ function assembleCloudRuntimeTurn(args = {}) {
     skillsCatalog: args.skillsCatalog,
     requestedSkillIds
   });
-  const memories = visibleMemoryEntries({
-    memoryDocumentStore: args.memoryDocumentStore,
-    ownerId,
-    botId,
-    limit: args.memoryLimit
-  });
+  const memories = memoryMode === "mia"
+    ? visibleMemoryEntries({
+      memoryDocumentStore: args.memoryDocumentStore,
+      ownerId,
+      botId,
+      limit: args.memoryLimit
+    })
+    : [];
   const memoryBlock = memoryMode === "mia" ? buildMemoryBlock(memories) : "";
   const promptPrefix = memoryMode === "mia" && args.includeMemorySnapshot === true ? memoryBlock : "";
   const nativeSkills = materializeNativeCloudSkills({

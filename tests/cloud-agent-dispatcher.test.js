@@ -257,11 +257,12 @@ test("cloud-claude-code assembles MCP, memory, and skills before invoking the cl
         description: "生成记忆卡。",
         body: "# STEM Flashcard Generation"
       }],
-      memoryStore: {
-        listMemories(userId, input) {
-          if (input.scope !== "user") return [];
+      memoryDocumentStore: {
+        listDocuments(userId) {
           assert.equal(userId, ctx.user.id);
-          return [{ id: "mem_1", scope: "user", text: "User likes concise Chinese answers." }];
+          return {
+            documents: [{ target: "memory", botId: BOT_ID, text: "Alice Bot answers in concise Chinese.", deletedAt: "" }]
+          };
         }
       },
       createCloudSessionToken(userId) {
@@ -302,11 +303,13 @@ test("cloud-claude-code assembles MCP, memory, and skills before invoking the cl
     });
 
     assert.equal(calls.length, 1);
-    assert.doesNotMatch(calls[0].input, /## Mia Memory|Loaded Mia Skill Guides|STEM Flashcard Generation/);
+    assert.match(calls[0].input, /## Mia Memory/);
+    assert.match(calls[0].input, /Alice Bot answers in concise Chinese/);
+    assert.doesNotMatch(calls[0].input, /Loaded Mia Skill Guides|STEM Flashcard Generation/);
     assert.deepEqual(calls[0].skills, ["flashcards"]);
     assert.equal(fs.existsSync(path.join(calls[0].cwd, ".claude", "skills", "flashcards", "SKILL.md")), true);
     const capabilityContext = JSON.parse(fs.readFileSync(calls[0].mcpServers["mia-app"].env.MIA_CLOUD_MCP_CONTEXT_FILE, "utf8"));
-    assert.equal(capabilityContext.memories[0].text, "User likes concise Chinese answers.");
+    assert.equal(Object.hasOwn(capabilityContext, "memories"), false);
     assert.equal(calls[0].mcpServers.docs.url, "https://docs.example/mcp");
     assert.equal(calls[0].mcpServers["mia-app"].env.MIA_CLOUD_TOKEN, "cloud-session-token");
     assert.equal(calls[0].mcpServers["mia-app"].env.MIA_CORE_URL, undefined);

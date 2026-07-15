@@ -149,10 +149,15 @@ test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime 
   assert.match(preload, /getBotRuntimeTargetOptions:\s*\(input\)\s*=>\s*getCoreBotRuntimeTargetOptions\(input\)/);
   assert.match(preload, /getBotRuntimeControlOptions:\s*\(input\)\s*=>\s*getCoreBotRuntimeControlOptions\(input\)/);
   assert.match(preload, /getBotCapabilityOptions:\s*\(input\)\s*=>\s*getCoreBotCapabilityOptions\(input\)/);
+  assert.match(preload, /function getCoreBotMemory\(botId\)/);
+  assert.match(preload, /function replaceCoreBotMemoryEntry\(botId, input = \{\}\)/);
+  assert.match(preload, /getBotMemory:\s*\(botId\)\s*=>\s*getCoreBotMemory\(botId\)/);
+  assert.match(preload, /replaceBotMemoryEntry:\s*\(botId, input\)\s*=>\s*replaceCoreBotMemoryEntry\(botId, input\)/);
   assert.match(preload, /ensureStarterEngineBots:\s*\(input\)\s*=>\s*ensureCoreStarterEngineBots\(input\)/);
   assert.match(preload, /\/api\/bots\/runtime-target-options/);
   assert.match(preload, /\/api\/bots\/runtime-control-options/);
   assert.match(preload, /\/api\/bots\/capability-options/);
+  assert.match(preload, /\/api\/bots\/\$\{encodeURIComponent\(id\)\}\/memory/);
   assert.match(preload, /\/api\/bots\/starter-ensure/);
   assert.match(preload, /targetIntent:\s*input\.targetIntent/);
   assert.match(preload, /syncIntent:\s*input\.syncIntent/);

@@ -113,7 +113,7 @@ function createMemoryDocumentsApi(deps = {}) {
 
       const result = store.mutate(userId, botId, {
         action: body.action,
-        target: body.target,
+        target: "memory",
         oldText: body.oldText,
         content: body.content
       });

@@ -96,13 +96,18 @@ test("cloud Mia MCP exposes single memory tool and current skills without deskto
     const names = toolDefinitionsForMode({ env }).map((tool) => tool.name);
     assert.deepEqual(names.filter((name) => name.startsWith("memory")), ["memory"]);
     assert.equal(names.includes("memory_search"), false);
+    const memoryDefinition = toolDefinitionsForMode({ env }).find((tool) => tool.name === "memory");
+    assert.equal(Object.hasOwn(memoryDefinition.inputSchema.properties, "target"), false);
+    assert.deepEqual(memoryDefinition.inputSchema.required, ["action"]);
 
     const remembered = await callTool("memory", {
       action: "add",
-      target: "memory",
+      target: "user",
       content: "Writer answers in Chinese."
     }, { env });
     assert.equal(remembered.success, true);
+    assert.equal(Object.hasOwn(remembered, "target"), false);
+    assert.equal(Object.hasOwn(remembered, "currentEntries"), false);
     assert.deepEqual(mutateBody, {
       conversationId: "conv_1",
       botId: "writer",

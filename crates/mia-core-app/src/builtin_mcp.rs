@@ -168,6 +168,8 @@ async fn call_tool(
         }
         "memory" if context.memory_mode == MemoryMode::Mia => {
             let mut body = args.as_object().cloned().unwrap_or_default();
+            body.remove("target");
+            body.remove("scope");
             body.insert("context".into(), context.memory_context());
             core_json(
                 client,
@@ -178,6 +180,7 @@ async fn call_tool(
                 Some(Value::Object(body)),
             )
             .await
+            .map(memory_result_for_agent)
         }
         "skill_list_current" => {
             let mut query = BTreeMap::new();
@@ -212,6 +215,16 @@ async fn call_tool(
         }
         _ => bail!("Unknown tool: {name}"),
     }
+}
+
+/// Mutation feedback must not become a hidden read API for the Agent.
+/// The startup snapshot is the only Agent-visible view of its Bot memory.
+fn memory_result_for_agent(mut value: Value) -> Value {
+    if let Some(object) = value.as_object_mut() {
+        object.remove("currentEntries");
+        object.remove("target");
+    }
+    value
 }
 
 async fn core_json(
@@ -274,16 +287,15 @@ fn tool_definitions(memory_mode: MemoryMode) -> Vec<Value> {
             1,
             tool(
                 "memory",
-                "Add, replace, or remove an entry in Mia-owned bounded memory.",
+                "Add, replace, or remove an entry in the current Mia bot's bounded memory.",
                 json!({
                     "type": "object",
                     "properties": {
                         "action": {"type": "string", "enum": ["add", "replace", "remove"]},
-                        "target": {"type": "string", "enum": ["user", "memory"]},
                         "oldText": {"type": "string", "minLength": 1},
                         "content": {"type": "string", "minLength": 1}
                     },
-                    "required": ["action", "target"],
+                    "required": ["action"],
                     "allOf": [
                         {
                             "if": {"properties": {"action": {"const": "add"}}, "required": ["action"]},

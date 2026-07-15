@@ -406,6 +406,20 @@ async function getCoreBotCapabilityOptions(input = {}) {
   return coreOk(miaCorePost("/api/bots/capability-options", request));
 }
 
+async function getCoreBotMemory(botId) {
+  const id = String(botId || "").trim();
+  return coreOk(miaCoreGet(`/api/bots/${encodeURIComponent(id)}/memory`));
+}
+
+async function replaceCoreBotMemoryEntry(botId, input = {}) {
+  const id = String(botId || "").trim();
+  const request = input && typeof input === "object" ? input : {};
+  return coreOk(miaCorePatch(`/api/bots/${encodeURIComponent(id)}/memory`, {
+    oldText: String(request.oldText || request.old_text || ""),
+    content: String(request.content || "")
+  }));
+}
+
 async function ensureCoreStarterEngineBots(input = {}) {
   const request = input && typeof input === "object" ? input : {};
   return coreOk(miaCorePost("/api/bots/starter-ensure", request));
@@ -1300,6 +1314,8 @@ contextBridge.exposeInMainWorld("mia", {
     prepareConversationRuntimeControls: (conversationId, input) => prepareConversationRuntimeControls(conversationId, input),
     setConversationRuntimeControl: (conversationId, input) => setConversationRuntimeControl(conversationId, input),
     getBotCapabilityOptions: (input) => getCoreBotCapabilityOptions(input),
+    getBotMemory: (botId) => getCoreBotMemory(botId),
+    replaceBotMemoryEntry: (botId, input) => replaceCoreBotMemoryEntry(botId, input),
     ensureStarterEngineBots: (input) => ensureCoreStarterEngineBots(input),
     listBridgeDevices: (options) => ipcRenderer.invoke(IpcChannel.SocialListBridgeDevices, options),
     updateConversation: (conversationId, patch) => ipcRenderer.invoke(IpcChannel.SocialUpdateConversation, conversationId, patch),

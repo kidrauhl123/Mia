@@ -76,16 +76,15 @@ function cloudToolDefinitions() {
     { name: "context_snapshot", description: "Read current Mia bot/session metadata.", inputSchema: { type: "object" } },
     {
       name: "memory",
-      description: "Add, replace, or remove a concise Mia-owned memory entry for the current user or bot.",
+      description: "Add, replace, or remove a concise Mia-owned memory entry for the current bot.",
       inputSchema: {
         type: "object",
         properties: {
           action: { type: "string", enum: ["add", "replace", "remove"] },
-          target: { type: "string", enum: ["user", "memory"] },
           oldText: { type: "string", minLength: 1 },
           content: { type: "string", minLength: 1 }
         },
-        required: ["action", "target"],
+        required: ["action"],
         allOf: [
           {
             if: { properties: { action: { const: "add" } }, required: ["action"] },
@@ -260,16 +259,8 @@ function toolDefinitionsForMode(options = {}) {
     .filter((tool) => tool.name !== "memory" || memoryToolEnabled(ctx));
 }
 
-function normalizeMemoryTarget(args = {}) {
-  const target = cleanText(args.target || args.scope || "").toLowerCase();
-  if (target === "bot" || target === "session") return "memory";
-  if (target === "profile") return "user";
-  return target || "memory";
-}
-
 function memoryMutationPayload(ctx = {}, args = {}) {
   const action = cleanText(args.action || "").toLowerCase();
-  const target = normalizeMemoryTarget(args);
   const content = cleanText(args.content ?? args.text ?? args.newText ?? args.new_text ?? "");
   const oldText = cleanText(args.oldText ?? args.old_text ?? "");
   const conversationId = cleanText(ctx.conversationId || ctx.sessionId || args.conversationId || "");
@@ -278,7 +269,7 @@ function memoryMutationPayload(ctx = {}, args = {}) {
     conversationId,
     botId,
     action,
-    target
+    target: "memory"
   };
   if (content) payload.content = content;
   if (oldText) payload.oldText = oldText;
@@ -292,10 +283,19 @@ async function cloudMemoryMutation(ctx = {}, args = {}, options = {}) {
   if (!payload.conversationId) throw new Error("conversationId is required");
   if (!payload.botId) throw new Error("botId is required");
   if (!new Set(["add", "replace", "remove"]).has(payload.action)) throw new Error("action must be add, replace, or remove");
-  if (!new Set(["user", "memory"]).has(payload.target)) throw new Error("target must be user or memory");
   if ((payload.action === "add" || payload.action === "replace") && !payload.content) throw new Error("content is required");
   if ((payload.action === "replace" || payload.action === "remove") && !payload.oldText) throw new Error("oldText is required");
-  return cloudJson("POST", "/api/me/memory-documents/mutate", payload, options);
+  const result = await cloudJson("POST", "/api/me/memory-documents/mutate", payload, options);
+  return memoryResultForAgent(result);
+}
+
+// The mutation tool must not double as a hidden memory read API. The Bot sees
+// its bounded document only in the first-turn snapshot for a new session.
+function memoryResultForAgent(result = {}) {
+  const output = { ...(result && typeof result === "object" ? result : {}) };
+  delete output.target;
+  delete output.currentEntries;
+  return output;
 }
 
 async function callTool(name, args = {}, options = {}) {
