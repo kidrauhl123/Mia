@@ -71,11 +71,13 @@ function cssFontSizeToPx(value, inheritedPx) {
 test("renderer styles are split into feature stylesheets", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const appUpdateCss = fs.readFileSync(path.join(root, "src/renderer/styles/app-update.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const groupsCss = fs.readFileSync(path.join(root, "src/renderer/styles/groups.css"), "utf8");
   const tasksCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
 
-  assert.match(html, /styles\.css[\s\S]*styles\/chat\.css[\s\S]*styles\/groups\.css[\s\S]*styles\/tasks\.css/);
+  assert.match(html, /styles\.css[\s\S]*styles\/app-update\.css[\s\S]*styles\/chat\.css[\s\S]*styles\/groups\.css[\s\S]*styles\/tasks\.css/);
+  assert.match(appUpdateCss, /\.app-update-overlay/);
   assert.match(chatCss, /\.chat-layout/);
   assert.match(chatCss, /\.trace/);
   assert.match(groupsCss, /\.group-create-card/);
@@ -83,6 +85,7 @@ test("renderer styles are split into feature stylesheets", () => {
   assert.doesNotMatch(baseCss, /\.chat-layout/);
   assert.doesNotMatch(baseCss, /\.group-create-card/);
   assert.doesNotMatch(baseCss, /\.task-card/);
+  assert.doesNotMatch(baseCss, /\.app-update-overlay/);
 });
 
 test("group create member picker uses compact filled contact rows", () => {
@@ -631,6 +634,7 @@ test("project styles do not draw focus highlights", () => {
 test("conversation cards keep the default cursor outside tag controls", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+  const appUpdateCss = fs.readFileSync(path.join(root, "src/renderer/styles/app-update.css"), "utf8");
   const personaRule = baseCss.match(/\.persona\s*\{([\s\S]*?)\}/);
 
   assert.ok(personaRule, "base .persona rule should exist");
@@ -682,17 +686,28 @@ test("conversation cards keep the default cursor outside tag controls", () => {
   assert.match(baseCss, /\.persona-tag-input\s*\{[\s\S]*?font-size:\s*10px;/);
   assert.match(baseCss, /\.persona-tag-input-wrap\s*\{[\s\S]*?animation:\s*tagInputOpen/);
   assert.match(baseCss, /\.persona-tag-chip\.removing\s*\{[\s\S]*?animation:\s*tagChipRemove/);
-  const appUpdateOverlayRule = baseCss.match(/\.app-update-overlay\s*\{([\s\S]*?)\}/)?.[1] || "";
-  const appUpdatePanelRule = baseCss.match(/\.app-update-panel\s*\{([\s\S]*?)\}/)?.[1] || "";
-  assert.doesNotMatch(baseCss, /body\.update-locked/);
+  const appUpdateOverlayRule = appUpdateCss.match(/\.app-update-overlay\s*\{([\s\S]*?)\}/)?.[1] || "";
+  const appUpdatePanelRule = appUpdateCss.match(/\.app-update-panel\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.doesNotMatch(appUpdateCss, /body\.update-locked/);
   assert.match(appUpdateOverlayRule, /background:\s*transparent;/);
   assert.match(appUpdateOverlayRule, /backdrop-filter:\s*none;/);
   assert.match(appUpdateOverlayRule, /pointer-events:\s*none;/);
   assert.match(appUpdatePanelRule, /pointer-events:\s*auto;/);
-  const appUpdateNotesRule = cssRuleBody(baseCss, ".app-update-notes");
+  assert.match(appUpdatePanelRule, /transform:\s*translate3d\(var\(--app-update-drag-x,\s*0px\),\s*var\(--app-update-drag-y,\s*0px\),\s*0\);/);
+  assert.match(appUpdatePanelRule, /cursor:\s*grab;/);
+  assert.match(appUpdateCss, /\.app-update-panel\.dragging\s*\{[\s\S]*?cursor:\s*grabbing;[\s\S]*?user-select:\s*none;/);
+  const appUpdateNotesRule = cssRuleBody(appUpdateCss, ".app-update-notes");
   assert.match(appUpdateNotesRule, /max-height:\s*112px;/);
   assert.match(appUpdateNotesRule, /overflow-y:\s*auto;/);
   assert.doesNotMatch(appUpdateNotesRule, /overflow:\s*hidden;/);
+  const appUpdateActionsRule = cssRuleBody(appUpdateCss, ".app-update-actions");
+  const appUpdatePrimaryActionRule = cssRuleBody(appUpdateCss, ".app-update-action-primary");
+  assert.match(appUpdateActionsRule, /justify-content:\s*flex-end;/);
+  assert.match(appUpdatePrimaryActionRule, /background:\s*var\(--accent\);/);
+  assert.match(
+    appUpdateCss,
+    /\.app-update-actions\[hidden\],[\s\S]*?\.app-update-progress\[hidden\],[\s\S]*?\.app-update-progress-text\[hidden\]\s*\{[\s\S]*?display:\s*none;/
+  );
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border:\s*0;[\s\S]*?height:\s*16px;[\s\S]*?font-size:\s*11px;[\s\S]*?font-weight:\s*var\(--capsule-tab-font-weight\);/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?border-radius:\s*5px;/);
   assert.match(baseCss, /\.persona-tag-chip\s*\{[\s\S]*?background:\s*color-mix\(in srgb,\s*var\(--tag-color,\s*#64748b\) 14%,\s*transparent\);[\s\S]*?color:\s*var\(--tag-color,\s*#64748b\);/);

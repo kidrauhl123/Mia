@@ -2679,6 +2679,8 @@ const autoUpdateService = createAutoUpdateService({
 });
 
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());
+ipcMain.handle(IpcChannel.UpdateDownload, () => autoUpdateService.downloadUpdate());
+ipcMain.handle(IpcChannel.UpdateDefer, () => autoUpdateService.deferUpdate());
 
 postPaintStartup = createPostPaintStartup({
   timer: startupTimer,

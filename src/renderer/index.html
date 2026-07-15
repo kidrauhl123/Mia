@@ -6,6 +6,7 @@
   <title>Mia</title>
   <link rel="stylesheet" href="../shared/vendor/slot-text/style.css">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./styles/app-update.css">
   <link rel="stylesheet" href="./styles/chat.css">
   <link rel="stylesheet" href="./styles/name-with-badge.css">
   <link rel="stylesheet" href="./styles/groups.css">
@@ -28,7 +29,7 @@
   </section>
 
   <section id="appUpdateOverlay" class="app-update-overlay hidden" role="status" aria-live="polite" aria-labelledby="appUpdateOverlayTitle" aria-describedby="appUpdateOverlayDetail">
-    <div class="app-update-panel">
+    <div id="appUpdatePanel" class="app-update-panel">
       <div class="app-update-mark" aria-hidden="true">
         <span></span>
       </div>
@@ -36,6 +37,10 @@
         <h2 id="appUpdateOverlayTitle">正在更新</h2>
         <p id="appUpdateOverlayDetail">下载后自动重启</p>
         <ul id="appUpdateReleaseNotes" class="app-update-notes" hidden></ul>
+        <div id="appUpdateActions" class="app-update-actions" hidden>
+          <button id="appUpdateDefer" class="app-update-action app-update-action-secondary" type="button">暂不更新</button>
+          <button id="appUpdateInstall" class="app-update-action app-update-action-primary" type="button">立即更新</button>
+        </div>
         <div id="appUpdateProgressBar" class="app-update-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <span id="appUpdateProgressFill"></span>
         </div>
@@ -1347,6 +1352,7 @@
   <script src="../shared/bot-runtime-control.js"></script>
   <script src="./app-state.js"></script>
   <!-- Feature modules -->
+  <script src="./app-update.js"></script>
   <script src="./loaders.js"></script>
   <script src="./onboarding/setup-guide.js"></script>
   <script src="./settings/model-helpers.js"></script>

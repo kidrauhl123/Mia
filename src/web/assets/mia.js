@@ -29,21 +29,21 @@
   const DOWNLOADS = {
     'mac-apple': {
       href: '/downloads/mia-macos-apple-silicon-latest.dmg',
-      download: 'Mia-0.1.46-Apple-Silicon.dmg',
+      download: 'Mia-0.1.47-Apple-Silicon.dmg',
       label: '下载 macOS 版',
       shortLabel: '下载',
       icon: 'apple'
     },
     'mac-intel': {
       href: '/downloads/mia-macos-intel-latest.dmg',
-      download: 'Mia-0.1.46-Intel.dmg',
+      download: 'Mia-0.1.47-Intel.dmg',
       label: '下载 Intel Mac 版',
       shortLabel: 'Intel Mac',
       icon: 'apple'
     },
     windows: {
       href: '/downloads/mia-windows-latest.exe',
-      download: 'Mia-0.1.46-Setup.exe',
+      download: 'Mia-0.1.47-Setup.exe',
       label: '下载 Windows 版',
       shortLabel: 'Windows',
       icon: 'windows'

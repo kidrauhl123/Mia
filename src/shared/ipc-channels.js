@@ -38,6 +38,8 @@
     CloudLogout: "cloud:logout",
     CloudEvent: "cloud:event",
     UpdateCheck: "update:check",
+    UpdateDownload: "update:download",
+    UpdateDefer: "update:defer",
     UpdateEvent: "update:event",
     UtilOpenExternal: "util:open-external",
     UtilOpenLocalFile: "util:open-local-file",

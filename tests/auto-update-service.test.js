@@ -8,12 +8,18 @@ class FakeUpdater extends EventEmitter {
     super();
     this.checkForUpdatesImpl = checkForUpdates;
     this.checkCalls = 0;
+    this.downloadCalls = 0;
     this.quitCalled = false;
   }
 
   checkForUpdates() {
     this.checkCalls += 1;
     return this.checkForUpdatesImpl?.();
+  }
+
+  downloadUpdate() {
+    this.downloadCalls += 1;
+    return this.downloadUpdateImpl?.() || Promise.resolve([]);
   }
 
   quitAndInstall(...args) {
@@ -63,8 +69,8 @@ test("manual update check reports when the current build is latest", async () =>
   const result = await createService(updater).checkForUpdates();
 
   assert.deepEqual(result, { status: "not-available", version: "0.1.10" });
-  assert.equal(updater.autoDownload, true);
-  assert.equal(updater.autoInstallOnAppQuit, true);
+  assert.equal(updater.autoDownload, false);
+  assert.equal(updater.autoInstallOnAppQuit, false);
   assert.equal(updater.checkCalls, 1);
 });
 
@@ -103,13 +109,17 @@ test("available update events include release notes during download progress", a
     });
   });
 
-  const result = await createService(updater, {
+  const service = createService(updater, {
     sendUpdateEvent: (payload) => events.push(payload),
-  }).checkForUpdates();
+  });
+  const result = await service.checkForUpdates();
 
   assert.deepEqual(result, { status: "available", version: "0.1.18", releaseNotes });
   assert.deepEqual(events[0].releaseNotes, releaseNotes);
 
+  assert.equal(updater.downloadCalls, 0);
+  service.downloadUpdate();
+  assert.equal(updater.downloadCalls, 1);
   updater.emit("download-progress", { percent: 12 });
   assert.equal(events.at(-1).status, "downloading");
   assert.equal(events.at(-1).version, "0.1.18");
@@ -129,7 +139,7 @@ test("manual update check serializes update errors for the renderer", async () =
   });
 });
 
-test("available updates lock the app, report progress, and force install", async () => {
+test("available updates wait for user approval before downloading and installing", async () => {
   const events = [];
   const calls = [];
   const scheduled = [];
@@ -167,8 +177,14 @@ test("available updates lock the app, report progress, and force install", async
   const result = await service.checkForUpdates();
   assert.deepEqual(result, { status: "available", version: "0.1.12" });
   assert.equal(events[0].status, "available");
-  assert.equal(events[0].mandatory, true);
-  assert.deepEqual(calls.slice(0, 5), [
+  assert.equal(events[0].mandatory, false);
+  assert.equal(updater.downloadCalls, 0);
+  assert.deepEqual(calls, []);
+
+  const downloadResult = service.downloadUpdate();
+  assert.equal(downloadResult.status, "downloading");
+  assert.equal(updater.downloadCalls, 1);
+  assert.deepEqual(calls, [
     ["show"],
     ["focus"],
     ["closable", false],
@@ -214,7 +230,68 @@ test("available updates lock the app, report progress, and force install", async
   assert.equal(quitFallbackCalled, true);
 });
 
-test("force install waits for update preparation before quitting to install", async () => {
+test("users can defer an available update without downloading, locking, or quitting", async () => {
+  const events = [];
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", { version: "0.1.12" });
+    return Promise.resolve({
+      updateInfo: { version: "0.1.12" },
+      downloadPromise: null,
+    });
+  });
+  const service = createService(updater, {
+    sendUpdateEvent: (payload) => events.push(payload),
+  });
+
+  await service.checkForUpdates();
+  const result = service.deferUpdate();
+
+  assert.equal(result.status, "deferred");
+  assert.equal(result.version, "0.1.12");
+  assert.equal(result.mandatory, false);
+  assert.equal(updater.downloadCalls, 0);
+  assert.equal(updater.quitCalled, false);
+  assert.deepEqual(events.map((event) => event.status), ["available", "deferred"]);
+
+  updater.emit("update-available", { version: "0.1.12" });
+  assert.equal(events.at(-1).status, "available");
+});
+
+test("cached updates still wait for explicit approval before installing", async () => {
+  const events = [];
+  const scheduled = [];
+  let updater;
+  updater = new FakeUpdater(() => {
+    updater.emit("update-available", { version: "0.1.12" });
+    return Promise.resolve({ updateInfo: { version: "0.1.12" } });
+  });
+  const service = createService(updater, {
+    sendUpdateEvent: (payload) => events.push(payload),
+    forceInstallDelayMs: 25,
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-downloaded", { version: "0.1.12" });
+
+  assert.equal(events.at(-1).status, "available");
+  assert.equal(events.at(-1).downloaded, true);
+  assert.equal(updater.downloadCalls, 0);
+  assert.equal(updater.quitCalled, false);
+  assert.equal(scheduled.length, 0);
+
+  const result = service.downloadUpdate();
+  assert.equal(result.status, "downloaded");
+  assert.equal(updater.downloadCalls, 0);
+  assert.equal(scheduled.length, 1);
+  assert.equal(scheduled[0].ms, 25);
+});
+
+test("approved update waits for install preparation before quitting to install", async () => {
   const scheduled = [];
   const prepareCalls = [];
   let finishPrepare;
@@ -238,6 +315,8 @@ test("force install waits for update preparation before quitting to install", as
   });
 
   await service.checkForUpdates();
+  updater.emit("update-available", { version: "0.1.12" });
+  service.downloadUpdate();
   updater.emit("update-downloaded", { version: "0.1.12" });
 
   const installPromise = scheduled[0].fn();
@@ -250,7 +329,7 @@ test("force install waits for update preparation before quitting to install", as
   assert.equal(updater.quitCalled, true);
 });
 
-test("force install reports preparation failures without quitting to install", async () => {
+test("approved update reports preparation failures without quitting to install", async () => {
   const events = [];
   const scheduled = [];
   const updater = new FakeUpdater(() => Promise.resolve({
@@ -270,6 +349,8 @@ test("force install reports preparation failures without quitting to install", a
   });
 
   await service.checkForUpdates();
+  updater.emit("update-available", { version: "0.1.12" });
+  service.downloadUpdate();
   updater.emit("update-downloaded", { version: "0.1.12" });
 
   await scheduled[0].fn();
@@ -305,6 +386,7 @@ test("update install watchdog stops after before-quit-for-update", async () => {
   });
 
   await service.checkForUpdates();
+  service.downloadUpdate();
   updater.emit("update-downloaded", { version: "0.1.12" });
   scheduled[0].fn();
   updater.emit("before-quit-for-update");
@@ -330,12 +412,14 @@ test("update errors unlock the app and notify the renderer", async () => {
     setMaximizable: (value) => calls.push(["maximizable", value]),
   };
 
-  await createService(updater, {
+  const service = createService(updater, {
     getMainWindows: () => [win],
     sendUpdateEvent: (payload) => events.push(payload),
-  }).checkForUpdates();
+  });
+  await service.checkForUpdates();
 
   updater.emit("update-available", { version: "0.1.12" });
+  service.downloadUpdate();
   updater.emit("error", Object.assign(new Error("download failed"), { code: "EIO" }));
 
   assert.equal(events.at(-1).status, "error");

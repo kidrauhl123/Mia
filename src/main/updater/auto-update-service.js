@@ -108,8 +108,11 @@ function createAutoUpdateService(deps = {}) {
   let installScheduled = false;
   let quitForUpdateStarted = false;
   let windowInteractionLocked = false;
+  let updateApproved = false;
+  let updateDownloadPromise = null;
   let updater = null;
   let activeUpdateInfo = null;
+  let downloadedUpdateInfo = null;
 
   function resolveUpdater() {
     if (!updater) updater = getAutoUpdater();
@@ -132,7 +135,7 @@ function createAutoUpdateService(deps = {}) {
       status: type,
       ...updateInfoPayload(info),
       version: versionFromInfo(info) || String(extra.version || "").trim(),
-      mandatory: true,
+      mandatory: false,
       ...extra,
     };
   }
@@ -158,11 +161,11 @@ function createAutoUpdateService(deps = {}) {
 
   function emitUpdate(type, info = null, extra = {}) {
     if (["available", "downloaded"].includes(type) && info) activeUpdateInfo = info;
-    if (["not-available", "error"].includes(type)) activeUpdateInfo = null;
-    if (["available", "downloading", "downloaded"].includes(type)) {
+    if (["not-available", "error", "deferred"].includes(type)) activeUpdateInfo = null;
+    if (["downloading", "downloaded"].includes(type)) {
       setWindowInteractionLocked(true);
     }
-    if (["installing", "not-available", "error"].includes(type)) {
+    if (["available", "deferred", "installing", "not-available", "error"].includes(type)) {
       setWindowInteractionLocked(false);
     }
     const payload = updatePayload(type, info, extra);
@@ -212,7 +215,7 @@ function createAutoUpdateService(deps = {}) {
     }
   }
 
-  function forceInstall(info) {
+  function installDownloadedUpdate(info) {
     if (installScheduled) return;
     installScheduled = true;
     setTimeoutFn(() => {
@@ -238,8 +241,9 @@ function createAutoUpdateService(deps = {}) {
   function configureUpdater() {
     if (configured) return resolveUpdater();
     const autoUpdater = resolveUpdater();
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Never download or install until the user explicitly chooses “立即更新”.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.on("checking-for-update", () => {
       emitUpdate("checking");
     });
@@ -248,14 +252,22 @@ function createAutoUpdateService(deps = {}) {
       setWindowInteractionLocked(false);
     });
     autoUpdater.on("error", (error) => {
+      updateApproved = false;
+      downloadedUpdateInfo = null;
+      installScheduled = false;
       logger.warn?.(`${TAG} update check failed`, error);
       emitUpdate("error", null, { error: serializeError(error) });
     });
     autoUpdater.on("update-available", (info) => {
+      updateApproved = false;
+      downloadedUpdateInfo = null;
+      installScheduled = false;
       logger.info?.(`${TAG} update available: ${info?.version}`);
       emitUpdate("available", info, { progress: normalizeProgress({ percent: 0 }) });
     });
     autoUpdater.on("update-not-available", (info) => {
+      updateApproved = false;
+      downloadedUpdateInfo = null;
       emitUpdate("not-available", info);
     });
     autoUpdater.on("download-progress", (progress) => {
@@ -263,11 +275,67 @@ function createAutoUpdateService(deps = {}) {
     });
     autoUpdater.on("update-downloaded", (info) => {
       logger.info?.(`${TAG} update downloaded: ${info?.version}`);
+      downloadedUpdateInfo = info;
+      if (!updateApproved) {
+        // A previously cached download must still wait for an explicit choice.
+        emitUpdate("available", info, {
+          downloaded: true,
+          progress: normalizeProgress({ percent: 100 }),
+        });
+        return;
+      }
       emitUpdate("downloaded", info, { progress: normalizeProgress({ percent: 100 }) });
-      forceInstall(info);
+      installDownloadedUpdate(info);
     });
     configured = true;
     return autoUpdater;
+  }
+
+  function downloadUpdate() {
+    const reason = disabledReason();
+    if (reason) return { status: "disabled", reason };
+    configureUpdater();
+    const info = downloadedUpdateInfo || activeUpdateInfo;
+    if (!info) return updatePayload("not-available");
+    if (updateDownloadPromise) {
+      return updatePayload("downloading", info, { progress: normalizeProgress({ percent: 0 }) });
+    }
+
+    updateApproved = true;
+    if (downloadedUpdateInfo) {
+      const payload = emitUpdate("downloaded", info, { progress: normalizeProgress({ percent: 100 }) });
+      installDownloadedUpdate(info);
+      return payload;
+    }
+
+    const payload = emitUpdate("downloading", info, { progress: normalizeProgress({ percent: 0 }) });
+    try {
+      updateDownloadPromise = Promise.resolve(resolveUpdater().downloadUpdate())
+        .catch((error) => {
+          updateApproved = false;
+          logger.warn?.(`${TAG} update download failed`, error);
+          emitUpdate("error", info, { error: serializeError(error) });
+        })
+        .finally(() => {
+          updateDownloadPromise = null;
+        });
+    } catch (error) {
+      updateApproved = false;
+      logger.warn?.(`${TAG} update download failed`, error);
+      return emitUpdate("error", info, { error: serializeError(error) });
+    }
+    return payload;
+  }
+
+  function deferUpdate() {
+    const info = downloadedUpdateInfo || activeUpdateInfo;
+    if (updateDownloadPromise || updateApproved) {
+      return updatePayload("downloading", info, { progress: normalizeProgress({ percent: 0 }) });
+    }
+    updateApproved = false;
+    downloadedUpdateInfo = null;
+    installScheduled = false;
+    return emitUpdate("deferred", info);
   }
 
   function start() {
@@ -309,7 +377,11 @@ function createAutoUpdateService(deps = {}) {
         finish({ status: "not-available", ...updateInfoPayload(info) });
       };
       const onDownloaded = (info) => {
-        finish({ status: "downloaded", ...updateInfoPayload(info) });
+        finish({
+          status: updateApproved ? "downloaded" : "available",
+          ...updateInfoPayload(info),
+          downloaded: true,
+        });
       };
       const onError = (error) => {
         logger.warn?.(`${TAG} checkForUpdates rejected`, error);
@@ -342,7 +414,7 @@ function createAutoUpdateService(deps = {}) {
     return checkingPromise;
   }
 
-  return { start, checkForUpdates };
+  return { start, checkForUpdates, downloadUpdate, deferUpdate };
 }
 
 module.exports = { createAutoUpdateService };

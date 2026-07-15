@@ -1192,6 +1192,8 @@ contextBridge.exposeInMainWorld("mia", {
   cloudLogin: (payload) => ipcRenderer.invoke(IpcChannel.CloudLogin, payload),
   cloudLogout: () => ipcRenderer.invoke(IpcChannel.CloudLogout),
   checkForUpdates: () => ipcRenderer.invoke(IpcChannel.UpdateCheck),
+  downloadAppUpdate: () => ipcRenderer.invoke(IpcChannel.UpdateDownload),
+  deferAppUpdate: () => ipcRenderer.invoke(IpcChannel.UpdateDefer),
   onUpdateEvent: (callback) => {
     const handler = (_event, payload) => { try { callback(payload); } catch { /* ignore */ } };
     ipcRenderer.on(IpcChannel.UpdateEvent, handler);

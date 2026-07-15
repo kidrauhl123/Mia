@@ -327,9 +327,13 @@ const els = {
   daemonHint: document.getElementById("daemonHint"),
   appUpdateHint: document.getElementById("appUpdateHint"),
   appUpdateOverlay: document.getElementById("appUpdateOverlay"),
+  appUpdatePanel: document.getElementById("appUpdatePanel"),
   appUpdateOverlayTitle: document.getElementById("appUpdateOverlayTitle"),
   appUpdateOverlayDetail: document.getElementById("appUpdateOverlayDetail"),
   appUpdateReleaseNotes: document.getElementById("appUpdateReleaseNotes"),
+  appUpdateActions: document.getElementById("appUpdateActions"),
+  appUpdateDefer: document.getElementById("appUpdateDefer"),
+  appUpdateInstall: document.getElementById("appUpdateInstall"),
   appUpdateProgressBar: document.getElementById("appUpdateProgressBar"),
   appUpdateProgressFill: document.getElementById("appUpdateProgressFill"),
   appUpdateProgressText: document.getElementById("appUpdateProgressText"),
@@ -568,127 +572,6 @@ function firstNonEmpty(...values) {
     if (text) return text;
   }
   return "";
-}
-
-function updateVersionSuffix(version) {
-  const text = String(version || "").trim();
-  return text ? ` ${text}` : "";
-}
-
-function appUpdateStatusText(result = {}) {
-  const version = updateVersionSuffix(result.version);
-  if (result.status === "available") return `正在更新${version}`;
-  if (result.status === "downloading") return `正在下载${version}`;
-  if (result.status === "downloaded") return `正在安装${version}`;
-  if (result.status === "installing") return `正在重启${version}`;
-  if (result.status === "not-available") return "当前已经是最新版本。";
-  if (result.status === "disabled") return "检查更新只在安装版桌面 App 中可用。";
-  if (result.status === "error") return `检查失败：${result.error?.message || "请稍后再试"}`;
-  return "已发起更新检查。";
-}
-
-function appUpdatePercent(payload = {}) {
-  const status = payload.status || payload.type || "";
-  if (status === "downloaded" || status === "installing") return 100;
-  const value = Number(payload.progress?.percent);
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value));
-}
-
-function appUpdateReleaseNoteLines(payload = {}) {
-  const raw = payload.releaseNotes;
-  const source = Array.isArray(raw) ? raw : String(raw || "").split(/\r?\n/);
-  const seen = new Set();
-  const notes = [];
-  for (const value of source) {
-    let line = String(value || "").trim();
-    if (!line || /^```/.test(line) || /^#{1,6}\s+Mia\b/i.test(line)) continue;
-    line = line
-      .replace(/^#{1,6}\s+/, "")
-      .replace(/^[-*+]\s+/, "")
-      .replace(/^\d+[.)]\s+/, "")
-      .trim();
-    if (!line || seen.has(line)) continue;
-    seen.add(line);
-    notes.push(line.length > 180 ? `${line.slice(0, 177)}...` : line);
-    if (notes.length >= 5) break;
-  }
-  return notes;
-}
-
-function renderAppUpdateReleaseNotes(payload = {}) {
-  const list = els.appUpdateReleaseNotes;
-  if (!list) return;
-  list.textContent = "";
-  const notes = appUpdateReleaseNoteLines(payload);
-  list.hidden = notes.length === 0;
-  for (const note of notes) {
-    const item = document.createElement("li");
-    item.textContent = note;
-    list.appendChild(item);
-  }
-}
-
-function appUpdateOverlayCopy(payload = {}) {
-  const status = payload.status || payload.type || "";
-  const version = updateVersionSuffix(payload.version);
-  if (status === "available") {
-    return {
-      title: "正在更新",
-      detail: `Mia${version || ""}`
-    };
-  }
-  if (status === "downloaded") {
-    return {
-      title: "正在安装",
-      detail: "即将重启"
-    };
-  }
-  if (status === "installing") {
-    return {
-      title: "正在重启",
-      detail: "马上完成"
-    };
-  }
-  return {
-    title: "正在下载",
-    detail: `Mia${version || ""}`
-  };
-}
-
-function renderAppUpdateOverlay(payload = {}, visible = true) {
-  els.appUpdateOverlay?.classList.toggle("hidden", !visible);
-  if (!visible) return;
-  const copy = appUpdateOverlayCopy(payload);
-  const percent = appUpdatePercent(payload);
-  setText(els.appUpdateOverlayTitle, copy.title);
-  setText(els.appUpdateOverlayDetail, copy.detail);
-  renderAppUpdateReleaseNotes(payload);
-  if (els.appUpdateProgressFill) els.appUpdateProgressFill.style.width = `${percent}%`;
-  if (els.appUpdateProgressBar) els.appUpdateProgressBar.setAttribute("aria-valuenow", String(Math.round(percent)));
-  setText(els.appUpdateProgressText, `${Math.round(percent)}%`);
-}
-
-function handleAppUpdateEvent(payload = {}) {
-  const status = payload.status || payload.type || "";
-  if (status === "error") {
-    renderAppUpdateOverlay(payload, false);
-    setText(els.appUpdateHint, appUpdateStatusText(payload));
-    return;
-  }
-  if (status === "not-available" || status === "disabled") {
-    renderAppUpdateOverlay(payload, false);
-    setText(els.appUpdateHint, appUpdateStatusText(payload));
-    return;
-  }
-  if (status === "checking") {
-    setText(els.appUpdateHint, "正在检查更新...");
-    return;
-  }
-  if (["available", "downloading", "downloaded", "installing"].includes(status)) {
-    setText(els.appUpdateHint, appUpdateStatusText(payload));
-    renderAppUpdateOverlay(payload, true);
-  }
 }
 
 function updateStatusBadgeAssetBaseUrl(runtime = state.runtime) {
@@ -6600,20 +6483,7 @@ els.cloudLoginApproveAllow?.addEventListener("click", () => {
 els.cloudLoginApproveDeny?.addEventListener("click", () => {
   respondCloudLoginApproval("deny").catch(() => {});
 });
-window.mia.onUpdateEvent?.((payload) => handleAppUpdateEvent(payload || {}));
-els.checkUpdates?.addEventListener("click", async () => {
-  els.checkUpdates.disabled = true;
-  setText(els.appUpdateHint, "正在检查更新...");
-  try {
-    const result = await window.mia.checkForUpdates();
-    handleAppUpdateEvent(result || {});
-    setText(els.appUpdateHint, appUpdateStatusText(result));
-  } catch (error) {
-    setText(els.appUpdateHint, `检查失败：${error.message || error}`);
-  } finally {
-    els.checkUpdates.disabled = false;
-  }
-});
+window.miaAppUpdate?.initAppUpdate({ els, api: window.mia, setText });
 
 function renderDaemonStatus(status = {}) {
   const running = Boolean(status?.running);
