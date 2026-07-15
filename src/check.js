@@ -53,6 +53,7 @@ const required = [
   "src/renderer/index.html",
   "src/renderer/app.js",
   "src/renderer/styles.css",
+  "src/renderer/assets/mia-logo.png",
   "src/web/index.html",
   "src/web/app.js",
   "src/web/styles.css",
@@ -249,6 +250,7 @@ assert.doesNotMatch(packageJson.scripts["dist:mac:x64"], /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:win"], /hermes:runtime/);
 assert.doesNotMatch(JSON.stringify(packageJson.build.mac || {}), /vendor\/hermes-runtime/);
 assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime/);
+assert.equal(packageJson.build.win?.icon, "src/renderer/assets/mia-logo.png");
 assert.equal(packageJson.build.mac?.hardenedRuntime, true);
 assert.match(packageJson.scripts["notarize:mac"] || "", /notarize-mac-dmg\.js/);
 assert.match(packageJson.scripts["notarize:mac:intel"] || "", /notarize-mac-dmg\.js/);
