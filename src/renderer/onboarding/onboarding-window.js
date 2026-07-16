@@ -190,9 +190,9 @@
         : "";
       const progress = installing ? `<span class="onb-row-progress" aria-hidden="true"><span style="width:${percent === null ? 18 : Math.max(4, percent)}%"></span></span>` : "";
       const right = installing
-        ? `<button class="onb-row-btn" type="button" disabled>${percent === null ? "安装中" : `安装中 ${percent}%`}</button>`
+        ? `<button class="onb-row-btn" type="button" disabled>${percent === null ? "启用中" : `启用中 ${percent}%`}</button>`
         : canInstall
-        ? `<button class="onb-row-btn" type="button" data-install="${def.id}">${agent.installed ? "修复" : "安装"}</button>`
+        ? `<button class="onb-row-btn" type="button" data-install="${def.id}">启用稳定版</button>`
         : `<span class="onb-row-status">${esc(text)}</span>`;
       return `<div class="onb-row ${cls} ${installing ? "installing" : ""} ${failed ? "error" : ""}" data-row="${def.id}">
         ${agentIcon(def)}
@@ -207,7 +207,7 @@
       ${dotsHtml("prepare")}
       <div class="onb-hero">
         <h1 class="onb-title">本机 Agent</h1>
-        <p class="onb-tagline">Mia会复用本机现有的Agent，独立维护一套配置和记忆。</p>
+        <p class="onb-tagline">优先复用本机 Agent；缺失时可启用 Mia 自带的固定稳定版，不改动系统安装。</p>
       </div>
       <div class="onb-list">${doneRowsHtml()}</div>
       <div class="onb-spacer"></div>
@@ -375,18 +375,18 @@
 
   async function installAgent(id, button) {
     if (!mia.installEngine) return;
-    installStates[id] = { status: "installing", message: "正在准备安装...", percent: 0 };
+    installStates[id] = { status: "installing", message: "正在准备 Mia 稳定版...", percent: 0 };
     render();
     try {
       await mia.installEngine(id);
-      installStates[id] = { status: "installing", message: "安装完成，正在重新检测...", percent: 100 };
+      installStates[id] = { status: "installing", message: "稳定版已启用，正在重新检测...", percent: 100 };
       const result = await mia.scanAgents?.();
       if (result && result.inventory) inventory = result.inventory;
       if (isAgentReady(id)) delete installStates[id];
-      else installStates[id] = { status: "error", message: "安装命令已结束，但 Mia 仍未检测到。请确认命令所在目录已加入 PATH 后重试。" };
+      else installStates[id] = { status: "error", message: "稳定版已启用，但 Mia 自检未通过。请重新下载该引擎后重试。" };
     } catch (error) {
       const percent = installStates[id]?.percent;
-      const message = `安装失败：${error?.message || error}`;
+      const message = `启用失败：${error?.message || error}`;
       try {
         const result = await mia.scanAgents?.();
         if (result && result.inventory) inventory = result.inventory;
@@ -403,11 +403,11 @@
     const percentValue = Number(payload.percent);
     const percent = Number.isFinite(percentValue) ? Math.max(0, Math.min(100, Math.round(percentValue))) : installStates[id]?.percent;
     if (payload.status === "error") {
-      installStates[id] = { status: "error", message: `安装失败：${payload.message || "未知错误"}`, percent };
+      installStates[id] = { status: "error", message: `启用失败：${payload.message || "未知错误"}`, percent };
     } else if (payload.status === "success") {
-      installStates[id] = { status: "installing", message: payload.message || "安装完成，正在重新检测...", percent: 100 };
+      installStates[id] = { status: "installing", message: payload.message || "稳定版已启用，正在重新检测...", percent: 100 };
     } else {
-      installStates[id] = { status: "installing", message: payload.message || "正在安装...", percent };
+      installStates[id] = { status: "installing", message: payload.message || "正在启用...", percent };
     }
     if (step === "done") scheduleRender();
   });

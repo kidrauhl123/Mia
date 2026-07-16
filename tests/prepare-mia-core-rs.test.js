@@ -96,7 +96,7 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
   }
 });
 
-test("prepareMiaCoreRs prepares managed ACP resources for runnable target cores", async () => {
+test("prepareMiaCoreRs leaves managed ACP resources to the separate backup release", async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-managed-"));
   try {
     const source = path.join(rootDir, "target", "release", process.platform === "win32" ? "mia-core.exe" : "mia-core");
@@ -111,20 +111,14 @@ test("prepareMiaCoreRs prepares managed ACP resources for runnable target cores"
         env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
         hostPlatform: process.platform,
         hostArch: os.arch(),
-        execFileSync: (command, args, options) => {
-          calls.push({ command, args, options });
-        }
+        execFileSync: (command, args, options) => calls.push({ command, args, options })
       }
     );
 
-    const prepareCall = calls.find((call) => call.args?.[0] === "prepare-managed-resources");
-    assert.ok(prepareCall, "prepare-managed-resources should run for same-platform packaged Core");
-    assert.equal(prepareCall.command, result.dest);
-    assert.equal(
-      prepareCall.args[prepareCall.args.indexOf("--resource-dir") + 1],
-      path.join(rootDir, "resources", "managed-resources")
-    );
-    assert.equal(result.managedResources.skipped, false);
+    assert.equal(calls.some((call) => call.args?.[0] === "prepare-managed-resources"), false);
+    assert.equal(fs.existsSync(path.join(rootDir, "resources", "managed-resources")), false);
+    assert.equal(result.managedResources.skipped, true);
+    assert.match(result.managedResources.reason, /built and published separately/);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }

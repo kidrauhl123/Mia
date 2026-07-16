@@ -1565,8 +1565,8 @@ test("engine detection renderer preserves legacy runtime status fallbacks", () =
   });
 
   assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
-  assert.equal(sandbox.els.engineRowClaude.textContent, "/usr/local/bin/claude · 1.2.3 build");
-  assert.equal(sandbox.els.engineRowCodex.textContent, "/usr/local/bin/codex · 4.5.6 build");
+  assert.equal(sandbox.els.engineRowClaude.textContent, "本机版本 · 1.2.3 build");
+  assert.equal(sandbox.els.engineRowCodex.textContent, "本机版本 · 4.5.6 build");
 
   sandbox.renderEngineDetection({
     engineSource: "managed",

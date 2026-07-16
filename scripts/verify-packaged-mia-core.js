@@ -133,7 +133,11 @@ function collectRequiredPaths(appPath, { platform = process.platform, arch = "" 
   return {
     resourcesPath,
     packageJsonPath,
-    corePath
+    corePath,
+    forbiddenEnginePaths: [
+      path.join(resourcesPath, "hermes-runtime"),
+      path.join(resourcesPath, "managed-resources")
+    ]
   };
 }
 
@@ -201,7 +205,11 @@ async function verifyPackagedMiaCore({
   }
 
   const paths = collectRequiredPaths(resolvedAppPath, { platform: targetPlatform, arch: targetArch });
-  const required = [paths.resourcesPath, paths.corePath, paths.packageJsonPath];
+  const required = [
+    paths.resourcesPath,
+    paths.corePath,
+    paths.packageJsonPath
+  ].filter(Boolean);
   const missing = required.filter((candidate) => !fs.existsSync(candidate));
   if (missing.length) {
     const missingCore = missing.includes(paths.corePath);
@@ -211,7 +219,17 @@ async function verifyPackagedMiaCore({
       corePath: paths.corePath,
       error: missingCore
         ? `Packaged Mia Core is incomplete: missing bundled Rust Core binary at ${paths.corePath}`
-        : `Packaged Mia Core is incomplete: missing ${missing.join(", ")}`
+        : `Packaged Mia application is incomplete: missing ${missing.join(", ")}`
+    };
+  }
+
+  const embeddedEngines = paths.forbiddenEnginePaths.filter((candidate) => fs.existsSync(candidate));
+  if (embeddedEngines.length) {
+    return {
+      ok: false,
+      appPath: resolvedAppPath,
+      corePath: paths.corePath,
+      error: `Packaged Mia must not embed engine backups: remove ${embeddedEngines.join(", ")}`
     };
   }
 

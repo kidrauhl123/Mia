@@ -1038,21 +1038,21 @@ mod tests {
             &resources,
             "codex-acp",
             "codex-acp",
-            "1.1.2",
+            "1.1.4",
             "codex-app-server",
         );
         let claude_acp = write_managed_acp(
             &resources,
             "claude-agent-acp",
             "claude-agent-acp",
-            "0.39.0",
+            "0.59.0",
             "claude-code-cli",
         );
         write_executable(
             &resources
                 .join("acp")
                 .join("claude-agent-acp")
-                .join("0.39.0")
+                .join("0.59.0")
                 .join("test-runtime")
                 .join("node_modules")
                 .join("@anthropic-ai")
@@ -1111,12 +1111,9 @@ mod tests {
         let claude_command = claude_plan.command.as_ref().expect("claude ACP command");
         assert_eq!(claude_command.program, claude_acp.to_string_lossy());
         assert_eq!(claude_command.args, vec!["--stdio"]);
-        assert_eq!(
-            claude_plan
-                .environment
-                .get("CLAUDE_CODE_EXECUTABLE")
-                .map(String::as_str),
-            None
+        assert_path_env_eq(
+            claude_plan.environment.get("CLAUDE_CODE_EXECUTABLE"),
+            &claude_cli,
         );
         assert!(
             !claude_command

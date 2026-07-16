@@ -117,7 +117,17 @@ npm run dist:win
 release/
 ```
 
-轻量包不会打包 Claude Code、Codex CLI，也不打包 Hermes runtime。
+桌面包不携带 Claude Code、Codex ACP/CLI 或 Hermes Python runtime。用户点击“启用 Mia 稳定版”时，客户端才从 Mia 备份源下载所选引擎的目标平台资源，校验固定版本和 SHA-256 后写入 Mia 私有目录。
+
+三引擎备份与桌面包分开构建、分开发布。在对应目标平台先准备 Hermes runtime 和 managed ACP 资源，再运行：
+
+```bash
+npm run engine-backups:build -- win32-x64
+npm run engine-backups:build -- darwin-arm64
+npm run engine-backups:build -- darwin-x64
+```
+
+产物位于 `dist/engine-backups/v1/`，包含每个引擎的 zip 和 `manifest.json`。把整个目录同步到 `/var/www/mia-web/downloads/engine-backups/v1/`，对外地址必须是 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json`。发布时先上传 zip，最后原子替换 manifest，避免客户端读到尚未上传完整的资源。不要把该目录加入 electron-builder 的 `extraResources`。
 
 `dist:mac` 和 `dist:mac:intel` 现在内置了 packaged-Core gate：打包前会运行 `scripts/prepare-mia-core-rs.js`，把 release Rust Core 放进 `resources/bundled-mia-core/<platform>-<arch>/mia-core`；打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接启动产物里的 Rust Core 并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
 
@@ -143,8 +153,8 @@ npm run desktop:package:verify -- --app /path/to/Mia.app
 
 - 安装或打开产物。
 - 首次启动能创建 runtime。
-- 已安装的 `claude` / `codex` 可以被探测；缺失时本机引擎区的安装按钮会调用官方包索引安装。
-- 用户自行安装的官方 Hermes（在 PATH 上）能被探测并复用；"安装官方 Hermes" 按钮能从 PyPI（国内走清华镜像、回退官方）装上并被检测到。
+- 已安装的 `claude` / `codex` 可以被优先探测并复用；缺失时“启用 Mia 稳定版”只下载所选引擎的 Mia 固定备份，不得调用全局 npm 或第三方远程安装脚本。
+- 用户自行安装的官方 Hermes（在 PATH 上）能被优先探测并复用；缺失时“启用 Mia 稳定版”按需下载固定 Python runtime，不写用户 Python 环境。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 
 如果正在运行 Mia，打包、覆盖、签名或删除 release 文件可能失败。先退出 app，再重新构建。`desktop:package:verify` 只验证后台 Core 能不能从产物里起来，不替代安装后的人机 smoke。

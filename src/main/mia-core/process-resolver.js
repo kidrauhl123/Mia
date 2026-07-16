@@ -193,7 +193,10 @@ function createMiaCoreResolver(deps = {}) {
     appVersion = () => "",
     parentPid = () => process.pid,
     sourceFingerprint = (root) => defaultSourceFingerprint(root, fs),
-    pathLookup = (binary) => findExecutableOnPath(binary, env.PATH || DEFAULT_PATH, fs)
+    pathLookup = (binary) => findExecutableOnPath(binary, env.PATH || DEFAULT_PATH, fs),
+    enginePython = () => String(env.MIA_ENGINE_PYTHON || ""),
+    buildPythonPath = () => String(env.PYTHONPATH || ""),
+    bundledHermesRuntimeDir = () => String(env.MIA_BUNDLED_HERMES_RUNTIME_DIR || "")
   } = deps;
   if (typeof runtimePaths !== "function") throw new Error("runtimePaths dependency is required.");
   if (typeof effectiveHermesHome !== "function") throw new Error("effectiveHermesHome dependency is required.");
@@ -301,6 +304,7 @@ function createMiaCoreResolver(deps = {}) {
     const repo = repoRoot();
     const resources = resourcesPath();
     const managedNode = managedAgentNodeRuntime(pathLookup, execPath, platform, defaultAppValue, env);
+    const selectedEnginePython = String(enginePython() || "").trim();
     const overlay = {
       MIA_CORE: "1",
       MIA_CORE_HOST: configuredHost(),
@@ -315,10 +319,14 @@ function createMiaCoreResolver(deps = {}) {
       MIA_MANAGED_AGENT_NODE_ELECTRON: managedNode.electron ? "1" : "0",
       MIA_CORE_RESOURCES_PATH: String(resources || ""),
       MIA_HERMES_ENGINE_DIR: p.engine,
+      MIA_ENGINE_FALLBACKS_PATH: p.engineFallbacks || path.join(p.home, "mia-engine-fallbacks.json"),
+      MIA_BUNDLED_HERMES_RUNTIME_DIR: String(bundledHermesRuntimeDir() || ""),
+      ...(selectedEnginePython ? { MIA_ENGINE_PYTHON: selectedEnginePython } : {}),
       MIA_PLUGINS_DIR: p.pluginsDir,
       HERMES_HOME: effectiveHermesHome(),
       HERMES_LANGUAGE: env.HERMES_LANGUAGE || "zh",
       PYTHONUNBUFFERED: "1",
+      PYTHONPATH: String(buildPythonPath() || ""),
       MIA_CORE_TARGET_KIND: r.kind,
       MIA_CORE_TARGET_COMMAND: path.basename(r.command || ""),
       MIA_CORE_WORKING_DIRECTORY: String(r.workingDirectory || ""),

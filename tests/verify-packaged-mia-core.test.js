@@ -17,18 +17,35 @@ function rustCoreScript(source) {
   return `#!/usr/bin/env node\n${source}`;
 }
 
-function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", includeLegacyNode = false } = {}) {
-  const appPath = path.join(rootDir, "release", arch === "arm64" ? "mac-arm64" : "mac", "Mia.app");
-  const resourcesPath = path.join(appPath, "Contents", "Resources");
+function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", platform = "darwin", includeLegacyNode = false } = {}) {
+  const appPath = platform === "win32"
+    ? path.join(rootDir, "release", "win-unpacked")
+    : path.join(rootDir, "release", arch === "arm64" ? "mac-arm64" : "mac", "Mia.app");
+  const resourcesPath = platform === "win32"
+    ? path.join(appPath, "resources")
+    : path.join(appPath, "Contents", "Resources");
   const unpackedPath = path.join(resourcesPath, "app.asar.unpacked");
-  const coreDir = path.join(resourcesPath, "bundled-mia-core", `darwin-${arch}`);
-  const corePath = path.join(coreDir, "mia-core");
+  const coreDir = path.join(resourcesPath, "bundled-mia-core", `${platform}-${arch}`);
+  const corePath = path.join(coreDir, platform === "win32" ? "mia-core.exe" : "mia-core");
 
   fs.mkdirSync(coreDir, { recursive: true });
   fs.mkdirSync(unpackedPath, { recursive: true });
-  fs.writeFileSync(path.join(unpackedPath, "package.json"), JSON.stringify({ name: "mia", version: "9.9.9" }));
-  fs.writeFileSync(corePath, rustCoreScript(coreSource), { mode: 0o755 });
-  fs.chmodSync(corePath, 0o755);
+  fs.writeFileSync(path.join(unpackedPath, "package.json"), JSON.stringify({
+    name: "mia",
+    version: "9.9.9",
+    hermes: {
+      version: "2026.7.7.2",
+      packageVersion: "0.18.2",
+      wheelSha256: "8f02155cfc84b28bd98551cd18dffec0efa9ec070dd08f90f1a850f1c779492f"
+    }
+  }));
+  if (platform === "win32") {
+    fs.copyFileSync(process.execPath, corePath);
+    fs.writeFileSync(path.join(coreDir, "serve"), coreSource);
+  } else {
+    fs.writeFileSync(corePath, rustCoreScript(coreSource), { mode: 0o755 });
+    fs.chmodSync(corePath, 0o755);
+  }
   if (includeLegacyNode) {
     fs.writeFileSync(path.join(resourcesPath, LEGACY_NODE_RESOURCE), "legacy node core must not be used");
   }
@@ -40,7 +57,7 @@ test("resolvePackagedAppPath prefers the arch-specific built Mia.app", () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-app-path-"));
   try {
     const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n");
-    const resolved = resolvePackagedAppPath({ rootDir: tempDir, arch: "arm64" });
+    const resolved = resolvePackagedAppPath({ rootDir: tempDir, arch: "arm64", platform: "darwin" });
     assert.equal(resolved, appPath);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -68,6 +85,10 @@ test("collectRequiredPaths points at bundled Rust Core, never the legacy Node re
     path.join(appPath, "Contents", "Resources", "bundled-mia-core", "darwin-arm64", "mia-core")
   );
   assert.equal(Object.values(paths).some((value) => String(value).includes(LEGACY_NODE_RESOURCE)), false);
+  assert.deepEqual(paths.forbiddenEnginePaths, [
+    path.join(appPath, "Contents", "Resources", "hermes-runtime"),
+    path.join(appPath, "Contents", "Resources", "managed-resources")
+  ]);
 });
 
 test("collectRequiredPaths resolves the Windows Rust Core executable", () => {
@@ -109,13 +130,14 @@ server.listen(port, host, () => {
 });
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 process.on("SIGINT", () => server.close(() => process.exit(0)));
-`, { includeLegacyNode: true });
+`, { arch: "x64", platform: "win32", includeLegacyNode: true });
 
     const result = await verifyPackagedMiaCore({
       appPath,
-      arch: "arm64",
-      hostArch: "arm64",
-      hostPlatform: "darwin",
+      arch: "x64",
+      platform: "win32",
+      hostArch: "x64",
+      hostPlatform: "win32",
       timeoutMs: 5000
     });
     assert.equal(result.ok, true, result.error || result.stderr || "expected packaged Core verification to pass");
@@ -146,6 +168,22 @@ test("verifyPackagedMiaCore rejects a package that only contains the old JavaScr
   }
 });
 
+test("verifyPackagedMiaCore rejects a package that accidentally embeds engine backups", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-engine-embedded-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n");
+    const paths = collectRequiredPaths(appPath, { platform: "darwin", arch: "arm64" });
+    fs.mkdirSync(paths.forbiddenEnginePaths[1], { recursive: true });
+
+    const result = await verifyPackagedMiaCore({ appPath, arch: "arm64", platform: "darwin", timeoutMs: 100 });
+    assert.equal(result.ok, false);
+    assert.match(result.error || "", /must not embed engine backups/);
+    assert.match(result.error || "", /managed-resources/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("verifyPackagedMiaCore skips the runtime probe for a macOS arch the host cannot execute", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-cross-arch-"));
   try {
@@ -165,8 +203,8 @@ test("verifyPackagedMiaCore skips the runtime probe for a macOS arch the host ca
 });
 
 test("canRunTargetArch only blocks known macOS cross-arch runtime probes", () => {
-  assert.equal(canRunTargetArch({ arch: "arm64", hostArch: "x64", platform: "darwin" }), false);
-  assert.equal(canRunTargetArch({ arch: "x64", hostArch: "x64", platform: "darwin" }), true);
+  assert.equal(canRunTargetArch({ arch: "arm64", hostArch: "x64", platform: "darwin", hostPlatform: "darwin" }), false);
+  assert.equal(canRunTargetArch({ arch: "x64", hostArch: "x64", platform: "darwin", hostPlatform: "darwin" }), true);
   assert.equal(canRunTargetArch({
     arch: "arm64",
     hostArch: "x64",
@@ -186,13 +224,14 @@ test("verifyPackagedMiaCore fails closed when the packaged Rust Core crashes on 
   try {
     const appPath = makeFakePackagedApp(tempDir, `
 require("missing-packaged-rust-core-dependency");
-`);
+`, { arch: "x64", platform: "win32" });
 
     const result = await verifyPackagedMiaCore({
       appPath,
-      arch: "arm64",
-      hostArch: "arm64",
-      hostPlatform: "darwin",
+      arch: "x64",
+      platform: "win32",
+      hostArch: "x64",
+      hostPlatform: "win32",
       timeoutMs: 2500
     });
     assert.equal(result.ok, false);

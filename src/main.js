@@ -229,9 +229,16 @@ const runtimePathsModule = createRuntimePaths({
 });
 const {
   runtimePaths,
-  buildPythonPath,
+  bundledHermesRuntimeDir,
+  bundledPython,
+  bundledSitePackages,
+  buildPythonPath: baseBuildPythonPath,
   engineMarkerPath,
 } = runtimePathsModule;
+let engineInstallService = null;
+function buildPythonPath() {
+  return baseBuildPythonPath({ includeBundledHermes: engineInstallService?.engineSource?.() === "mia-managed" });
+}
 const localDataResetResult = applyPrelaunchLocalDataReset({
   app,
   runtimePaths,
@@ -407,7 +414,13 @@ const systemHermesService = createSystemHermesService({
   spawnSync,
   resetAgentEngineCache: () => localAgentEngineService?.resetCache?.()
 });
-const engineInstallService = createEngineInstallService({
+engineInstallService = createEngineInstallService({
+  runtimePaths,
+  resourcesPath: () => process.resourcesPath || "",
+  projectRoot: path.resolve(__dirname, ".."),
+  bundledHermesRuntimeDir,
+  bundledPython,
+  bundledSitePackages,
   buildPythonPath,
   systemHermesPython: () => systemHermesService.pythonPath(),
   refreshSystemHermes: () => systemHermesService.refresh(),
@@ -418,7 +431,7 @@ const engineInstallService = createEngineInstallService({
   initializeRuntime,
   stopEngine,
   ensureEnginePlugins: () => enginePluginsService.ensureInstalled(),
-  resetAgentEngineCache: () => localAgentEngineService.resetCache(),
+  resetAgentEngineCache: () => localAgentEngineService?.resetCache?.(),
   getRuntimeStatus: (created) => getRuntimeStatus(created, { scanAgents: false })
 });
 const engineRuntimeConfigService = createEngineRuntimeConfigService({
@@ -455,7 +468,10 @@ const miaCoreResolver = createMiaCoreResolver({
   repoRoot: () => path.resolve(__dirname, ".."),
   coreSettings: () => settingsStore.coreSettings(),
   appVersion: () => app.getVersion(),
-  parentPid: () => process.pid
+  parentPid: () => process.pid,
+  enginePython: () => engineInstallService.isInstalled() ? engineInstallService.enginePython() : "",
+  buildPythonPath,
+  bundledHermesRuntimeDir
 });
 const miaCoreLaunchdResolver = createMiaCoreResolver({
   runtimePaths,
@@ -469,7 +485,10 @@ const miaCoreLaunchdResolver = createMiaCoreResolver({
   repoRoot: () => path.resolve(__dirname, ".."),
   coreSettings: () => settingsStore.coreSettings(),
   appVersion: () => app.getVersion(),
-  parentPid: () => 0
+  parentPid: () => 0,
+  enginePython: () => engineInstallService.isInstalled() ? engineInstallService.enginePython() : "",
+  buildPythonPath,
+  bundledHermesRuntimeDir
 });
 const launchdService = createLaunchdService({
   gatewayServiceLabel: MIA_GATEWAY_SERVICE_LABEL,
@@ -2551,7 +2570,7 @@ ipcMain.handle(IpcChannel.EngineScan, async (event) => {
   // User-initiated async detection (onboarding prepare step). Streams each agent
   // back as it resolves so the renderer can show a real progress bar, then
   // returns the full inventory + engine view.
-  const total = 4;
+  const total = 3;
   let done = 0;
   const inventory = await localAgentEngineService.scanAgentsAsync((agent) => {
     done += 1;

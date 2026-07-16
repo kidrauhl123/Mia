@@ -3,6 +3,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const { createRuntimePaths } = require("../src/main/runtime-paths.js");
+const runtimeResources = require("../src/runtime-resource-paths.js");
 
 const defaultProfile = path.join(path.sep, "profile", "Mia");
 
@@ -46,11 +47,22 @@ test("runtime paths default to the Electron userData profile", () => {
   assert.equal(paths.config, path.join("/Users/alice", ".hermes", "config.yaml"));
   assert.equal(paths.mcpServers, path.join(expectedRoot, "runtime", "engine-home", "mia-mcp-servers.json"));
   assert.equal(paths.coreSettings, path.join(expectedRoot, "runtime", "engine-home", "mia-core.json"));
+  assert.equal(paths.engineBackups, path.join(paths.home, "engine-backups"));
+  assert.equal(paths.managedResources, path.join(paths.home, "managed-resources"));
   assert.equal(paths.daemonSettings, paths.coreSettings);
   assert.equal(Object.hasOwn(paths, "memorySettings"), false);
   assert.equal(Object.hasOwn(paths, "providerConnections"), false);
   assert.equal(paths.coreLaunchAgent, path.join("/Users/alice", "Library", "LaunchAgents", "ai.mia.daemon.plist"));
   assert.equal(paths.daemonLaunchAgent, paths.coreLaunchAgent);
+});
+
+test("Hermes stable runtime resolves to the Mia-private backup directory, not app resources", () => {
+  const home = path.join(path.sep, "profile", "Mia", "runtime", "engine-home");
+  const root = runtimeResources.bundledHermesRuntimeDir({ home, platform: "win32", arch: "x64" });
+
+  assert.equal(root, path.join(home, "engine-backups", "hermes", "win32-x64"));
+  assert.equal(runtimeResources.bundledPython(root, { platform: "win32" }), path.join(root, "python", "python.exe"));
+  assert.equal(runtimeResources.bundledSitePackages(root), path.join(root, "site-packages"));
 });
 
 test("runtime paths use MIA_HOME for shared data even when Electron userData is isolated", () => {

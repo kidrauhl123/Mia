@@ -71,7 +71,7 @@ test("setup guide keeps the scanning state while agent inventory is still checki
   assert.doesNotMatch(html, /setup-engine-list/);
 });
 
-test("setup guide offers official agent installs when no local agent is available", () => {
+test("setup guide offers Mia stable fallbacks when no local agent is available", () => {
   const state = {
     runtime: {
       agentInventory: inventory([
@@ -93,6 +93,7 @@ test("setup guide offers official agent installs when no local agent is availabl
   assert.match(html, /data-setup-action="install-hermes"/);
   assert.match(html, /data-setup-action="install-claude-code"/);
   assert.match(html, /data-setup-action="install-codex"/);
+  assert.match(html, /启用 Mia 稳定版/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
   assert.doesNotMatch(html, /data-action="cloud-login"/);
   assert.doesNotMatch(html, /OpenClaw/);
@@ -231,12 +232,12 @@ test("setup guide allows system Hermes without requiring Mia private install", (
   const guide = loadSetupGuide(state);
   const html = guide.renderSetupGuide();
 
-  assert.match(html, /\/bin\/hermes · Hermes Agent/);
+  assert.match(html, /本机版本 · Hermes Agent/);
   assert.doesNotMatch(html, /data-setup-action="install-hermes"/);
   assert.doesNotMatch(html, /data-setup-action="use-engine"/);
 });
 
-test("setup guide renders broken Hermes with official repair action", () => {
+test("setup guide renders broken Hermes with a Mia stable fallback action", () => {
   const state = {
     runtime: {
       fellows: [],
@@ -253,6 +254,25 @@ test("setup guide renders broken Hermes with official repair action", () => {
 
   assert.match(html, /Hermes/);
   assert.match(html, /data-setup-action="repair-hermes"/);
+  assert.match(html, /启用 Mia 稳定版/);
+});
+
+test("setup guide labels an activated private engine as Mia stable", () => {
+  const state = {
+    runtime: {
+      fellows: [],
+      agentInventory: inventory([
+        { id: "codex", label: "Codex", installed: true, usableInMia: true, installable: true, path: "/mia/codex", version: "0.144.5", health: "ready", source: "mia-managed" }
+      ])
+    },
+    onboardingStep: "engine",
+    agentSetupSkipped: false,
+    setupGuideDismissed: false
+  };
+  const html = loadSetupGuide(state).renderSetupGuide();
+
+  assert.match(html, /Mia 稳定版 · 0\.144\.5/);
+  assert.doesNotMatch(html, /data-setup-action="install-codex"/);
 });
 
 test("setup guide stays hidden after user skips agent setup", () => {

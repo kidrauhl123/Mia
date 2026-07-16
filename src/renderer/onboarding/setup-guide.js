@@ -114,36 +114,36 @@
     if (agent.health === "blocked") return readinessSummary(agent) || "不可用";
     if (agent.readiness?.status === "repairable") return readinessSummary(agent) || "状态异常，可修复";
     if (agent.usableInMia) {
-      const parts = [agent.path || "已接入 Mia", versionLabel(agent)].filter(Boolean);
+      const source = agent.source === "mia-managed" ? "Mia 稳定版" : "本机版本";
+      const parts = [source, versionLabel(agent)].filter(Boolean);
       return parts.join(" · ");
     }
     if (agent.installed && agent.detectionOnly) return "已就绪";
-    if (agent.id === "hermes" && agent.health === "broken") return "官方 Hermes 状态异常，可修复";
-    if (agent.id === "hermes" && state?.hermesInstallError) return "上次安装官方 Hermes 失败，可重试";
+    if (agent.id === "hermes" && agent.health === "broken") return "本机 Hermes 状态异常，可启用 Mia 稳定版";
+    if (agent.id === "hermes" && state?.hermesInstallError) return "上次启用 Mia 稳定版失败，可重试";
     if (agent.id === "hermes" && agent.installed) return "已检测到 Hermes，但当前安装方式暂不能用于 Mia";
-    if (agent.id === "hermes") return "未检测到，可安装官方 Hermes";
-    if (agent.id === "claude-code") return "未检测到，可一键安装 Claude Code";
-    if (agent.id === "codex") return "未检测到，可一键安装 Codex";
+    if (agent.id === "hermes") return "未检测到本机版本，可启用 Mia 稳定版";
+    if (agent.id === "claude-code") return "未检测到本机版本，可启用 Mia 稳定版";
+    if (agent.id === "codex") return "未检测到本机版本，可启用 Mia 稳定版";
     return "未检测到";
   }
 
-  // All installable engines are treated alike: offer an install button whenever
-  // one is missing (not gated on whether some other engine is usable). Hermes
-  // additionally has repair / retry states.
+  // System engines remain preferred. When one is missing, the action only
+  // enables Mia's pinned private runtime and never modifies the user's global CLI.
   function agentAction(agent) {
     if (agent.health === "blocked" || agent.readiness?.status === "blocked") return null;
     if (agent.id === "hermes") {
       if (agent.health === "broken" || agent.installAction === "repair-hermes") {
-        return { action: "repair-hermes", label: "修复官方 Hermes" };
+        return { action: "repair-hermes", label: "启用 Mia 稳定版" };
       }
       if (!agent.usableInMia && !agent.installed) {
-        if (state?.hermesInstallError) return { action: "retry-install-hermes", label: "重试安装官方 Hermes" };
-        return { action: "install-hermes", label: "安装官方 Hermes" };
+        if (state?.hermesInstallError) return { action: "retry-install-hermes", label: "重试启用稳定版" };
+        return { action: "install-hermes", label: "启用 Mia 稳定版" };
       }
       return null;
     }
     if (agent.installable && agent.installAction && !agent.usableInMia) {
-      return { action: agent.installAction, label: `${agent.installed ? "修复" : "安装"} ${agent.label}` };
+      return { action: agent.installAction, label: "启用 Mia 稳定版" };
     }
     return null;
   }
@@ -157,7 +157,7 @@
       const installingThis = state?.agentSetupInstallInFlight && state?.agentSetupInstallEngine === agent.id;
       const percent = Number(state?.agentSetupInstallPercent);
       const installLabel = installingThis && Number.isFinite(percent)
-        ? `安装中 ${Math.max(0, Math.min(100, Math.round(percent)))}%`
+        ? `启用中 ${Math.max(0, Math.min(100, Math.round(percent)))}%`
         : action.label;
       return `<button class="setup-engine-action primary" type="button" data-setup-action="${action.action}" data-engine="${escapeHtml(agent.id)}"${isSetupInstallInFlight() ? " disabled" : ""}>${escapeHtml(installLabel)}</button>`;
     }
