@@ -61,7 +61,8 @@ function createCloudEventsClient({
   function start() {
     const s = settings();
     if (!s.enabled || !s.token) return status();
-    if (pendingStart) return status();
+    // One accepted Core start makes further lifecycle requests redundant.
+    if (pendingStart || eventState.connecting || eventState.connected) return status();
     eventState = {
       ...eventState,
       connecting: true,
@@ -89,6 +90,11 @@ function createCloudEventsClient({
     return status();
   }
 
+  function syncStatus(response) {
+    applyCoreStatus(response);
+    return status();
+  }
+
   function stop() {
     eventState = {
       ...eventState,
@@ -111,7 +117,8 @@ function createCloudEventsClient({
   return {
     start,
     status,
-    stop
+    stop,
+    syncStatus
   };
 }
 

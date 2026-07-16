@@ -103,6 +103,55 @@ test("start does not open duplicate Core lifecycle requests while pending", asyn
   assert.equal(client.status().connected, true);
 });
 
+test("start remains idempotent after Core reports Cloud Events connected", async () => {
+  const { client, calls } = setup();
+
+  client.start();
+  await flushAsync();
+  client.start();
+  await flushAsync();
+
+  assert.equal(calls.starts.length, 1);
+  assert.equal(client.status().connected, true);
+});
+
+test("start remains idempotent while Core owns a connecting Cloud Events task", async () => {
+  const { client, calls } = setup({
+    startCloudEventsRequest: async (payload) => {
+      calls.starts.push(payload);
+      return { status: { events: { connected: false, connecting: true, lastEventSeq: 4 } } };
+    }
+  });
+
+  client.start();
+  await flushAsync();
+  client.start();
+  await flushAsync();
+
+  assert.equal(calls.starts.length, 1);
+  assert.equal(client.status().connecting, true);
+});
+
+test("Core status events update cached state without opening lifecycle requests", () => {
+  const { client, calls } = setup();
+
+  const status = client.syncStatus({
+    connected: true,
+    connecting: false,
+    lastError: "",
+    lastEventSeq: 12
+  });
+
+  assert.equal(calls.starts.length, 0);
+  assert.deepEqual(status, {
+    enabled: true,
+    connecting: false,
+    connected: true,
+    lastError: "",
+    lastEventSeq: 12
+  });
+});
+
 test("stop delegates Cloud Events lifecycle to Rust Core and clears cached state", async () => {
   const { client, calls } = setup();
 

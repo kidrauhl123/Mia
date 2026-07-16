@@ -2479,13 +2479,15 @@ if (!IS_CORE_PROCESS) {
       }
       if (envelope?.type === "daemon.cloud_events_status") {
         daemonCloudEventsStatus = envelope.payload || null;
-        startCloudRuntimeSockets();
+        // This frame is the result of the Core lifecycle. Starting again here
+        // creates a status -> start -> status feedback loop.
+        cloudEventSocketRuntime?.syncStatus?.(daemonCloudEventsStatus);
         return;
       }
       if (envelope?.type === "daemon.cloud_runtime_status") {
         daemonCloudRuntimeStatus = envelope.payload || null;
         daemonCloudEventsStatus = daemonCloudRuntimeStatus?.events || daemonCloudEventsStatus;
-        startCloudRuntimeSockets();
+        cloudEventSocketRuntime?.syncStatus?.(daemonCloudEventsStatus);
         return;
       }
       cacheLiveConversationMessageEvent({
@@ -2502,7 +2504,7 @@ if (!IS_CORE_PROCESS) {
         payload: { connected: Boolean(connected) }
       };
       broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
-      startCloudRuntimeSockets();
+      if (connected) startCloudRuntimeSockets();
     }
   });
   localEventsRuntime.start();

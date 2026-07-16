@@ -24,6 +24,21 @@ test("desktop forwards local-events connection state so renderer can clear stale
   assert.match(source, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*envelope\)/);
 });
 
+test("Core cloud status events synchronize state without recursively restarting lifecycle", () => {
+  const source = read("src/main.js");
+  const eventsStart = source.indexOf('if (envelope?.type === "daemon.cloud_events_status")');
+  const runtimeStart = source.indexOf('if (envelope?.type === "daemon.cloud_runtime_status")', eventsStart);
+  const statusEnd = source.indexOf("cacheLiveConversationMessageEvent", runtimeStart);
+  assert.ok(eventsStart >= 0 && runtimeStart > eventsStart && statusEnd > runtimeStart);
+
+  const eventsBlock = source.slice(eventsStart, runtimeStart);
+  const runtimeBlock = source.slice(runtimeStart, statusEnd);
+  for (const block of [eventsBlock, runtimeBlock]) {
+    assert.match(block, /cloudEventSocketRuntime\?\.syncStatus\?\.\(daemonCloudEventsStatus\)/);
+    assert.doesNotMatch(block, /startCloudRuntimeSockets\(\)/);
+  }
+});
+
 test("web cloud conversation rendering surfaces cloud agent streams and attachments", () => {
   const source = read("src/web/app.js");
   const html = read("src/web/app/index.html");
