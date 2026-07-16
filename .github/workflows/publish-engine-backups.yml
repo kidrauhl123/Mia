@@ -1,0 +1,77 @@
+name: publish-engine-backups
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful build-engine-backups run ID"
+        required: true
+        type: string
+      release_tag:
+        description: "Existing GitHub release tag"
+        required: true
+        default: "v0.1.48"
+        type: string
+
+concurrency:
+  group: publish-engine-backups-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate source run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          conclusion="$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)"
+          test "$conclusion" = "success"
+
+      - name: Download complete engine backup artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: >-
+          gh run download "$SOURCE_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --name Mia-engine-backups-v1
+          --dir dist/engine-backups-input
+
+      - name: Verify and normalize backup bundle
+        run: >-
+          node scripts/merge-engine-backups.js
+          --input dist/engine-backups-input
+          --output dist/engine-backups/v1
+          --required-targets darwin-arm64,darwin-x64,win32-x64
+
+      - name: Create release bundle
+        shell: bash
+        run: |
+          cd dist
+          zip -0 -q -r ../Mia-engine-backups-v1.zip engine-backups/v1
+          cd ..
+          sha256sum Mia-engine-backups-v1.zip > Mia-engine-backups-v1.zip.sha256
+
+      - name: Upload bundle to GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber \
+            Mia-engine-backups-v1.zip \
+            Mia-engine-backups-v1.zip.sha256
