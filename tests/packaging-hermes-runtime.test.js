@@ -46,6 +46,24 @@ test("engine backups have an independent pinned archive and manifest builder", (
   assert.match(source, /hermes/);
 });
 
+test("Windows engine backups use native PowerShell zip paths instead of Git tar drive syntax", () => {
+  const { createZip } = require("../scripts/build-engine-backups.js");
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-win-backup-zip-"));
+  const calls = [];
+  try {
+    const sourceDir = path.join(temp, "engine's-runtime");
+    const archivePath = path.join(temp, "output", "engine.zip");
+    createZip(sourceDir, archivePath, "win32", (...args) => calls.push(args));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], "powershell");
+    assert.match(calls[0][1].join(" "), /Compress-Archive/);
+    assert.match(calls[0][1].join(" "), /engine''s-runtime/);
+    assert.doesNotMatch(calls[0][1].join(" "), /tar\.exe/);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   const pkg = packageJson();
   const source = fs.readFileSync(path.join(root, "scripts/prepare-mia-core-rs.js"), "utf8");

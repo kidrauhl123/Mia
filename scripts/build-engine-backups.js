@@ -42,20 +42,28 @@ function sha256(filePath) {
   return hash.digest("hex");
 }
 
-function createZip(sourceDir, archivePath, hostPlatform = process.platform) {
+function powershellLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+function createZip(sourceDir, archivePath, hostPlatform = process.platform, execFileSync = childProcess.execFileSync) {
   fs.mkdirSync(path.dirname(archivePath), { recursive: true });
   fs.rmSync(archivePath, { force: true });
   const parent = path.dirname(sourceDir);
   const base = path.basename(sourceDir);
   if (hostPlatform === "win32") {
-    childProcess.execFileSync("tar.exe", ["-a", "-c", "-f", archivePath, "-C", parent, base], { stdio: "inherit" });
+    const command = [
+      "$ErrorActionPreference='Stop'",
+      `Compress-Archive -LiteralPath ${powershellLiteral(sourceDir)} -DestinationPath ${powershellLiteral(archivePath)} -CompressionLevel Optimal -Force`
+    ].join("; ");
+    execFileSync("powershell", ["-NoProfile", "-NonInteractive", "-Command", command], { stdio: "inherit" });
     return;
   }
   if (hostPlatform === "darwin") {
-    childProcess.execFileSync("/usr/bin/ditto", ["-c", "-k", "--keepParent", sourceDir, archivePath], { stdio: "inherit" });
+    execFileSync("/usr/bin/ditto", ["-c", "-k", "--keepParent", sourceDir, archivePath], { stdio: "inherit" });
     return;
   }
-  childProcess.execFileSync("zip", ["-qry", archivePath, base], { cwd: parent, stdio: "inherit" });
+  execFileSync("zip", ["-qry", archivePath, base], { cwd: parent, stdio: "inherit" });
 }
 
 function resourceSpecs(target) {
@@ -123,6 +131,7 @@ module.exports = {
   createZip,
   hermesTargetDir,
   normalizeTarget,
+  powershellLiteral,
   resourceSpecs,
   sha256
 };
