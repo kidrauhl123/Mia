@@ -5,10 +5,15 @@ const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
 const readline = require("node:readline");
+const { fetchPublicPage, searchPublicWeb } = require("./public-web-tools.js");
+
+const WEB_TOOLS = new Set(["web_search", "web_fetch"]);
 
 const APP_TOOLS = new Set([
   "context_snapshot",
   "memory",
+  "web_search",
+  "web_fetch",
   "skill_list_current",
   "skill_read_current",
   "skill_search",
@@ -18,6 +23,8 @@ const APP_TOOLS = new Set([
 
 const READ_TOOLS = new Set([
   "context_snapshot",
+  "web_search",
+  "web_fetch",
   "skill_list_current",
   "skill_read_current",
   "skill_search",
@@ -66,7 +73,7 @@ function withToolAnnotations(tool) {
       readOnlyHint: permission === "read",
       destructiveHint: DESTRUCTIVE_TOOLS.has(tool.name),
       idempotentHint: permission === "read" || DESTRUCTIVE_TOOLS.has(tool.name),
-      openWorldHint: false
+      openWorldHint: WEB_TOOLS.has(tool.name)
     }
   };
 }
@@ -74,6 +81,32 @@ function withToolAnnotations(tool) {
 function cloudToolDefinitions() {
   return [
     { name: "context_snapshot", description: "Read current Mia bot/session metadata.", inputSchema: { type: "object" } },
+    {
+      name: "web_search",
+      description: "Search the live public web for current information and return result titles, URLs, and snippets. Use this whenever the answer depends on recent or external facts.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", minLength: 1, maxLength: 500, description: "Search query." },
+          limit: { type: "integer", minimum: 1, maximum: 10, description: "Maximum result count." }
+        },
+        required: ["query"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: "web_fetch",
+      description: "Fetch and extract readable text from a public HTTP(S) page. Use it to inspect promising web_search results before answering.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", minLength: 1, maxLength: 4096, description: "Public http:// or https:// URL." },
+          maxChars: { type: "integer", minimum: 1000, maximum: 30000, description: "Maximum extracted text characters." }
+        },
+        required: ["url"],
+        additionalProperties: false
+      }
+    },
     {
       name: "memory",
       description: "Add, replace, or remove a concise Mia-owned memory entry for the current bot.",
@@ -316,6 +349,12 @@ async function callTool(name, args = {}, options = {}) {
 
     case "memory":
       return cloudMemoryMutation(ctx, args, options);
+
+    case "web_search":
+      return searchPublicWeb(args, options);
+
+    case "web_fetch":
+      return fetchPublicPage(args, options);
 
     case "skill_list_current":
       return contextSkillList(ctx);

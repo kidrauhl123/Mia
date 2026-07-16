@@ -331,12 +331,25 @@ test("cloud Claude Code legacy runs client files are removed", () => {
   );
 });
 
+test("cloud Claude Code DeepSeek transport stays Anthropic-only", () => {
+  const serverSource = fs.readFileSync(path.join(root, "scripts/serve-cloud.js"), "utf8");
+  assert.equal(
+    fs.existsSync(path.join(root, "src/cloud/model-proxy-anthropic.js")),
+    false,
+    "the Anthropic-to-OpenAI compatibility adapter should stay deleted"
+  );
+  assert.match(serverSource, /fetchDeepSeekAnthropicMessages/);
+  assert.match(serverSource, /不会回退到 OpenAI 协议/);
+  assert.doesNotMatch(serverSource, /anthropicToOpenAiChatBody|convertOpenAiMessageToAnthropic|openAiStreamPayloadToAnthropicSse/);
+});
+
 test("cloud release builder ships only cloud Claude Code agent files and excludes legacy cloud agent files", () => {
   const source = fs.readFileSync(path.join(root, "scripts/build-cloud-release.js"), "utf8");
   assert.match(source, /api\/src\/cloud-agent\/cloud-claude-code-model\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-manager\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-client\.js/);
   assert.match(source, /api\/src\/cloud-agent\/runtime-assembly\.js/);
+  assert.match(source, /api\/src\/cloud-agent\/public-web-tools\.js/);
   assert.match(source, /api\/src\/cloud-agent\/mia-cloud-mcp-server\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-model\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js/);

@@ -13,6 +13,12 @@ const { resolveEffectiveSkillIds } = require("../../packages/shared/skill-defaul
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const CLOUD_MIA_MCP_SCRIPT = path.join(__dirname, "mia-cloud-mcp-server.js");
 const RESERVED_MIA_MCP_NAMES = new Set(["mia-app", "mia-scheduler"]);
+const CLOUD_WEB_ACCESS_INSTRUCTIONS = [
+  "For current, changing, or external information, prefer Claude Code's built-in `WebSearch`; the upstream model provider executes it outside Mia's cloud-host network.",
+  "For a known page, try built-in `WebFetch`. If it cannot read the page, use `WebSearch` with the exact URL, domain, title, or quoted terms to retrieve indexed context.",
+  "The lowercase `web_search` and `web_fetch` tools from the mia-app MCP server are best-effort fallbacks for sources directly reachable from Mia Cloud.",
+  "Never describe search snippets as a complete page read. Do not claim web access is unavailable before trying `WebSearch`, and include the source URLs you relied on."
+].join("\n");
 
 function cleanText(value = "") {
   return String(value || "").trim();
@@ -100,6 +106,7 @@ function cloudRuntimeInstructions(bot, message = {}) {
   const persona = stripCopiedEngineIdentity(bot?.personaText || bot?.persona_text || "", bot);
   return [
     miaRuntimeSystemPrompt({ scheduledFire: isScheduledFireMessage(message) }),
+    CLOUD_WEB_ACCESS_INSTRUCTIONS,
     persona,
     botIdentityInstructions(bot)
   ].filter(Boolean).join("\n\n");

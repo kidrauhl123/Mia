@@ -11,10 +11,10 @@ const { createUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js"
 
 const dataDirsByPort = new Map();
 
-function request(port, method, pathStr, { body, auth, token } = {}) {
+function request(port, method, pathStr, { body, auth, token, headers: extraHeaders } = {}) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
-    const headers = { "content-type": "application/json" };
+    const headers = { "content-type": "application/json", ...(extraHeaders || {}) };
     if (auth) headers.authorization = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString("base64")}`;
     if (token) headers.authorization = `Bearer ${token}`;
     const req = http.request({ host: "127.0.0.1", port, path: pathStr, method, headers }, (res) => {
@@ -109,7 +109,16 @@ async function startDeepSeekFake({ models = [
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
     req.on("end", () => {
-      calls.push({ method: req.method, path: url.pathname, body: body ? JSON.parse(body) : {} });
+      calls.push({
+        method: req.method,
+        path: url.pathname,
+        body: body ? JSON.parse(body) : {},
+        headers: {
+          anthropicVersion: req.headers["anthropic-version"] || "",
+          anthropicBeta: req.headers["anthropic-beta"] || "",
+          userAgent: req.headers["user-agent"] || ""
+        }
+      });
       if (req.headers.authorization !== "Bearer deepseek-key") {
         res.writeHead(401, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { message: "unauthorized" } }));
@@ -127,6 +136,65 @@ async function startDeepSeekFake({ models = [
           model: "deepseek-chat",
           choices: [{ message: { role: "assistant", content: "deepseek-ok" } }],
           usage: { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 }
+        }));
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/anthropic/v1/messages") {
+        const input = body ? JSON.parse(body) : {};
+        if (input.stream === true) {
+          const events = [
+            ["message_start", {
+              type: "message_start",
+              message: {
+                id: "msg_deepseek_native",
+                type: "message",
+                role: "assistant",
+                model: input.model,
+                content: [],
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 1000, output_tokens: 0, server_tool_use: { web_search_requests: 1 } }
+              }
+            }],
+            ["content_block_start", {
+              type: "content_block_start",
+              index: 0,
+              content_block: { type: "server_tool_use", id: "srvtoolu_search", name: "web_search", input: { query: "latest" } }
+            }],
+            ["content_block_stop", { type: "content_block_stop", index: 0 }],
+            ["content_block_start", {
+              type: "content_block_start",
+              index: 1,
+              content_block: { type: "text", text: "" }
+            }],
+            ["content_block_delta", {
+              type: "content_block_delta",
+              index: 1,
+              delta: { type: "text_delta", text: "deepseek-native-web-ok" }
+            }],
+            ["content_block_stop", { type: "content_block_stop", index: 1 }],
+            ["message_delta", {
+              type: "message_delta",
+              delta: { stop_reason: "end_turn", stop_sequence: null },
+              usage: { output_tokens: 500, server_tool_use: { web_search_requests: 1 } }
+            }],
+            ["message_stop", { type: "message_stop" }]
+          ];
+          const payload = events.map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`).join("");
+          res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+          res.end(payload);
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          id: "msg_deepseek_native",
+          type: "message",
+          role: "assistant",
+          model: input.model,
+          content: [{ type: "text", text: "deepseek-native-ok" }],
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: { input_tokens: 1000, output_tokens: 500, server_tool_use: { web_search_requests: 1 } }
         }));
         return;
       }
@@ -582,6 +650,7 @@ test("internal Anthropic model proxy token bills the owning Mia user", async () 
     MIA_MODEL_GATEWAY: "deepseek",
     MIA_DEEPSEEK_API_KEY: "deepseek-key",
     MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
+    MIA_DEEPSEEK_ANTHROPIC_BASE_URL: `http://127.0.0.1:${deepseek.port}/anthropic`,
     MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
     MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
     MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
@@ -616,14 +685,132 @@ test("internal Anthropic model proxy token bills the owning Mia user", async () 
     });
     assert.equal(completion.status, 200);
     assert.equal(completion.body.type, "message");
-    assert.equal(completion.body.content[0].text, "deepseek-ok");
+    assert.equal(completion.body.content[0].text, "deepseek-native-ok");
     assert.equal(deepseek.calls.at(-1).body.model, "deepseek-chat");
-    assert.equal(deepseek.calls.at(-1).body.messages[0].role, "system");
+    assert.equal(deepseek.calls.at(-1).body.system, "You are Mia.");
+    assert.equal(deepseek.calls.at(-1).path, "/anthropic/v1/messages");
+    assert.equal(deepseek.calls.some((call) => call.path === "/v1/chat/completions"), false);
 
     const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
     assert.equal(adminBalance.status, 200);
     assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
     assert.equal(adminBalance.body.recentUsage[0].provider, "deepseek");
+    assert.equal(adminBalance.body.recentUsage[0].requestPath, "/messages");
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
+  }
+});
+
+test("DeepSeek Claude Code proxy fails closed instead of falling back to OpenAI protocol", async () => {
+  const deepseek = await startDeepSeekFake();
+  const internalSecret = "internal-anthropic-no-fallback-secret";
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "deepseek-key",
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
+    MIA_DEEPSEEK_ANTHROPIC_BASE_URL: "",
+    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
+    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
+    MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const user = await register(cloud.port, "worker-anthropic-no-fallback-user");
+    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+      auth,
+      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+    });
+    const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
+    const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/messages", {
+      token: internalToken,
+      body: {
+        model: "mia-auto",
+        messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+        max_tokens: 64
+      }
+    });
+
+    assert.equal(completion.status, 503);
+    assert.equal(completion.body.type, "error");
+    assert.equal(completion.body.error.type, "configuration_error");
+    assert.match(completion.body.error.message, /不会回退到 OpenAI 协议/);
+    assert.equal(deepseek.calls.length, 0);
+
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    assert.equal(adminBalance.status, 200);
+    assert.equal(adminBalance.body.balance.balanceMicrousd, 1000000);
+    assert.equal(adminBalance.body.recentUsage[0].status, "failed");
+    assert.match(adminBalance.body.recentUsage[0].error, /不会回退到 OpenAI 协议/);
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
+  }
+});
+
+test("DeepSeek Anthropic proxy preserves native Claude Code server tools and streaming usage", async () => {
+  const deepseek = await startDeepSeekFake();
+  const internalSecret = "internal-native-anthropic-secret";
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "deepseek-key",
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
+    MIA_DEEPSEEK_ANTHROPIC_BASE_URL: `http://127.0.0.1:${deepseek.port}/anthropic`,
+    MIA_DEEPSEEK_MODEL: "deepseek-v4-pro",
+    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
+    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
+    MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const user = await register(cloud.port, "worker-native-anthropic-user");
+    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+      auth,
+      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+    });
+    const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
+    const serverTools = [{
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: 3
+    }];
+    const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/messages", {
+      token: internalToken,
+      headers: {
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "web-search-2025-03-05",
+        "user-agent": "claude-cli/test"
+      },
+      body: {
+        model: "mia-auto",
+        stream: true,
+        system: [{ type: "text", text: "Use native web search." }],
+        tools: serverTools,
+        messages: [{ role: "user", content: [{ type: "text", text: "Search the web." }] }],
+        max_tokens: 64
+      }
+    });
+
+    assert.equal(completion.status, 200);
+    assert.match(completion.headers["content-type"], /text\/event-stream/);
+    assert.match(completion.body, /server_tool_use/);
+    assert.match(completion.body, /deepseek-native-web-ok/);
+
+    const upstreamCall = deepseek.calls.find((call) => call.path === "/anthropic/v1/messages");
+    assert.ok(upstreamCall);
+    assert.equal(upstreamCall.body.model, "deepseek-v4-pro");
+    assert.deepEqual(upstreamCall.body.tools, serverTools);
+    assert.deepEqual(upstreamCall.body.system, [{ type: "text", text: "Use native web search." }]);
+    assert.equal(upstreamCall.headers.anthropicVersion, "2023-06-01");
+    assert.equal(upstreamCall.headers.anthropicBeta, "web-search-2025-03-05");
+    assert.equal(upstreamCall.headers.userAgent, "claude-cli/test");
+    assert.equal(deepseek.calls.some((call) => call.path === "/v1/chat/completions"), false);
+
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    assert.equal(adminBalance.status, 200);
+    assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
+    assert.equal(adminBalance.body.recentUsage[0].promptTokens, 1000);
+    assert.equal(adminBalance.body.recentUsage[0].completionTokens, 500);
     assert.equal(adminBalance.body.recentUsage[0].requestPath, "/messages");
   } finally {
     await stopCloud(cloud);

@@ -96,6 +96,8 @@ test("cloud Mia MCP exposes single memory tool and current skills without deskto
     const names = toolDefinitionsForMode({ env }).map((tool) => tool.name);
     assert.deepEqual(names.filter((name) => name.startsWith("memory")), ["memory"]);
     assert.equal(names.includes("memory_search"), false);
+    assert.equal(names.includes("web_search"), true);
+    assert.equal(names.includes("web_fetch"), true);
     const memoryDefinition = toolDefinitionsForMode({ env }).find((tool) => tool.name === "memory");
     assert.equal(Object.hasOwn(memoryDefinition.inputSchema.properties, "target"), false);
     assert.deepEqual(memoryDefinition.inputSchema.required, ["action"]);
@@ -133,6 +135,17 @@ test("cloud Mia MCP exposes single memory tool and current skills without deskto
     assert.equal(snapshot.memoryMode, "mia");
     assert.deepEqual(snapshot.memoryTools, { enabled: true, memory: "memory" });
     assert.equal(Object.hasOwn(snapshot, "memories"), false);
+
+    const searched = await callTool("web_search", { query: "Mia Cloud", limit: 2 }, {
+      env,
+      async requestPublicText() {
+        return {
+          text: "<rss><channel><item><title>Mia Cloud status</title><link>https://example.com/status</link><description>Current status page.</description></item></channel></rss>"
+        };
+      }
+    });
+    assert.equal(searched.success, true);
+    assert.equal(searched.results[0].url, "https://example.com/status");
   } finally {
     if (serverStarted) await close(server);
     fs.rmSync(tmp, { recursive: true, force: true });

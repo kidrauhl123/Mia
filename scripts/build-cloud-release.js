@@ -265,7 +265,7 @@ Configure the Official Account message push URL \`https://mia.gifgif.cn/api/auth
 
 ## Platform Model Gateway
 
-Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Claude Code sandboxes receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1\`; Mia Cloud forwards to DeepSeek, records token usage in SQLite, and deducts the user's Mia model balance. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. LiteLLM remains optional for a future multi-provider gateway.
+Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Claude Code sandboxes receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1/messages\`; Mia Cloud transparently forwards the Anthropic Messages request to DeepSeek's \`/anthropic/v1/messages\`, records token usage in SQLite, and deducts the user's Mia model balance. Claude Code requests never fall back to OpenAI Chat Completions. The official DeepSeek API base is detected automatically; a custom gateway must expose an Anthropic-compatible endpoint configured with \`MIA_DEEPSEEK_ANTHROPIC_BASE_URL\` or the request fails closed. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. LiteLLM remains optional for a future multi-provider gateway.
 
 Manual first-version credit grant:
 
@@ -542,6 +542,7 @@ function verifyRelease() {
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/runtime-assembly.js",
+    "api/src/cloud-agent/public-web-tools.js",
     "api/src/cloud-agent/mia-cloud-mcp-server.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
@@ -654,6 +655,7 @@ function verifyRelease() {
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/runtime-assembly.js",
+    "api/src/cloud-agent/public-web-tools.js",
     "api/src/cloud-agent/mia-cloud-mcp-server.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
@@ -839,6 +841,7 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-assembly.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/public-web-tools.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/mia-cloud-mcp-server.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/dispatcher.js"))});
     require(${JSON.stringify(assertFile("api/src/permission-modes.js"))});

@@ -202,12 +202,6 @@ try {
 } catch {
   ({ createModelBillingStore } = require("./src/cloud/model-billing-store.js"));
 }
-let modelProxyAnthropic = null;
-try {
-  modelProxyAnthropic = require("../src/cloud/model-proxy-anthropic.js");
-} catch {
-  modelProxyAnthropic = require("./src/cloud/model-proxy-anthropic.js");
-}
 let modelGatewayStoreModule = null;
 try {
   modelGatewayStoreModule = require("../src/cloud/model-gateway-store.js");
@@ -1253,6 +1247,22 @@ function deepSeekBaseUrl(context = {}) {
   return String(context.deepSeekBaseUrl || modelGatewaySettings(context)?.apiBase || process.env.MIA_DEEPSEEK_BASE_URL || "https://api.deepseek.com/v1").trim().replace(/\/+$/, "");
 }
 
+function deepSeekAnthropicBaseUrl(context = {}) {
+  const explicit = String(
+    context.deepSeekAnthropicBaseUrl
+      || process.env.MIA_DEEPSEEK_ANTHROPIC_BASE_URL
+      || ""
+  ).trim().replace(/\/+$/, "");
+  if (explicit) return explicit;
+  try {
+    const openAiBase = new URL(deepSeekBaseUrl(context));
+    if (openAiBase.hostname.toLowerCase() === "api.deepseek.com") {
+      return `${openAiBase.origin}/anthropic`;
+    }
+  } catch {}
+  return "";
+}
+
 function platformModelId(context = {}) {
   return String(context.platformModelId || modelGatewaySettings(context)?.modelId || process.env.MIA_PLATFORM_MODEL_ID || process.env.MIA_CLOUD_AGENT_MODEL || "mia-auto").trim() || "mia-auto";
 }
@@ -1465,9 +1475,32 @@ function usageFromBufferedModelPayload(buffer, contentType = "") {
     const data = trimmed.slice(5).trim();
     if (!data || data === "[DONE]") continue;
     const event = parseJsonBuffer(Buffer.from(data));
-    if (event?.usage) usage = event.usage;
+    const eventUsage = event?.usage || event?.message?.usage;
+    if (eventUsage && typeof eventUsage === "object") {
+      usage = {
+        ...usage,
+        ...eventUsage,
+        ...(usage.server_tool_use || eventUsage.server_tool_use
+          ? { server_tool_use: { ...(usage.server_tool_use || {}), ...(eventUsage.server_tool_use || {}) } }
+          : {})
+      };
+    }
   }
   return usage;
+}
+
+function roughAnthropicTokenCount(body = {}) {
+  let serialized = "";
+  try {
+    serialized = JSON.stringify({
+      system: body.system || "",
+      messages: Array.isArray(body.messages) ? body.messages : [],
+      tools: Array.isArray(body.tools) ? body.tools : []
+    });
+  } catch {
+    serialized = String(body.system || "");
+  }
+  return Math.max(1, Math.ceil(Buffer.byteLength(serialized, "utf8") / 4));
 }
 
 function normalizeModelProxyError(payload, fallback = "模型请求失败。") {
@@ -1782,6 +1815,41 @@ async function fetchDeepSeekChatCompletion(context = {}, upstreamBody = {}) {
   });
 }
 
+function forwardedAnthropicHeaders(req, apiKey) {
+  const headers = {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json",
+    "anthropic-version": String(req.headers["anthropic-version"] || "2023-06-01")
+  };
+  for (const [name, value] of Object.entries(req.headers || {})) {
+    const lower = String(name || "").toLowerCase();
+    if (!value) continue;
+    if (
+      lower === "accept"
+      || lower === "anthropic-beta"
+      || lower === "user-agent"
+      || lower === "x-app"
+      || lower.startsWith("x-stainless-")
+    ) {
+      headers[lower] = Array.isArray(value) ? value.join(",") : String(value);
+    }
+  }
+  return headers;
+}
+
+async function fetchDeepSeekAnthropicMessages(req, context = {}, upstreamBody = {}) {
+  const baseUrl = deepSeekAnthropicBaseUrl(context);
+  if (!baseUrl) {
+    throw new Error("DeepSeek Anthropic API endpoint is not configured.");
+  }
+  const messagesUrl = /\/v1$/i.test(baseUrl) ? `${baseUrl}/messages` : `${baseUrl}/v1/messages`;
+  return fetch(messagesUrl, {
+    method: "POST",
+    headers: forwardedAnthropicHeaders(req, deepSeekApiKey(context)),
+    body: JSON.stringify(upstreamBody)
+  });
+}
+
 function writeBufferedProxyResponse(res, status, payload, contentType = "application/json") {
   const body = Buffer.isBuffer(payload) ? payload : Buffer.from(String(payload || ""));
   res.writeHead(status, {
@@ -1790,6 +1858,16 @@ function writeBufferedProxyResponse(res, status, payload, contentType = "applica
     "content-length": body.length
   });
   res.end(body);
+}
+
+function writeAnthropicError(res, status, message, type = "api_error") {
+  writeJson(res, status, {
+    type: "error",
+    error: {
+      type,
+      message: String(message || "DeepSeek Anthropic request failed.")
+    }
+  });
 }
 
 async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, prefix }) {
@@ -1867,32 +1945,44 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
 async function proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, prefix }) {
   const proxyPath = url.pathname.slice(prefix.length);
   if (req.method !== "POST" || (proxyPath !== "/messages" && proxyPath !== "/messages/count_tokens")) {
-    writeError(res, 404, "当前托管 DeepSeek 模型只支持 /chat/completions 和 /messages。");
+    writeAnthropicError(res, 404, "当前 Claude Code DeepSeek 代理只支持 /messages。", "not_found_error");
     return true;
   }
   let body = {};
   try {
     body = await readJson(req);
   } catch (error) {
-    writeError(res, 400, error.message || "Invalid JSON.");
+    writeAnthropicError(res, 400, error.message || "Invalid JSON.", "invalid_request_error");
     return true;
   }
   if (proxyPath === "/messages/count_tokens") {
-    writeJson(res, 200, { input_tokens: modelProxyAnthropic.roughTokenCount(body) });
+    writeJson(res, 200, { input_tokens: roughAnthropicTokenCount(body) });
     return true;
   }
   if (!context.modelBillingStore) {
-    writeError(res, 503, "Mia 模型账本未初始化。");
+    writeAnthropicError(res, 503, "Mia 模型账本未初始化。", "configuration_error");
     return true;
   }
   const apiKey = deepSeekApiKey(context);
   if (!apiKey) {
-    writeError(res, 503, "Mia DeepSeek 模型未配置。");
+    writeAnthropicError(res, 503, "Mia DeepSeek 模型未配置。", "authentication_error");
     return true;
   }
   const selected = selectDirectDeepSeekModel(context, body);
   if (!selected) {
-    writeError(res, 400, "模型不可用。");
+    writeAnthropicError(res, 400, "模型不可用。", "invalid_request_error");
+    return true;
+  }
+  if (!deepSeekAnthropicBaseUrl(context)) {
+    const error = "DeepSeek Anthropic API 未配置；Claude Code 不会回退到 OpenAI 协议。";
+    recordDeepSeekModelUsage(context, {
+      userId,
+      requestPath: proxyPath,
+      selected,
+      status: "failed",
+      error
+    });
+    writeAnthropicError(res, 503, error, "configuration_error");
     return true;
   }
   if (!context.modelBillingStore.hasPositiveBalance(userId)) {
@@ -1903,14 +1993,28 @@ async function proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, 
       status: "failed",
       error: "模型余额不足，请先充值。"
     });
-    writeError(res, 402, "模型余额不足，请先充值。");
+    writeAnthropicError(res, 402, "模型余额不足，请先充值。", "billing_error");
     return true;
   }
 
-  const upstream = await fetchDeepSeekChatCompletion(
-    context,
-    modelProxyAnthropic.anthropicToOpenAiChatBody(body, selected.upstreamModel)
-  );
+  let upstream;
+  try {
+    upstream = await fetchDeepSeekAnthropicMessages(req, context, {
+      ...body,
+      model: selected.upstreamModel
+    });
+  } catch (error) {
+    const message = `DeepSeek Anthropic request failed: ${error.message || error}`;
+    recordDeepSeekModelUsage(context, {
+      userId,
+      requestPath: proxyPath,
+      selected,
+      status: "failed",
+      error: message
+    });
+    writeAnthropicError(res, 502, message, "api_error");
+    return true;
+  }
   const payload = Buffer.from(await upstream.arrayBuffer());
   const parsed = parseJsonBuffer(payload);
   const contentType = upstream.headers.get("content-type") || "application/json";
@@ -1922,23 +2026,16 @@ async function proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, 
       usage: usageFromBufferedModelPayload(payload, contentType),
       status: "succeeded"
     });
-    if (body.stream === true) {
-      const sse = modelProxyAnthropic.openAiStreamPayloadToAnthropicSse(payload, body, selected.id);
-      writeBufferedProxyResponse(res, 200, sse, "text/event-stream; charset=utf-8");
-      return true;
-    }
-    writeJson(res, 200, modelProxyAnthropic.convertOpenAiMessageToAnthropic(parsed || {}, body, selected.id));
-    return true;
+  } else {
+    recordDeepSeekModelUsage(context, {
+      userId,
+      requestPath: proxyPath,
+      selected,
+      status: "failed",
+      error: normalizeModelProxyError(parsed, `DeepSeek Anthropic request failed (${upstream.status}).`)
+    });
   }
-
-  recordDeepSeekModelUsage(context, {
-    userId,
-    requestPath: proxyPath,
-    selected,
-    status: "failed",
-    error: normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`)
-  });
-  writeError(res, upstream.status, normalizeModelProxyError(parsed, `DeepSeek request failed (${upstream.status}).`));
+  writeBufferedProxyResponse(res, upstream.status, payload, contentType);
   return true;
 }
 
