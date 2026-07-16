@@ -2809,7 +2809,7 @@ mod tests {
         let workspace = root.join("workspace");
         let script = root.join("fake-acp.js");
         let methods_log = root.join("methods.log");
-        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
         std::fs::write(
             &script,
             r#"const fs = require("fs");
@@ -2837,6 +2837,7 @@ lines.on("line", (line) => {
         .unwrap();
 
         let mut environment = BTreeMap::new();
+        environment.insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
         environment.insert(
             "MIA_ACP_PROBE_METHOD_LOG".into(),
             methods_log.to_string_lossy().into_owned(),
