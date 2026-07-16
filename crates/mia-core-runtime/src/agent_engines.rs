@@ -18,7 +18,7 @@ use tokio::process::Command;
 use crate::RuntimeCommand;
 use crate::native_acp::{NativeAcpProbeErrorKind, probe_native_acp_command};
 
-const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(35);
 const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_MANAGED_ACP_PREPARE_TIMEOUT: Duration = Duration::from_secs(1_800);
 const PINNED_CLAUDE_CLI_VERSION: &str = "2.1.211";
@@ -352,7 +352,7 @@ impl AgentEngineScanner {
                     acp_launcher,
                     detail
                         .as_deref()
-                        .unwrap_or("ACP initialize + session/new + prompt ok"),
+                        .unwrap_or("ACP initialize + session/new ok"),
                 )
             }
             AcpProbeOutcome::Failed {
@@ -751,10 +751,7 @@ impl AcpCommandProber for RealAcpCommandProber {
         .await
         {
             Ok(snapshot) => AcpProbeOutcome::Ready {
-                detail: Some(format!(
-                    "{}: initialize + session/new + prompt ok",
-                    request.display
-                )),
+                detail: Some(format!("{}: initialize + session/new ok", request.display)),
                 latency_ms: elapsed_ms(started),
                 controls: snapshot.controls,
             },
@@ -2486,7 +2483,6 @@ fn classify_acp_probe_error(kind: NativeAcpProbeErrorKind, detail: &str) -> Stri
         NativeAcpProbeErrorKind::Spawn => "acp_spawn_failed",
         NativeAcpProbeErrorKind::Initialize => "acp_init_failed",
         NativeAcpProbeErrorKind::NewSession => "acp_session_failed",
-        NativeAcpProbeErrorKind::Prompt => "acp_prompt_failed",
         NativeAcpProbeErrorKind::Timeout => "acp_probe_timeout",
     }
     .into()
@@ -3488,10 +3484,10 @@ mod tests {
     }
 
     #[test]
-    fn current_scan_options_keep_inventory_probe_interactive() {
+    fn current_scan_options_allow_complete_acp_handshake() {
         let options = AgentEngineScanOptions::current("/tmp/mia-agent-probe");
 
-        assert!(options.probe_timeout <= Duration::from_secs(3));
+        assert_eq!(options.probe_timeout, Duration::from_secs(35));
     }
 
     #[tokio::test]
@@ -3500,7 +3496,7 @@ mod tests {
             [("hermes", "/usr/local/bin/hermes")],
             [(
                 "hermes",
-                AcpProbeOutcome::failed("acp_prompt_failed", "model must be non-empty"),
+                AcpProbeOutcome::failed("acp_session_failed", "model must be non-empty"),
             )],
         );
 
@@ -3520,7 +3516,7 @@ mod tests {
         assert_eq!(hermes.readiness.action, "install-hermes");
         assert_eq!(
             hermes.readiness.error_code.as_deref(),
-            Some("acp_prompt_failed")
+            Some("acp_session_failed")
         );
     }
 

@@ -54,7 +54,6 @@ pub enum NativeAcpProbeErrorKind {
     Spawn,
     Initialize,
     NewSession,
-    Prompt,
     Timeout,
 }
 
@@ -897,30 +896,10 @@ async fn probe_native_acp_command_inner(
                 .new_session(workspace_dir, Vec::new(), None)
                 .await
                 .map_err(|error| (NativeAcpProbeErrorKind::NewSession, error.to_string()))?;
-            let session_id = session.session_id.clone();
             session_state
                 .lock()
                 .unwrap()
                 .apply_new_session_response(session);
-            let accumulated_text = Arc::new(StdMutex::new(String::new()));
-            protocol.set_active_turn(Some(ActiveTurnContext {
-                turn_id: "probe".into(),
-                conversation_id: "probe".into(),
-                engine: "probe".into(),
-                bot_id: "probe".into(),
-                permission_mode: "".into(),
-                sink: RuntimeEventSink::default(),
-                accumulated_text: accumulated_text.clone(),
-            }));
-            let prompt_result = protocol.prompt(session_id, "Reply with OK.".into()).await;
-            protocol.set_active_turn(None);
-            let prompt_response = prompt_result
-                .map_err(|error| (NativeAcpProbeErrorKind::Prompt, error.to_string()))?;
-            validate_probe_prompt_output(
-                &accumulated_text.lock().unwrap(),
-                prompt_response.stop_reason,
-            )
-            .map_err(|message| (NativeAcpProbeErrorKind::Prompt, message))?;
             Ok(session_state
                 .lock()
                 .unwrap()
@@ -2373,15 +2352,6 @@ fn empty_native_acp_output_error(
     }
 }
 
-fn validate_probe_prompt_output(output: &str, stop_reason: StopReason) -> Result<(), String> {
-    if output.trim().is_empty() {
-        return Err(format!(
-            "ACP prompt self-check completed with stopReason={stop_reason:?} but produced no assistant output"
-        ));
-    }
-    Ok(())
-}
-
 fn summarize_acp_stderr(stderr_tail: &str) -> String {
     let lines: Vec<&str> = stderr_tail
         .lines()
@@ -2829,14 +2799,66 @@ mod tests {
         assert!(message.contains("EndTurn"));
     }
 
-    #[test]
-    fn native_acp_probe_requires_assistant_output() {
-        let message = validate_probe_prompt_output("", StopReason::EndTurn).unwrap_err();
+    #[tokio::test]
+    async fn native_acp_probe_stops_after_session_new_without_prompt() {
+        let root = std::env::temp_dir().join(format!(
+            "mia-native-acp-probe-{}-{}",
+            std::process::id(),
+            current_time_ms()
+        ));
+        let workspace = root.join("workspace");
+        let script = root.join("fake-acp.js");
+        let methods_log = root.join("methods.log");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            &script,
+            r#"const fs = require("fs");
+const readline = require("readline");
+const methodsLog = process.env.MIA_ACP_PROBE_METHOD_LOG;
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+lines.on("line", (line) => {
+  const request = JSON.parse(line);
+  fs.appendFileSync(methodsLog, `${request.method}\n`);
+  let result;
+  if (request.method === "initialize") {
+    result = {
+      protocolVersion: request.params.protocolVersion,
+      agentCapabilities: {}
+    };
+  } else if (request.method === "session/new") {
+    result = { sessionId: "probe-session" };
+  } else {
+    result = { stopReason: "end_turn" };
+  }
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+});
+"#,
+        )
+        .unwrap();
 
-        assert!(message.contains("ACP prompt self-check completed"));
-        assert!(message.contains("produced no assistant output"));
-        assert!(message.contains("EndTurn"));
-        assert!(validate_probe_prompt_output("OK", StopReason::EndTurn).is_ok());
+        let mut environment = BTreeMap::new();
+        environment.insert(
+            "MIA_ACP_PROBE_METHOD_LOG".into(),
+            methods_log.to_string_lossy().into_owned(),
+        );
+        let result = probe_native_acp_command(
+            RuntimeCommand {
+                program: "node".into(),
+                args: vec![script.to_string_lossy().into_owned()],
+            },
+            environment,
+            workspace,
+            Duration::from_secs(10),
+        )
+        .await;
+        let methods = std::fs::read_to_string(&methods_log).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(result.is_ok(), "ACP handshake probe failed: {result:?}");
+        assert_eq!(
+            methods.lines().collect::<Vec<_>>(),
+            ["initialize", "session/new"]
+        );
     }
 
     #[test]
