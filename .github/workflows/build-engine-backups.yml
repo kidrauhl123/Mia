@@ -1,0 +1,113 @@
+name: build-engine-backups
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Source ref whose pinned engine versions should be built"
+        required: true
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: darwin-arm64
+            hermes_script: hermes:runtime:mac-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+            hermes_script: hermes:runtime:mac-x64
+          - runner: windows-latest
+            target: win32-x64
+            hermes_script: hermes:runtime:win-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: engine-backups-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+
+      - name: Build native Mia Core
+        shell: bash
+        run: cargo build --release --locked -p mia-core-app --bin mia-core
+
+      - name: Prepare native engine backups
+        shell: bash
+        env:
+          TARGET_ID: ${{ matrix.target }}
+          HERMES_SCRIPT: ${{ matrix.hermes_script }}
+        run: |
+          core_path="target/release/mia-core"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then core_path="target/release/mia-core.exe"; fi
+          "$core_path" prepare-managed-resources \
+            --data-dir "$RUNNER_TEMP/mia-engine-backup-data" \
+            --resource-dir "$GITHUB_WORKSPACE/resources/managed-resources"
+          npm run "$HERMES_SCRIPT"
+          npm run engine-backups:build -- "$TARGET_ID"
+
+      - name: Upload target backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-backup-${{ matrix.target }}
+          path: dist/engine-backups/v1/*
+          if-no-files-found: error
+          retention-days: 14
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: engine-backup-*
+          path: dist/engine-backups-input
+
+      - name: Merge and verify manifest
+        run: >-
+          node scripts/merge-engine-backups.js
+          --input dist/engine-backups-input
+          --output dist/engine-backups/v1
+          --required-targets darwin-arm64,darwin-x64,win32-x64
+
+      - name: Upload complete backup release
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mia-engine-backups-v1
+          path: dist/engine-backups/v1/*
+          if-no-files-found: error
+          retention-days: 30

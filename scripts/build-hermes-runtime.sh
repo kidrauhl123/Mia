@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds the pinned, relocatable Hermes runtime shipped inside Mia. End users do
-# not run this script: clicking "启用 Mia 稳定版" only activates this packaged
-# runtime and never downloads Python packages or changes the user's PATH.
+# Builds the pinned, relocatable Hermes runtime published as a separate Mia
+# engine backup. End users do not run this script: clicking "启用 Mia 稳定版"
+# downloads the verified archive into Mia's private data and never changes PATH.
 
 TARGET_ID="${1:-mac-arm64}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
