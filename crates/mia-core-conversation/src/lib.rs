@@ -159,6 +159,12 @@ pub struct AcceptedConversationTurn {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PlannedRuntimeTurn {
+    pub runtime_plan: RuntimeTurnPlan,
+    pub runtime_config: Value,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CompletedRuntimeMessage {
     pub message_id: String,
     pub seq: i64,
@@ -1733,11 +1739,11 @@ impl ConversationService {
         conversation_id: &str,
         body: &str,
         selected_skill_ids: Vec<String>,
-    ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+    ) -> Result<PlannedRuntimeTurn, sqlx::Error> {
         let conversation = self.get_conversation(conversation_id).await?.conversation;
         let origin_message_id = format!("internal_{}", Uuid::now_v7().simple());
         let attachments = json!([]);
-        self.build_runtime_turn_plan(
+        self.build_planned_runtime_turn(
             &conversation,
             &origin_message_id,
             body,
@@ -1755,6 +1761,26 @@ impl ConversationService {
         attachments: &Value,
         selected_skill_ids: &[String],
     ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        Ok(self
+            .build_planned_runtime_turn(
+                conversation,
+                origin_message_id,
+                body,
+                attachments,
+                selected_skill_ids,
+            )
+            .await?
+            .runtime_plan)
+    }
+
+    async fn build_planned_runtime_turn(
+        &self,
+        conversation: &ConversationSummary,
+        origin_message_id: &str,
+        body: &str,
+        attachments: &Value,
+        selected_skill_ids: &[String],
+    ) -> Result<PlannedRuntimeTurn, sqlx::Error> {
         let mut runtime_config = runtime_config_for_turn(&self.pool, conversation).await?;
         let engine = runtime_engine_from_config(&runtime_config)
             .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
@@ -1830,7 +1856,10 @@ impl ConversationService {
         if let Some(skill_runtime) = skill_runtime.as_ref() {
             apply_skill_runtime_to_plan(&mut turn_plan, skill_runtime);
         }
-        Ok(turn_plan)
+        Ok(PlannedRuntimeTurn {
+            runtime_plan: turn_plan,
+            runtime_config,
+        })
     }
 
     pub async fn plan_utility_turn(
