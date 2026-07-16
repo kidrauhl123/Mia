@@ -1,0 +1,32 @@
+name: publish-local-cloud-bundle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  publish:
+    # The development Mac keeps the generated deployment bundle locally; use
+    # its self-hosted runner as the GitHub-to-deployment-machine relay.
+    runs-on: self-hosted
+    steps:
+      - name: Verify local release bundle
+        shell: bash
+        run: |
+          test -s /Users/zuiyou/github/mia/dist/mia-cloud-release-transfer.tgz
+          test -s /Users/zuiyou/github/mia/dist/mia-cloud-release-transfer.tgz.sha256
+          cd /Users/zuiyou/github/mia
+          node scripts/print-cloud-release-handoff.js --verify-bundle
+
+      - name: Upload cloud deployment bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mia-cloud-release-transfer-v0.1.48
+          path: |
+            /Users/zuiyou/github/mia/dist/mia-cloud-release-transfer.tgz
+            /Users/zuiyou/github/mia/dist/mia-cloud-release-transfer.tgz.sha256
+          if-no-files-found: error
+          retention-days: 30
