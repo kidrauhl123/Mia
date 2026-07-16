@@ -239,8 +239,10 @@ function prepareManagedAgentResources({
     };
   }
   const resourceDir = path.join(rootDir, "resources", "managed-resources");
+  const stagingDir = path.join(resourceDir, ".staging");
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-managed-resources-"));
   ensureDirectory(resourceDir);
+  removeDirectorySafe(stagingDir);
   try {
     execFileSync(corePath, [
       "prepare-managed-resources",
@@ -252,10 +254,11 @@ function prepareManagedAgentResources({
       cwd: rootDir,
       env,
       stdio: "inherit",
-      timeout: Number(env.MIA_MANAGED_RESOURCES_PREPARE_TIMEOUT_MS || 600000)
+      timeout: Number(env.MIA_MANAGED_RESOURCES_PREPARE_TIMEOUT_MS || 1800000)
     });
     return { skipped: false, reason: "", resourceDir };
   } finally {
+    removeDirectorySafe(stagingDir);
     removeDirectorySafe(dataDir);
   }
 }
@@ -380,22 +383,11 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   }
 
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
-  const managedResources = prepareManagedAgentResources({
-    rootDir,
-    corePath: result.dest,
-    platform,
-    arch,
-    env,
-    execFileSync,
-    hostPlatform: options.hostPlatform || process.platform,
-    hostArch: options.hostArch || os.arch()
-  });
-  if (managedResources.skipped) {
-    console.log(`[prepare-mia-core-rs] skipped managed ACP resources: ${managedResources.reason}`);
-  } else {
-    console.log(`[prepare-mia-core-rs] prepared managed ACP resources -> ${managedResources.resourceDir}`);
-  }
-  result.managedResources = managedResources;
+  result.managedResources = {
+    skipped: true,
+    reason: "engine backups are built and published separately",
+    resourceDir: ""
+  };
   return result;
 }
 

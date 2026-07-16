@@ -12,22 +12,38 @@ function packageJson() {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 }
 
-test("desktop package scripts do not build Hermes runtime", () => {
+test("desktop release packages do not build or embed engine backups", () => {
   const pkg = packageJson();
 
   assert.doesNotMatch(pkg.scripts.prepack || "", /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts.pack || "", /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts["dist:mac"], /hermes:runtime/);
   assert.doesNotMatch(pkg.scripts["dist:mac:intel"], /hermes:runtime/);
-  assert.doesNotMatch(pkg.scripts["dist:mac:x64"], /hermes:runtime/);
-  assert.doesNotMatch(pkg.scripts["dist:win"], /hermes:runtime/);
+  assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
+  assert.equal(pkg.scripts["dist:win"], "node scripts/build-win.js");
 });
 
-test("electron-builder resources exclude Hermes runtime", () => {
+test("electron-builder resources exclude all three engine backups", () => {
   const pkg = packageJson();
+  const arm64 = fs.readFileSync(path.join(root, "electron-builder.mac-arm64.js"), "utf8");
+  const intel = fs.readFileSync(path.join(root, "electron-builder.mac-intel.js"), "utf8");
 
-  assert.doesNotMatch(JSON.stringify(pkg.build.mac || {}), /vendor\/hermes-runtime/);
-  assert.doesNotMatch(JSON.stringify(pkg.build.win || {}), /vendor\/hermes-runtime/);
+  for (const source of [JSON.stringify(pkg.build || {}), arm64, intel]) {
+    assert.doesNotMatch(source, /vendor\/hermes-runtime|resources\/managed-resources|to:\s*["']hermes-runtime|to:\s*["']managed-resources/);
+  }
+});
+
+test("engine backups have an independent pinned archive and manifest builder", () => {
+  const pkg = packageJson();
+  const source = fs.readFileSync(path.join(root, "scripts", "build-engine-backups.js"), "utf8");
+
+  assert.equal(pkg.scripts["engine-backups:build"], "node scripts/build-engine-backups.js");
+  assert.equal(pkg.engineBackups.manifestUrl, "https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json");
+  assert.match(source, /sha256/);
+  assert.match(source, /archiveRoot/);
+  assert.match(source, /claude-code/);
+  assert.match(source, /codex/);
+  assert.match(source, /hermes/);
 });
 
 test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
@@ -37,7 +53,7 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
 
   assert.equal(pkg.build.beforePack, "./scripts/prepare-mia-core-rs.js");
   assert.ok(extraResources.some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"));
-  assert.ok(extraResources.some((entry) => entry.from === "resources/managed-resources" && entry.to === "managed-resources"));
+  assert.equal(extraResources.some((entry) => /managed-resources|hermes-runtime/.test(String(entry.from || ""))), false);
   assert.ok(extraResources.some((entry) => entry.from === "skills" && entry.to === "skills"));
   assert.equal(JSON.stringify(extraResources).includes(LEGACY_NODE_RESOURCE), false);
   assert.doesNotMatch(source, /"build", "--release", "-p", "mia-core-app", "--bin", "mia-core"/);
@@ -45,8 +61,7 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   assert.match(source, /miaCoreDownloadUrl/);
   assert.match(source, /MIA_CORE_RS_BIN/);
   assert.match(source, /"resources",\s+"bundled-mia-core"/);
-  assert.match(source, /prepare-managed-resources/);
-  assert.match(source, /"resources",\s+"managed-resources"/);
+  assert.match(source, /engine backups are built and published separately/);
 });
 
 test("desktop package keeps AgentSession ACP SDK as a production dependency", () => {
@@ -165,6 +180,7 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
 
   const winBuilder = fs.readFileSync(path.join(root, "scripts", "build-win.js"), "utf8");
+  assert.doesNotMatch(winBuilder, /build-hermes-runtime\.sh|resolveGitBash/);
   assert.match(winBuilder, /clean-release\.js/);
   assert.match(winBuilder, /electron-builder/);
   assert.match(winBuilder, /"--win", "nsis", "--publish", "never"/);

@@ -459,19 +459,69 @@ fn sibling_runtime_dir(states: &ModuleStates, name: &str) -> PathBuf {
 
 fn python_bin() -> String {
     env::var("MIA_ENGINE_PYTHON")
-        .or_else(|_| env::var("MIA_PYTHON"))
-        .or_else(|_| env::var("PYTHON"))
-        .unwrap_or_else(|_| "python3".to_owned())
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(mia_stable_hermes_python)
+        .or_else(|| env::var("MIA_PYTHON").ok())
+        .or_else(|| env::var("PYTHON").ok())
+        .unwrap_or_else(|| "python3".to_owned())
 }
 
 fn python_path(states: &ModuleStates) -> String {
     let mut parts = vec![plugins_dir(states).to_string_lossy().to_string()];
+    if let Some(root) = mia_stable_hermes_root() {
+        let site_packages = root.join("site-packages");
+        if site_packages.is_dir() {
+            parts.push(site_packages.to_string_lossy().to_string());
+        }
+    }
     if let Ok(existing) = env::var("PYTHONPATH")
         && !existing.trim().is_empty()
     {
         parts.push(existing);
     }
     parts.join(if cfg!(windows) { ";" } else { ":" })
+}
+
+fn mia_stable_hermes_enabled() -> bool {
+    let state_path = env_path("MIA_ENGINE_FALLBACKS_PATH").or_else(|| {
+        env_path("MIA_CORE_HOME")
+            .or_else(|| env_path("MIA_HOME"))
+            .map(|home| home.join("mia-engine-fallbacks.json"))
+    });
+    let Some(state_path) = state_path else {
+        return false;
+    };
+    std::fs::read_to_string(state_path)
+        .ok()
+        .and_then(|contents| serde_json::from_str::<Value>(&contents).ok())
+        .and_then(|value| {
+            value
+                .get("engines")
+                .and_then(|engines| engines.get("hermes"))
+                .and_then(|engine| engine.get("enabled"))
+                .and_then(Value::as_bool)
+        })
+        .unwrap_or(false)
+}
+
+fn mia_stable_hermes_root() -> Option<PathBuf> {
+    mia_stable_hermes_enabled()
+        .then(|| env_path("MIA_BUNDLED_HERMES_RUNTIME_DIR"))
+        .flatten()
+        .filter(|root| root.is_dir())
+}
+
+fn mia_stable_hermes_python() -> Option<String> {
+    let root = mia_stable_hermes_root()?;
+    let python = if cfg!(windows) {
+        root.join("python").join("python.exe")
+    } else {
+        root.join("python").join("bin").join("python3")
+    };
+    python
+        .is_file()
+        .then(|| python.to_string_lossy().to_string())
 }
 
 fn home_dir() -> Option<PathBuf> {

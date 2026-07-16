@@ -49,6 +49,11 @@
     "core:publish": "node scripts/publish-mia-core-release.js",
     "bridge": "node scripts/local-agent-bridge.js",
     "check": "node src/check.js",
+    "hermes:runtime:mac-arm64": "bash scripts/build-hermes-runtime.sh mac-arm64",
+    "hermes:runtime:mac-x64": "bash scripts/build-hermes-runtime.sh mac-x64",
+    "hermes:runtime:linux-x64": "bash scripts/build-hermes-runtime.sh linux-x64",
+    "hermes:runtime:win-x64": "bash scripts/build-hermes-runtime.sh win-x64",
+    "engine-backups:build": "node scripts/build-engine-backups.js",
     "clean:release": "node scripts/clean-release.js",
     "tidy:release": "node scripts/clean-release.js --tidy",
     "pack": "npm run clean:release && electron-builder --dir -c.mac.identity=null",
@@ -65,11 +70,19 @@
     "release:win:publish": "node scripts/publish-win-update.js"
   },
   "hermes": {
-    "version": "2026.5.29",
+    "version": "2026.7.7.2",
+    "packageVersion": "0.18.2",
     "pythonVersion": "3.11.13",
-    "pbsRelease": "20251007"
+    "pbsRelease": "20251007",
+    "wheelUrl": "https://files.pythonhosted.org/packages/0c/4c/91652c61450763bfe165c65b83026503de0ac9ddad2c11ee522490bf4c2d/hermes_agent-0.18.2-py3-none-any.whl",
+    "wheelMirrorUrl": "https://pypi.tuna.tsinghua.edu.cn/packages/0c/4c/91652c61450763bfe165c65b83026503de0ac9ddad2c11ee522490bf4c2d/hermes_agent-0.18.2-py3-none-any.whl",
+    "wheelSha256": "8f02155cfc84b28bd98551cd18dffec0efa9ec070dd08f90f1a850f1c779492f",
+    "ddgsVersion": "9.14.4"
   },
-  "miaCoreVersion": "v0.1.1",
+  "engineBackups": {
+    "manifestUrl": "https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json"
+  },
+  "miaCoreVersion": "v0.1.2",
   "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
     "electron": "^39.2.6",
@@ -134,13 +147,6 @@
       {
         "from": "skills",
         "to": "skills",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/managed-resources",
-        "to": "managed-resources",
         "filter": [
           "**/*"
         ]

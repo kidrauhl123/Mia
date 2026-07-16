@@ -246,10 +246,27 @@ assert.doesNotMatch(packageJson.scripts.prepack || "", /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts.pack || "", /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:mac"], /hermes:runtime/);
 assert.doesNotMatch(packageJson.scripts["dist:mac:intel"], /hermes:runtime/);
-assert.doesNotMatch(packageJson.scripts["dist:mac:x64"], /hermes:runtime/);
-assert.doesNotMatch(packageJson.scripts["dist:win"], /hermes:runtime/);
+assert.match(packageJson.scripts["dist:mac:x64"], /dist:mac:intel/);
+assert.equal(packageJson.scripts["dist:win"], "node scripts/build-win.js");
 assert.doesNotMatch(JSON.stringify(packageJson.build.mac || {}), /vendor\/hermes-runtime/);
-assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime/);
+assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime|managed-resources/);
+assert.doesNotMatch(
+  fs.readFileSync(path.join(rootDir, "electron-builder.mac-arm64.js"), "utf8"),
+  /vendor\/hermes-runtime|managed-resources/
+);
+assert.doesNotMatch(
+  fs.readFileSync(path.join(rootDir, "electron-builder.mac-intel.js"), "utf8"),
+  /vendor\/hermes-runtime|managed-resources/
+);
+assert.doesNotMatch(
+  fs.readFileSync(path.join(rootDir, "scripts", "build-win.js"), "utf8"),
+  /build-hermes-runtime\.sh|resolveGitBash/
+);
+assert.equal(
+  (packageJson.build.extraResources || []).some((entry) => /hermes-runtime|managed-resources/.test(String(entry.from || ""))),
+  false
+);
+assert.match(packageJson.engineBackups?.manifestUrl || "", /^https:\/\//);
 assert.equal(packageJson.build.win?.icon, "src/renderer/assets/mia-logo.png");
 assert.equal(packageJson.build.mac?.hardenedRuntime, true);
 assert.match(packageJson.scripts["notarize:mac"] || "", /notarize-mac-dmg\.js/);

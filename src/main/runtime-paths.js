@@ -9,6 +9,7 @@
 // installation lifecycle is owned by engine-install-service.
 
 const path = require("node:path");
+const defaultRuntimeResources = require("../runtime-resource-paths.js");
 
 function createRuntimePaths(deps = {}) {
   const {
@@ -17,6 +18,7 @@ function createRuntimePaths(deps = {}) {
     MIA_CORE_SERVICE_LABEL,
     env = process.env,
   } = deps;
+  const runtimeResources = deps.runtimeResources || defaultRuntimeResources;
 
   function runtimePaths() {
     const configuredHome = String(env.MIA_HOME || "").trim();
@@ -53,6 +55,9 @@ function createRuntimePaths(deps = {}) {
       permissionSettings: path.join(home, "mia-permissions.json"),
       agentPermissionRules: path.join(home, "mia-agent-permissions.json"),
       effortSettings: path.join(home, "mia-effort.json"),
+      engineFallbacks: path.join(home, "mia-engine-fallbacks.json"),
+      engineBackups: path.join(home, "engine-backups"),
+      managedResources: path.join(home, "managed-resources"),
       agentSessions: path.join(home, "mia-agent-sessions.json"),
       coreSettings: path.join(home, "mia-core.json"),
       daemonSettings: path.join(home, "mia-core.json"),
@@ -76,9 +81,29 @@ function createRuntimePaths(deps = {}) {
     };
   }
 
-  function buildPythonPath() {
+  function bundledHermesRuntimeDir() {
+    return runtimeResources.bundledHermesRuntimeDir({
+      home: runtimePaths().home,
+      platform: process.platform,
+      arch: process.arch
+    });
+  }
+
+  function bundledPython() {
+    return runtimeResources.bundledPython(bundledHermesRuntimeDir(), { platform: process.platform });
+  }
+
+  function bundledSitePackages() {
+    return runtimeResources.bundledSitePackages(bundledHermesRuntimeDir());
+  }
+
+  function buildPythonPath(options = {}) {
     const p = runtimePaths();
     const parts = [p.pluginsDir];
+    if (options.includeBundledHermes) {
+      const sitePackages = bundledSitePackages();
+      if (sitePackages) parts.push(sitePackages);
+    }
     if (process.env.PYTHONPATH) parts.push(process.env.PYTHONPATH);
     // path.delimiter is ";" on Windows, ":" elsewhere — a hardcoded ":" would
     // collapse the whole PYTHONPATH into one bogus entry on Windows, so the
@@ -92,6 +117,9 @@ function createRuntimePaths(deps = {}) {
 
   return {
     runtimePaths,
+    bundledHermesRuntimeDir,
+    bundledPython,
+    bundledSitePackages,
     buildPythonPath,
     engineMarkerPath,
   };
