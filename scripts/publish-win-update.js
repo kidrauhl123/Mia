@@ -62,7 +62,6 @@ if (pkg.build?.publish?.provider !== "generic" || !pkg.build?.publish?.url) {
 const withNotes = attachDesktopReleaseNotes(feed, root, version);
 fs.writeFileSync(feedPath, yaml.dump(withNotes.feed, { lineWidth: -1 }));
 
-fs.rmSync(stageDir, { recursive: true, force: true });
 fs.mkdirSync(stageDir, { recursive: true });
 
 const staged = feedPaths.map(copyArtifact);
