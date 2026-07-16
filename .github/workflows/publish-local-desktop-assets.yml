@@ -41,4 +41,5 @@ jobs:
             /Users/zuiyou/github/mia/dist/mia-updates/latest-mac.yml
             /Users/zuiyou/github/mia/dist/mia-updates/SHA256SUMS
           if-no-files-found: error
+          compression-level: 0
           retention-days: 30
