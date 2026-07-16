@@ -1,0 +1,43 @@
+name: publish-release-assets-from-artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful publish-local-desktop-assets run ID"
+        required: true
+        type: string
+      release_tag:
+        description: "Existing GitHub release tag"
+        required: true
+        default: "v0.1.48"
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download desktop assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: >-
+          gh run download "$SOURCE_RUN_ID"
+          --repo "$GITHUB_REPOSITORY"
+          --name Mia-desktop-assets-v0.1.48
+          --dir dist/release-assets
+
+      - name: Upload desktop assets to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          find dist/release-assets -type f -print0 |
+            xargs -0 gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber
