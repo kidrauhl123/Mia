@@ -34,6 +34,7 @@ function fakeDeps(overrides = {}) {
     nativeImage: {
       createFromPath: (iconPath) => ({
         iconPath,
+        isEmpty: () => false,
         resize: (size) => ({ iconPath, size })
       })
     },
@@ -140,4 +141,20 @@ test("missing tray dependencies are logged without creating an icon", () => {
 
   assert.equal(service.isTrayVisible(), false);
   assert.deepEqual(calls, [["log", "Tray unavailable; keeping the main window visible."]]);
+});
+
+test("empty tray images are rejected instead of creating an invisible icon", () => {
+  const { deps, calls } = fakeDeps({
+    platform: "win32",
+    iconPath: "C:\\Mia\\mia-tray-win.png",
+    nativeImage: {
+      createFromPath: () => ({ isEmpty: () => true })
+    }
+  });
+  const service = createTrayLifecycleService(deps);
+
+  service.createOrUpdateTray();
+
+  assert.equal(service.isTrayVisible(), false);
+  assert.deepEqual(calls, [["log", "Tray icon unavailable: C:\\Mia\\mia-tray-win.png"]]);
 });

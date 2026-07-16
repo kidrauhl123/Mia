@@ -571,7 +571,8 @@ function trayActivityCount() {
 }
 
 function trayIconPath() {
-  return path.join(__dirname, "..", "build", "icon.png");
+  const fileName = process.platform === "win32" ? "mia-tray-win.png" : "mia-logo.png";
+  return path.join(__dirname, "renderer", "assets", fileName);
 }
 
 const trayLifecycleService = createTrayLifecycleService({

@@ -41,6 +41,7 @@ function createTrayLifecycleService(deps = {}) {
 
   function trayImage() {
     const image = nativeImage.createFromPath(iconPath);
+    if (!image || (typeof image.isEmpty === "function" && image.isEmpty())) return null;
     if (image && typeof image.resize === "function") {
       return image.resize(platform === "darwin"
         ? { width: 16, height: 16 }
@@ -91,7 +92,12 @@ function createTrayLifecycleService(deps = {}) {
       return null;
     }
     if (!tray) {
-      tray = new Tray(trayImage());
+      const image = trayImage();
+      if (!image) {
+        log(`Tray icon unavailable: ${iconPath}`);
+        return null;
+      }
+      tray = new Tray(image);
       tray.setToolTip("Mia Core running");
       if (typeof tray.on === "function") {
         tray.on("double-click", openFromTray);

@@ -27,12 +27,24 @@ test("main imports tray lifecycle and window close policy modules", () => {
 test("main instantiates tray lifecycle service with Core and window actions", () => {
   const main = read("src/main.js");
 
+  assert.match(main, /process\.platform === "win32" \? "mia-tray-win\.png" : "mia-logo\.png"/);
+  assert.match(main, /path\.join\(__dirname, "renderer", "assets", fileName\)/);
   assert.match(main, /const trayLifecycleService = createTrayLifecycleService\(\{/);
   assert.match(main, /getCoreStatus: getDaemonStatus/);
   assert.match(main, /openMainWindow: showMainWindowFromTray/);
   assert.match(main, /quitMia: \(\) => requestFullMiaQuit\("tray"\)/);
   assert.match(main, /function markCoreRunningForTray\(running\)/);
   assert.match(main, /function syncTrayStateWithDaemonStatus\(status = getDaemonStatus\(\)\)/);
+});
+
+test("Windows tray uses a packaged 256px PNG asset", () => {
+  const icon = fs.readFileSync(path.join(root, "src", "renderer", "assets", "mia-tray-win.png"));
+  const packageJson = JSON.parse(read("package.json"));
+
+  assert.deepEqual([...icon.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  assert.equal(icon.readUInt32BE(16), 256);
+  assert.equal(icon.readUInt32BE(20), 256);
+  assert.equal(packageJson.build.files.includes("src/**/*"), true);
 });
 
 test("main wires BrowserWindow close through tray-gated close policy", () => {
