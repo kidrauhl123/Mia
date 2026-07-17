@@ -39,7 +39,7 @@ test("web root is a promo landing page with desktop download entry points", () =
   assert.match(html, /src="assets\/ando-sky-local\.js\?v=20260715-production-sky"/);
   assert.doesNotMatch(skyJs, /Local-only|Do not ship|window\.location\.hostname/);
   assert.match(skyJs, /frame\.classList\.add\('ando-sky-study'\)/);
-  assert.match(html, /src="assets\/mia\.js\?v=20260715-desktop-downloads"/);
+  assert.match(html, /src="assets\/mia\.js\?v=20260717-0\.1\.49"/);
   assert.match(html, /src="assets\/mia-scroll\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/mia-logo\.png"/);
   assert.match(html, /class="[^"]*\bmiawin\b[^"]*"/);
