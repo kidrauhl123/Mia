@@ -283,7 +283,12 @@
       "font-family=\"-apple-system,BlinkMacSystemFont,'PingFang SC','Segoe UI',sans-serif\" " +
       'font-size="' + fontSize + '" font-weight="500" fill="#ffffff">' + escapeXml(label) + "</text>" +
       "</svg>";
-    const uri = "data:image/svg+xml," + encodeURIComponent(svg);
+    // encodeURIComponent deliberately leaves apostrophes unescaped. The web
+    // renderer embeds this URI in url('...'), so a font-family such as
+    // 'PingFang SC' would terminate the CSS URL early and leave a blank avatar.
+    // Percent-encode apostrophes as well so the same URI is safe both as an
+    // <img src> (desktop) and as a CSS background image (web).
+    const uri = "data:image/svg+xml," + encodeURIComponent(svg).replace(/'/g, "%27");
     generatedAvatarCache.set(cacheKey, uri);
     return uri;
   }

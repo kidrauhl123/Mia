@@ -127,6 +127,14 @@ test("resolveAvatarForContact: empty avatarImage returns text fallback instead o
   assert.equal(r.color, memberColor.memberAccentColor("fellow:kongling"));
 });
 
+test("generatedAvatarDataUri is safe inside a single-quoted CSS url", () => {
+  const uri = avatarResolve.generatedAvatarDataUri("#65aadd", "空铃");
+  assert.match(uri, /^data:image\/svg\+xml,/);
+  assert.equal(uri.includes("'"), false);
+  assert.match(decodeURIComponent(uri), /'PingFang SC'/);
+  assert.match(decodeURIComponent(uri), />空铃<\/text>/);
+});
+
 test("resolveAvatarForContact: legacy bundled preset paths are treated as missing avatars", () => {
   const cases = [
     "./assets/avatars/12.png",
