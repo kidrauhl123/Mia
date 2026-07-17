@@ -542,7 +542,6 @@ function verifyRelease() {
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/runtime-assembly.js",
-    "api/src/cloud-agent/public-web-tools.js",
     "api/src/cloud-agent/mia-cloud-mcp-server.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
@@ -655,7 +654,6 @@ function verifyRelease() {
     "api/src/cloud-agent/attachment-materializer.js",
     "api/src/cloud-agent/group-orchestrator.js",
     "api/src/cloud-agent/runtime-assembly.js",
-    "api/src/cloud-agent/public-web-tools.js",
     "api/src/cloud-agent/mia-cloud-mcp-server.js",
     "api/src/cloud-agent/dispatcher.js",
     "api/src/shared/conversation-kinds.js",
@@ -841,7 +839,6 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-assembly.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/public-web-tools.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/mia-cloud-mcp-server.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/dispatcher.js"))});
     require(${JSON.stringify(assertFile("api/src/permission-modes.js"))});

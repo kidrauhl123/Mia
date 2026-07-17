@@ -333,6 +333,8 @@ test("cloud Claude Code legacy runs client files are removed", () => {
 
 test("cloud Claude Code DeepSeek transport stays Anthropic-only", () => {
   const serverSource = fs.readFileSync(path.join(root, "scripts/serve-cloud.js"), "utf8");
+  const runtimeSource = fs.readFileSync(path.join(root, "src/cloud-agent/runtime-assembly.js"), "utf8");
+  const mcpSource = fs.readFileSync(path.join(root, "src/cloud-agent/mia-cloud-mcp-server.js"), "utf8");
   assert.equal(
     fs.existsSync(path.join(root, "src/cloud/model-proxy-anthropic.js")),
     false,
@@ -341,6 +343,13 @@ test("cloud Claude Code DeepSeek transport stays Anthropic-only", () => {
   assert.match(serverSource, /fetchDeepSeekAnthropicMessages/);
   assert.match(serverSource, /不会回退到 OpenAI 协议/);
   assert.doesNotMatch(serverSource, /anthropicToOpenAiChatBody|convertOpenAiMessageToAnthropic|openAiStreamPayloadToAnthropicSse/);
+  assert.equal(
+    fs.existsSync(path.join(root, "src/cloud-agent/public-web-tools.js")),
+    false,
+    "cloud should not ship a homemade web-search transport"
+  );
+  assert.doesNotMatch(runtimeSource, /WebSearch|WebFetch|web_search|web_fetch/, "cloud runtime prompt must not steer native web tools");
+  assert.doesNotMatch(mcpSource, /public-web-tools|web_search|web_fetch/, "Mia MCP must not shadow provider-native web tools");
 });
 
 test("cloud release builder ships only cloud Claude Code agent files and excludes legacy cloud agent files", () => {
@@ -349,7 +358,7 @@ test("cloud release builder ships only cloud Claude Code agent files and exclude
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-manager\.js/);
   assert.match(source, /api\/src\/cloud-agent\/claude-code-sandbox-client\.js/);
   assert.match(source, /api\/src\/cloud-agent\/runtime-assembly\.js/);
-  assert.match(source, /api\/src\/cloud-agent\/public-web-tools\.js/);
+  assert.doesNotMatch(source, /api\/src\/cloud-agent\/public-web-tools\.js/);
   assert.match(source, /api\/src\/cloud-agent\/mia-cloud-mcp-server\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-model\.js/);
   assert.doesNotMatch(source, /api\/src\/cloud-agent\/cloud-hermes-sessions-store\.js/);

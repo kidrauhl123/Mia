@@ -7,14 +7,6 @@ version: 1.0.2
 
 # Web Search Skill
 
-## Mia Cloud Runtime
-
-In Mia Cloud Claude Code, prefer the built-in `WebSearch` tool. DeepSeek executes that search through its Anthropic API, outside the Mia host's network. For a known page, try built-in `WebFetch`; if it fails, use `WebSearch` with the exact URL, domain, title, or quoted terms for indexed context. Clearly label snippets as partial context rather than full-page content.
-
-The lowercase `web_search` and `web_fetch` tools from the `mia-app` MCP server are best-effort fallbacks for sites directly reachable from Mia Cloud. Do not start the Electron browser bridge or run this skill's shell scripts in that cloud runtime.
-
-The Playwright/browser workflow below is the desktop fallback for runtimes where those MCP tools are not available.
-
 ## When to Use This Skill
 
 Use the web-search skill when you need:

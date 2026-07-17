@@ -110,10 +110,7 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
     });
 
     assert.match(result.instructions, /Mia Runtime Context/);
-    assert.match(result.instructions, /prefer Claude Code's built-in `WebSearch`/);
-    assert.match(result.instructions, /try built-in `WebFetch`/);
-    assert.match(result.instructions, /best-effort fallbacks/);
-    assert.match(result.instructions, /Never describe search snippets as a complete page read/);
+    assert.doesNotMatch(result.instructions, /WebSearch|WebFetch|web_search|web_fetch/);
     assert.doesNotMatch(result.promptPrefix, /User likes compact implementation notes/);
     assert.match(result.memoryBlock, /Writer should answer in Chinese/);
     assert.doesNotMatch(result.memoryBlock, /Other bot memory/);
