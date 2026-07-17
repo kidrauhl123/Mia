@@ -22,9 +22,9 @@ pub fn apply_memory_isolation_to_plan(plan: &mut RuntimeTurnPlan) {
 }
 
 pub async fn preflight_memory_isolation(_plan: &RuntimeTurnPlan) -> anyhow::Result<()> {
-    // Hermes ACP does not have a stable native-memory-disable flag. Hermes plans are
-    // downgraded to `MemoryMode::Native` at the conversation boundary, so no probe or
-    // command mutation is needed here.
+    // Hermes Gateway does not have a stable native-memory-disable control. Hermes plans
+    // are downgraded to `MemoryMode::Native` at the conversation boundary, so no probe
+    // or command mutation is needed here.
     Ok(())
 }
 

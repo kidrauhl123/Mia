@@ -2,12 +2,12 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use mia_core_api_types::{
-    AcpRuntimeControlChoice, AcpRuntimeControlSnapshot, CloudBridgeCancelRequest,
-    CloudBridgeCancelResponse, CloudBridgeLifecycleResponse, CloudBridgeRunRequest,
-    CloudBridgeRunResponse, CloudBridgeRuntimeControlRequest, CloudBridgeStartRequest,
-    CloudConnectRequest, CloudConnectResponse, CloudEventsLifecycleResponse,
-    CloudEventsStartRequest, CloudMemorySyncRequest, CloudMemorySyncResponse,
-    CloudSettingsResponse, CloudStatusResponse, PutCloudSettingsRequest,
+    CloudBridgeCancelRequest, CloudBridgeCancelResponse, CloudBridgeLifecycleResponse,
+    CloudBridgeRunRequest, CloudBridgeRunResponse, CloudBridgeRuntimeControlRequest,
+    CloudBridgeStartRequest, CloudConnectRequest, CloudConnectResponse,
+    CloudEventsLifecycleResponse, CloudEventsStartRequest, CloudMemorySyncRequest,
+    CloudMemorySyncResponse, CloudSettingsResponse, CloudStatusResponse, PutCloudSettingsRequest,
+    RuntimeControlChoice, RuntimeControlSnapshot,
 };
 use mia_core_cloud::CloudError;
 use serde::Deserialize;
@@ -181,7 +181,7 @@ pub async fn run_cloud_bridge_async(
 pub async fn prepare_cloud_bridge_runtime_controls(
     State(states): State<ModuleStates>,
     Json(request): Json<CloudBridgeRunRequest>,
-) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+) -> Result<Json<RuntimeControlSnapshot>, StatusCode> {
     let (mut plan, runtime_config) = cloud_bridge_runtime_control_plan(&states, request).await?;
     states
         .mia_runtime_proxies
@@ -193,7 +193,7 @@ pub async fn prepare_cloud_bridge_runtime_controls(
         .prepare_session(plan)
         .await
         .map_err(|error| {
-            tracing::warn!(error = %error, "prepare cloud bridge ACP controls failed");
+            tracing::warn!(error = %error, "prepare cloud bridge runtime controls failed");
             StatusCode::BAD_GATEWAY
         })?;
     augment_snapshot_with_mia_platform_models(&mut snapshot, &runtime_config, &states).await;
@@ -203,7 +203,7 @@ pub async fn prepare_cloud_bridge_runtime_controls(
 pub async fn set_cloud_bridge_runtime_control(
     State(states): State<ModuleStates>,
     Json(request): Json<CloudBridgeRuntimeControlRequest>,
-) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+) -> Result<Json<RuntimeControlSnapshot>, StatusCode> {
     let control_id = request.control_id.trim().to_string();
     let value = request.value.trim().to_string();
     let mut run = request.run;
@@ -218,8 +218,7 @@ pub async fn set_cloud_bridge_runtime_control(
         .prepare_plan(&states.cloud, &runtime_config, &mut plan)
         .await
         .map_err(map_cloud_status)?;
-    let restarts_platform_session = matches!(control_id.as_str(), "model" | "reasoning_effort")
-        && (control_id == "model" || matches!(plan.engine.as_str(), "codex" | "hermes"))
+    let restarts_platform_session = control_id == "model"
         && plan
             .environment
             .get("MIA_PLATFORM_PROVIDER")
@@ -233,7 +232,7 @@ pub async fn set_cloud_bridge_runtime_control(
             .await
     };
     let mut snapshot = result.map_err(|error| {
-        tracing::warn!(error = %error, "set cloud bridge ACP control failed");
+        tracing::warn!(error = %error, "set cloud bridge runtime control failed");
         StatusCode::BAD_REQUEST
     })?;
     augment_snapshot_with_mia_platform_models(&mut snapshot, &runtime_config, &states).await;
@@ -410,7 +409,7 @@ fn merge_discovered_native_model_entries(
 }
 
 async fn augment_snapshot_with_mia_platform_models(
-    snapshot: &mut AcpRuntimeControlSnapshot,
+    snapshot: &mut RuntimeControlSnapshot,
     runtime_config: &serde_json::Value,
     states: &ModuleStates,
 ) {
@@ -430,7 +429,7 @@ async fn augment_snapshot_with_mia_platform_models(
     else {
         return;
     };
-    let mut choices = vec![AcpRuntimeControlChoice {
+    let mut choices = vec![RuntimeControlChoice {
         value: "mia-auto".into(),
         label: "Auto".into(),
         description: "Mia platform model".into(),
@@ -469,7 +468,7 @@ fn runtime_model_entry_is_visible(
     include_discovered_native_models || runtime_model_entry_is_mia(entry)
 }
 
-fn runtime_model_entry_choice(entry: &serde_json::Value) -> Option<AcpRuntimeControlChoice> {
+fn runtime_model_entry_choice(entry: &serde_json::Value) -> Option<RuntimeControlChoice> {
     let raw_model = first_value_string(entry, &["model", "value", "id"])?;
     let model = if raw_model == "mia-default" {
         "mia-auto".to_string()
@@ -484,7 +483,7 @@ fn runtime_model_entry_choice(entry: &serde_json::Value) -> Option<AcpRuntimeCon
                 model.clone()
             }
         });
-    Some(AcpRuntimeControlChoice {
+    Some(RuntimeControlChoice {
         value: model,
         label,
         description: if runtime_model_entry_is_mia(entry) {
@@ -518,8 +517,8 @@ fn runtime_model_entry_is_mia(entry: &serde_json::Value) -> bool {
 }
 
 fn push_runtime_model_choice(
-    choices: &mut Vec<AcpRuntimeControlChoice>,
-    choice: AcpRuntimeControlChoice,
+    choices: &mut Vec<RuntimeControlChoice>,
+    choice: RuntimeControlChoice,
 ) {
     if choice.value.is_empty()
         || choices
@@ -545,7 +544,7 @@ mod tests {
         merge_discovered_native_model_entries, push_runtime_model_choice,
         runtime_model_entry_choice, runtime_model_entry_is_visible,
     };
-    use mia_core_api_types::AcpRuntimeControlChoice;
+    use mia_core_api_types::RuntimeControlChoice;
     use serde_json::json;
 
     #[test]
@@ -567,7 +566,7 @@ mod tests {
         assert_eq!(native.description, "Agent native model");
         assert_eq!(native.label, "GPT-5.6-Sol");
 
-        let mut choices = vec![AcpRuntimeControlChoice {
+        let mut choices = vec![RuntimeControlChoice {
             value: "mia-auto".into(),
             label: "Auto".into(),
             description: "Mia platform model".into(),

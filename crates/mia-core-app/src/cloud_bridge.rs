@@ -483,7 +483,11 @@ fn cloud_bridge_runtime_key(run_id: &str) -> String {
 }
 
 fn runtime_plan_uses_session_manager(plan: &RuntimeTurnPlan) -> bool {
-    plan.command.is_some() || plan.protocol == RuntimeProtocol::NativeAcp
+    plan.command.is_some()
+        || matches!(
+            plan.protocol,
+            RuntimeProtocol::NativeAcp | RuntimeProtocol::HermesGateway
+        )
 }
 
 #[derive(Debug, Clone)]
@@ -674,7 +678,7 @@ impl MiaRuntimeProxyRegistry {
                     .insert("HERMES_NONINTERACTIVE".into(), "1".into());
                 plan.environment.insert(
                     "MIA_PLATFORM_REASONING_EFFORTS".into(),
-                    "low,medium,high,max".into(),
+                    "none,minimal,low,medium,high,xhigh,max".into(),
                 );
                 plan.environment
                     .insert("MIA_PLATFORM_REASONING_EFFORT".into(), effort);
@@ -986,14 +990,22 @@ fn strip_hermes_mia_environment(environment: &mut std::collections::BTreeMap<Str
 
 fn hermes_permission_mode(runtime_config: &Value) -> String {
     match first_string(runtime_config, &["permissionMode", "permission_mode"])
-        .unwrap_or_else(|| "ask".into())
+        .unwrap_or_else(|| "smart".into())
+        .to_ascii_lowercase()
         .as_str()
     {
-        "yolo" | "dontAsk" | "bypassPermissions" | "never" | "off" => "dontAsk".into(),
-        "acceptEdits" | "auto" => "acceptEdits".into(),
-        "read-only" | "readOnly" | "ask" | "default" => "ask".into(),
+        "yolo"
+        | "dontask"
+        | "bypasspermissions"
+        | "never"
+        | "off"
+        | "agent-full-access"
+        | "full-access"
+        | ":danger-full-access" => "off".into(),
+        "manual" | "read-only" | "readonly" | ":read-only" => "manual".into(),
+        "smart" | "acceptedits" | "auto" | "ask" | "default" => "smart".into(),
         other if !other.trim().is_empty() => other.trim().into(),
-        _ => "ask".into(),
+        _ => "smart".into(),
     }
 }
 
@@ -1002,11 +1014,12 @@ fn hermes_effort_level(runtime_config: &Value) -> String {
         .unwrap_or_else(|| "medium".into())
         .as_str()
     {
-        "low" | "medium" | "high" | "max" => {
+        "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" => {
             first_string(runtime_config, &["effortLevel", "effort_level"])
                 .unwrap_or_else(|| "medium".into())
         }
-        "xhigh" | "extra-high" | "extra_high" => "max".into(),
+        "off" => "none".into(),
+        "extra-high" | "extra_high" => "xhigh".into(),
         _ => "medium".into(),
     }
 }
@@ -2012,7 +2025,7 @@ mod tests {
         assert_eq!(config["model"]["base_url"], "http://127.0.0.1:4567/v1");
         assert_eq!(config["providers"]["custom"]["key_env"], "OPENAI_API_KEY");
         assert_eq!(config["providers"]["custom"]["default_model"], "gpt-5.5");
-        assert_eq!(config["approvals"]["mode"], "dontAsk");
+        assert_eq!(config["approvals"]["mode"], "off");
         assert_eq!(config["agent"]["reasoning_effort"], "high");
         assert!(home.join("skills").is_dir());
     }

@@ -25,9 +25,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use mia_core_api_types::{
-    AcpRuntimeControl, AcpRuntimeControlChoice, AcpRuntimeControlSnapshot,
     AgentPermissionListResponse, AgentPermissionPendingRequest, AgentPermissionRespondRequest,
-    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode,
+    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode, RuntimeControl,
+    RuntimeControlChoice, RuntimeControlSnapshot,
 };
 use mia_core_common::process::configure_background_command;
 use serde_json::{Value, json};
@@ -69,7 +69,7 @@ pub async fn probe_native_acp_command(
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
     timeout: Duration,
-) -> std::result::Result<AcpRuntimeControlSnapshot, NativeAcpProbeError> {
+) -> std::result::Result<RuntimeControlSnapshot, NativeAcpProbeError> {
     match tokio::time::timeout(
         timeout,
         probe_native_acp_command_inner(command, environment, workspace_dir),
@@ -321,7 +321,7 @@ pub trait NativeAcpBackend: Send + Sync {
         cancellation: Option<RuntimeCancellation>,
     ) -> Result<RuntimeExecutionResult>;
 
-    async fn prepare_session(&self, _plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
+    async fn prepare_session(&self, _plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         bail!("native ACP runtime does not expose session controls")
     }
 
@@ -330,7 +330,7 @@ pub trait NativeAcpBackend: Send + Sync {
         _plan: RuntimeTurnPlan,
         _control_id: String,
         _value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         bail!("native ACP runtime does not expose session controls")
     }
 
@@ -398,10 +398,7 @@ impl NativeAcpSessionManager {
         self.backend.send_message(plan, sink, cancellation).await
     }
 
-    pub async fn prepare_session(
-        &self,
-        plan: RuntimeTurnPlan,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    pub async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         self.backend.prepare_session(plan).await
     }
 
@@ -410,7 +407,7 @@ impl NativeAcpSessionManager {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         self.backend.set_control(plan, control_id, value).await
     }
 
@@ -490,13 +487,22 @@ impl NativeAcpBackend for RealNativeAcpBackend {
         }
     }
 
-    async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
+    async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         let key = native_acp_task_key(&plan);
-        let task = self.task_for_plan(&key, &plan).await?;
-        let mut task = task.lock().await;
-        task.ensure_session(&plan).await?;
-        task.reconcile_plan_controls(&plan).await?;
-        Ok(task.control_snapshot(&plan))
+        match self.prepare_session_once(&key, &plan).await {
+            Err(error) if is_restartable_session_error(&error) => {
+                tracing::warn!(
+                    engine = %plan.engine,
+                    conversation_id = %plan.conversation_id,
+                    error = %error,
+                    "ACP control session became unavailable; retrying with a fresh process"
+                );
+                self.tasks.remove(&key);
+                let fresh_plan = plan_without_resume_session(plan);
+                self.prepare_session_once(&key, &fresh_plan).await
+            }
+            result => result,
+        }
     }
 
     async fn set_control(
@@ -504,12 +510,26 @@ impl NativeAcpBackend for RealNativeAcpBackend {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let key = native_acp_task_key(&plan);
-        let task = self.task_for_plan(&key, &plan).await?;
-        let mut task = task.lock().await;
-        task.ensure_session(&plan).await?;
-        task.set_control(&plan, &control_id, &value).await
+        match self
+            .set_control_once(&key, &plan, &control_id, &value)
+            .await
+        {
+            Err(error) if is_restartable_session_error(&error) => {
+                tracing::warn!(
+                    engine = %plan.engine,
+                    conversation_id = %plan.conversation_id,
+                    error = %error,
+                    "ACP control update lost its session; retrying with a fresh process"
+                );
+                self.tasks.remove(&key);
+                let fresh_plan = plan_without_resume_session(plan);
+                self.set_control_once(&key, &fresh_plan, &control_id, &value)
+                    .await
+            }
+            result => result,
+        }
     }
 
     fn list_pending_permissions(&self, session_id: Option<&str>) -> AgentPermissionListResponse {
@@ -525,6 +545,31 @@ impl NativeAcpBackend for RealNativeAcpBackend {
 }
 
 impl RealNativeAcpBackend {
+    async fn prepare_session_once(
+        &self,
+        key: &str,
+        plan: &RuntimeTurnPlan,
+    ) -> Result<RuntimeControlSnapshot> {
+        let task = self.task_for_plan(key, plan).await?;
+        let mut task = task.lock().await;
+        task.ensure_session(plan).await?;
+        task.reconcile_plan_controls(plan).await?;
+        Ok(task.control_snapshot(plan))
+    }
+
+    async fn set_control_once(
+        &self,
+        key: &str,
+        plan: &RuntimeTurnPlan,
+        control_id: &str,
+        value: &str,
+    ) -> Result<RuntimeControlSnapshot> {
+        let task = self.task_for_plan(key, plan).await?;
+        let mut task = task.lock().await;
+        task.ensure_session(plan).await?;
+        task.set_control(plan, control_id, value).await
+    }
+
     fn with_initial_prompt_provider(provider: Arc<dyn RuntimeInitialPromptProvider>) -> Self {
         Self {
             initial_prompt_provider: Some(provider),
@@ -559,9 +604,7 @@ impl RealNativeAcpBackend {
             Err(error) if is_restartable_session_error(&error) => {
                 first_attempt_events.finish(false);
                 self.tasks.remove(&key);
-                let mut fresh_plan = plan;
-                fresh_plan.runtime_session.resume_session_key = None;
-                fresh_plan.runtime_session.resumed = false;
+                let fresh_plan = plan_without_resume_session(plan);
                 let fresh_task = self.task_for_plan(&key, &fresh_plan).await?;
                 fresh_task
                     .lock()
@@ -673,6 +716,12 @@ fn resumable_session_id(plan: &RuntimeTurnPlan) -> Option<SessionId> {
         .map(|value| SessionId::new(value.to_string()))
 }
 
+fn plan_without_resume_session(mut plan: RuntimeTurnPlan) -> RuntimeTurnPlan {
+    plan.runtime_session.resume_session_key = None;
+    plan.runtime_session.resumed = false;
+    plan
+}
+
 fn join_initial_prompt(prefix: &str, user_content: &str) -> String {
     if prefix.trim().is_empty() {
         return user_content.to_string();
@@ -703,7 +752,21 @@ fn capabilities_support_session_resume(capabilities: &AgentCapabilities) -> bool
 
 fn is_stale_session_error(error: &anyhow::Error) -> bool {
     let text = error.to_string().to_lowercase();
-    text.contains("session") && (text.contains("not found") || text.contains("not_found"))
+    let identifies_session = text.contains("session") || text.contains("conversation");
+    let reports_missing = text.contains("not found")
+        || text.contains("not_found")
+        || text.contains("resource not found")
+        || text.contains("resource_not_found")
+        || ((text.contains("no session") || text.contains("no conversation"))
+            && text.contains("found"));
+    identifies_session && reports_missing
+}
+
+fn should_open_fresh_session_after_resume_failure(
+    plan: &RuntimeTurnPlan,
+    error: &anyhow::Error,
+) -> bool {
+    plan.memory_mode == MemoryMode::Mia || is_stale_session_error(error)
 }
 
 fn is_restartable_session_error(error: &anyhow::Error) -> bool {
@@ -714,6 +777,8 @@ fn is_restartable_session_error(error: &anyhow::Error) -> bool {
     text.contains("process exited unexpectedly")
         || text.contains("please start a new session")
         || text.contains("connection closed")
+        || text.contains("connection is not connected")
+        || text.contains("connection not connected")
         || text.contains("invalid session id")
 }
 
@@ -817,7 +882,7 @@ async fn probe_native_acp_command_inner(
     command: RuntimeCommand,
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
-) -> std::result::Result<AcpRuntimeControlSnapshot, NativeAcpProbeError> {
+) -> std::result::Result<RuntimeControlSnapshot, NativeAcpProbeError> {
     let workspace_dir =
         absolute_workspace_dir(&workspace_dir.to_string_lossy()).map_err(|error| {
             NativeAcpProbeError {
@@ -881,7 +946,7 @@ async fn probe_native_acp_command_inner(
         }
     };
 
-    let result: std::result::Result<AcpRuntimeControlSnapshot, (NativeAcpProbeErrorKind, String)> =
+    let result: std::result::Result<RuntimeControlSnapshot, (NativeAcpProbeErrorKind, String)> =
         async {
             let session_state = Arc::new(StdMutex::new(NativeAcpSessionState::default()));
             let protocol = AcpProtocol::connect(
@@ -1011,7 +1076,7 @@ impl NativeAcpSessionState {
         }
     }
 
-    fn control_snapshot(&self, conversation_id: &str, engine: &str) -> AcpRuntimeControlSnapshot {
+    fn control_snapshot(&self, conversation_id: &str, engine: &str) -> RuntimeControlSnapshot {
         let mut controls = self
             .config_options
             .as_deref()
@@ -1033,7 +1098,7 @@ impl NativeAcpSessionState {
             controls.push(control_from_legacy_modes(modes));
         }
 
-        AcpRuntimeControlSnapshot {
+        RuntimeControlSnapshot {
             conversation_id: conversation_id.to_string(),
             engine: engine.to_string(),
             memory_mode: String::new(),
@@ -1085,14 +1150,14 @@ impl NativeAcpSessionState {
     }
 }
 
-fn control_from_config_option(option: &SessionConfigOption) -> Option<AcpRuntimeControl> {
+fn control_from_config_option(option: &SessionConfigOption) -> Option<RuntimeControl> {
     let category = control_category(option)?;
     let SessionConfigKind::Select(select) = &option.kind else {
         return None;
     };
     let options = flatten_config_select_options(&select.options)
         .into_iter()
-        .map(|choice| AcpRuntimeControlChoice {
+        .map(|choice| RuntimeControlChoice {
             value: choice.value.to_string(),
             label: choice.name.clone(),
             description: choice.description.clone().unwrap_or_default(),
@@ -1105,7 +1170,7 @@ fn control_from_config_option(option: &SessionConfigOption) -> Option<AcpRuntime
     if current_value.is_empty() || !options.iter().any(|choice| choice.value == current_value) {
         return None;
     }
-    Some(AcpRuntimeControl {
+    Some(RuntimeControl {
         id: option.id.to_string(),
         category: category.to_string(),
         current_value,
@@ -1142,8 +1207,8 @@ fn flatten_config_select_options(
     }
 }
 
-fn control_from_legacy_models(models: &SessionModelState) -> AcpRuntimeControl {
-    AcpRuntimeControl {
+fn control_from_legacy_models(models: &SessionModelState) -> RuntimeControl {
+    RuntimeControl {
         id: "model".to_string(),
         category: "model".to_string(),
         current_value: models.current_model_id.to_string(),
@@ -1151,7 +1216,7 @@ fn control_from_legacy_models(models: &SessionModelState) -> AcpRuntimeControl {
         options: models
             .available_models
             .iter()
-            .map(|model| AcpRuntimeControlChoice {
+            .map(|model| RuntimeControlChoice {
                 value: model.model_id.to_string(),
                 label: model.name.clone(),
                 description: model.description.clone().unwrap_or_default(),
@@ -1160,8 +1225,8 @@ fn control_from_legacy_models(models: &SessionModelState) -> AcpRuntimeControl {
     }
 }
 
-fn control_from_legacy_modes(modes: &SessionModeState) -> AcpRuntimeControl {
-    AcpRuntimeControl {
+fn control_from_legacy_modes(modes: &SessionModeState) -> RuntimeControl {
+    RuntimeControl {
         id: "mode".to_string(),
         category: "permission".to_string(),
         current_value: modes.current_mode_id.to_string(),
@@ -1169,7 +1234,7 @@ fn control_from_legacy_modes(modes: &SessionModeState) -> AcpRuntimeControl {
         options: modes
             .available_modes
             .iter()
-            .map(|mode| AcpRuntimeControlChoice {
+            .map(|mode| RuntimeControlChoice {
                 value: mode.id.to_string(),
                 label: mode.name.clone(),
                 description: mode.description.clone().unwrap_or_default(),
@@ -1431,8 +1496,14 @@ impl NativeAcpTask {
                     state.clear_pending_initial_prompt();
                     return Ok(session_id);
                 }
-                Err(error) if is_stale_session_error(&error) => {
-                    tracing::debug!(?error, "ACP resume session failed; opening a new session");
+                Err(error) if should_open_fresh_session_after_resume_failure(plan, &error) => {
+                    tracing::warn!(
+                        engine = %plan.engine,
+                        conversation_id = %plan.conversation_id,
+                        memory_mode = ?plan.memory_mode,
+                        error = %error,
+                        "ACP resume session failed; opening a new session"
+                    );
                 }
                 Err(error) => return Err(error),
             }
@@ -1461,7 +1532,7 @@ impl NativeAcpTask {
         Ok(())
     }
 
-    fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> AcpRuntimeControlSnapshot {
+    fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> RuntimeControlSnapshot {
         let mut snapshot = self
             .session_state
             .lock()
@@ -1479,7 +1550,7 @@ impl NativeAcpTask {
                 .retain(|control| control.category != "model");
             snapshot.controls.insert(
                 0,
-                AcpRuntimeControl {
+                RuntimeControl {
                     id: "model".into(),
                     category: "model".into(),
                     current_value: model.to_string(),
@@ -1500,7 +1571,7 @@ impl NativeAcpTask {
                 .split(',')
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(|value| AcpRuntimeControlChoice {
+                .map(|value| RuntimeControlChoice {
                     value: value.to_string(),
                     label: match value {
                         "none" => "None".into(),
@@ -1520,7 +1591,7 @@ impl NativeAcpTask {
                 let index = usize::from(!snapshot.controls.is_empty());
                 snapshot.controls.insert(
                     index,
-                    AcpRuntimeControl {
+                    RuntimeControl {
                         id: "reasoning_effort".into(),
                         category: "thought_level".into(),
                         current_value: current_effort.to_string(),
@@ -1570,7 +1641,7 @@ impl NativeAcpTask {
         plan: &RuntimeTurnPlan,
         control_id: &str,
         value: &str,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         if control_id == "model"
             && platform_model_from_plan(plan).is_some_and(|model| model == value)
         {
@@ -1585,7 +1656,7 @@ impl NativeAcpTask {
         plan: &RuntimeTurnPlan,
         control_id: &str,
         value: &str,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let (session_id, path) = {
             let state = self.session_state.lock().unwrap();
             let session_id = state
@@ -1705,7 +1776,7 @@ fn platform_model_from_plan(plan: &RuntimeTurnPlan) -> Option<&str> {
 fn platform_model_options_from_plan(
     plan: &RuntimeTurnPlan,
     current_model: &str,
-) -> Vec<AcpRuntimeControlChoice> {
+) -> Vec<RuntimeControlChoice> {
     let mut models = Vec::new();
     push_platform_model_choice(&mut models, current_model);
     if let Some(raw_models) = plan.environment.get("MIA_PLATFORM_MODELS") {
@@ -1715,7 +1786,7 @@ fn platform_model_options_from_plan(
     }
     models
         .into_iter()
-        .map(|model| AcpRuntimeControlChoice {
+        .map(|model| RuntimeControlChoice {
             label: if matches!(model.as_str(), "mia-auto" | "mia-default") {
                 "Auto".into()
             } else {
@@ -2661,6 +2732,18 @@ mod tests {
     }
 
     #[test]
+    fn native_acp_fresh_plan_clears_persisted_resume_state() {
+        let mut plan = native_acp_test_plan();
+        plan.runtime_session.resume_session_key = Some("acp-session-1".into());
+        plan.runtime_session.resumed = true;
+
+        let fresh = plan_without_resume_session(plan);
+
+        assert_eq!(fresh.runtime_session.resume_session_key, None);
+        assert!(!fresh.runtime_session.resumed);
+    }
+
+    #[test]
     fn initial_prompt_prefix_is_taken_once_by_the_first_non_empty_turn() {
         let mut state = NativeAcpSessionState {
             pending_initial_prompt_prefix: Some("frozen memory".into()),
@@ -2766,7 +2849,30 @@ mod tests {
     fn native_acp_stale_session_detection_is_narrow() {
         assert!(is_stale_session_error(&anyhow!("session not found")));
         assert!(is_stale_session_error(&anyhow!("SESSION_NOT_FOUND")));
+        assert!(is_stale_session_error(&anyhow!(
+            "No conversation found with session ID"
+        )));
         assert!(!is_stale_session_error(&anyhow!("permission denied")));
+    }
+
+    #[test]
+    fn mia_memory_recovers_controls_from_any_resume_failure() {
+        let mut plan = native_acp_test_plan();
+        plan.memory_mode = MemoryMode::Mia;
+        assert!(should_open_fresh_session_after_resume_failure(
+            &plan,
+            &anyhow!("Claude resume failed with an internal error")
+        ));
+
+        plan.memory_mode = MemoryMode::Native;
+        assert!(!should_open_fresh_session_after_resume_failure(
+            &plan,
+            &anyhow!("Claude resume failed with an internal error")
+        ));
+        assert!(should_open_fresh_session_after_resume_failure(
+            &plan,
+            &anyhow!("session not found")
+        ));
     }
 
     #[test]
@@ -2776,6 +2882,9 @@ mod tests {
         )));
         assert!(is_restartable_session_error(&anyhow!(
             "ACP connection closed"
+        )));
+        assert!(is_restartable_session_error(&anyhow!(
+            "ACP connection is not connected"
         )));
         assert!(is_restartable_session_error(&anyhow!(
             "invalid session id: expected UUID"

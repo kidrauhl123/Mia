@@ -1,0 +1,132 @@
+.composer-select-menu.hermes-permission-menu {
+  width: min(292px, calc(100vw - 16px)) !important;
+  gap: 0;
+  padding: 7px;
+}
+
+.hermes-permission-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+  padding: 2px 9px 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: var(--ui-text-max-weight, 500);
+}
+
+.hermes-permission-scope {
+  color: var(--faint);
+  font-weight: 400;
+}
+
+.hermes-approval-options {
+  display: grid;
+  gap: 2px;
+}
+
+.composer-select-option.hermes-approval-option {
+  align-items: flex-start;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 7px 9px;
+  white-space: normal;
+}
+
+.hermes-approval-copy,
+.hermes-yolo-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.hermes-approval-label,
+.hermes-yolo-label {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.hermes-approval-description,
+.hermes-yolo-description {
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.hermes-approval-check {
+  flex: 0 0 auto;
+  margin: 2px 1px 0 10px;
+  color: var(--accent);
+  opacity: 0;
+}
+
+.hermes-approval-option.selected .hermes-approval-check {
+  opacity: 1;
+}
+
+.hermes-permission-separator {
+  height: 1px;
+  margin: 7px 5px;
+  background: var(--menu-border);
+}
+
+.hermes-session-yolo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 49px;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.hermes-session-yolo:hover:not(:disabled),
+.hermes-session-yolo:focus-visible {
+  background: var(--menu-hover-background);
+  outline: 0;
+}
+
+.hermes-session-yolo:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.hermes-session-yolo.pending {
+  opacity: 0.64;
+}
+
+.hermes-yolo-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--faint) 32%, transparent);
+  transition: background 120ms ease;
+}
+
+.hermes-yolo-switch span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--menu-surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 120ms ease;
+}
+
+.hermes-session-yolo[aria-pressed="true"] .hermes-yolo-switch {
+  background: #8b5cf6;
+}
+
+.hermes-session-yolo[aria-pressed="true"] .hermes-yolo-switch span {
+  transform: translateX(12px);
+}

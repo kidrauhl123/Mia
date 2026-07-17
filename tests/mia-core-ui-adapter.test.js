@@ -95,8 +95,8 @@ test("conversation model selector labels the real Core-selected model", () => {
   const app = read("src/renderer/app.js");
   assert.match(
     app,
-    /els\.quickModelSelect\.title = modelEntries\.length[\s\S]*`当前模型：\$\{modelLabel/,
-    "the conversation selector must not retain the settings-page 未配置模型 placeholder"
+    /els\.quickModelSelect\.title = \[model, effort\]\.filter\(Boolean\)\.join\(" · "\)/,
+    "the conversation selector should summarize the exact model and effort labels"
   );
 });
 

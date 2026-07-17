@@ -1,6 +1,9 @@
 "use strict";
 
-const { spawn: defaultSpawn } = require("node:child_process");
+const {
+  execFile: defaultExecFile,
+  spawn: defaultSpawn
+} = require("node:child_process");
 const path = require("node:path");
 const { createMiaCoreResolver } = require("./process-resolver.js");
 
@@ -46,6 +49,20 @@ function waitForInitialSpawn(child, command, timeoutMs = 75) {
   });
 }
 
+function execFileAsPromise(execFile, command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(command, args, options, (error, stdout, stderr) => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
 function createMiaCoreProcessLauncher(deps = {}) {
   const {
     runtimePaths,
@@ -56,7 +73,9 @@ function createMiaCoreProcessLauncher(deps = {}) {
     env = process.env,
     coreSettings = () => ({}),
     appVersion = () => "",
+    platform = process.platform,
     spawn = defaultSpawn,
+    execFile = defaultExecFile,
     killProcess = (pid, signal) => process.kill(pid, signal),
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     appendLog = () => {}
@@ -131,7 +150,7 @@ function createMiaCoreProcessLauncher(deps = {}) {
       detached: true,
       stdio: captureOutput ? ["ignore", "pipe", "pipe"] : "ignore",
       env: coreEnvironment(),
-      ...(process.platform === "win32" ? { windowsHide: true } : {})
+      ...(platform === "win32" ? { windowsHide: true } : {})
     });
     if (captureOutput) {
       attachOutputLog(child.stdout, "stdout");
@@ -170,7 +189,16 @@ function createMiaCoreProcessLauncher(deps = {}) {
       return { stopped: false, pid: 0 };
     }
     try {
-      killProcess(value, "SIGTERM");
+      if (platform === "win32") {
+        await execFileAsPromise(
+          execFile,
+          "taskkill.exe",
+          ["/PID", String(value), "/T", "/F"],
+          { windowsHide: true }
+        );
+      } else {
+        killProcess(value, "SIGTERM");
+      }
       await sleep(150);
       appendLog(`Stopped stale Mia Core process pid ${value}.`);
       return { stopped: true, pid: value };

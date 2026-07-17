@@ -129,19 +129,19 @@ pub async fn execute_task_conversation_turn(
     let mut runtime_claim = runtime
         .try_claim_conversation(conversation_id.clone())
         .map_err(|_| anyhow::anyhow!("conversation already has an active runtime turn"))?;
-    let mut runtime_plan = match conversation
+    let planned_turn = match conversation
         .plan_internal_turn(&conversation_id, &job.instructions, selected_skill_ids)
         .await
     {
-        Ok(runtime_plan) => runtime_plan,
+        Ok(planned_turn) => planned_turn,
         Err(error) => {
             runtime_claim.release();
             return Err(error.into());
         }
     };
-    let runtime_config = runtime_plan.provider.clone();
+    let mut runtime_plan = planned_turn.runtime_plan;
     if let Err(error) = mia_runtime_proxies
-        .prepare_plan(cloud, &runtime_config, &mut runtime_plan)
+        .prepare_plan(cloud, &planned_turn.runtime_config, &mut runtime_plan)
         .await
     {
         runtime_claim.release();

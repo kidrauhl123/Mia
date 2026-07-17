@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const engineContracts = require("../src/shared/engine-contracts");
 
 const root = path.join(__dirname, "..");
 const rawReadFileSync = fs.readFileSync.bind(fs);
@@ -1670,7 +1671,7 @@ test("engine detection renderer surfaces install progress and failures in settin
           source: "system",
           readiness: {
             status: "blocked",
-            summary: "Hermes ACP 自检失败",
+            summary: "Hermes Gateway 自检失败",
             detail: "model must be non-empty",
             action: "repair-hermes"
           }
@@ -1680,7 +1681,7 @@ test("engine detection renderer surfaces install progress and failures in settin
     agentEngines: {}
   });
 
-  assert.equal(sandbox.els.engineRowHermes.textContent, "Hermes ACP 自检失败");
+  assert.equal(sandbox.els.engineRowHermes.textContent, "Hermes Gateway 自检失败");
   assert.equal(sandbox.els.engineRowHermesActions.innerHTML, "");
 });
 
@@ -2634,23 +2635,31 @@ test("composer runtime controls hide values Core did not observe", () => {
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
   const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
   const setComposerSelectOptions = extractFunctionSource(appSource, "setComposerSelectOptions");
+  const composerSelectMenuContent = extractFunctionSource(appSource, "composerSelectMenuContent");
   const openComposerSelectMenu = extractFunctionSource(appSource, "openComposerSelectMenu");
+  const modelControlSummary = extractFunctionSource(appSource, "setComposerModelControlSummary");
   const contactControls = extractFunctionSource(contactCardSource, "runtimeControlsHtml");
 
   assert.doesNotMatch(syncControls, /使用 CLI 模型|CLI 默认/);
-  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.quickModelSelect,\s*modelEntries\.length > 0\)/);
-  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.effortSelect,\s*effortEntries\.length > 0\)/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.quickModelSelect,\s*modelEntries\.length > 0 \|\| effortEntries\.length > 0\)/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.effortSelect,\s*false\)/);
   assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.permissionMode,\s*permissionEntries\.length > 0\)/);
   assert.match(syncControls, /allowEmpty:\s*false,\s*selectFirst:\s*false/);
   assert.match(syncControls, /const effortEntries = runtimeControlArray\(options\?\.effortOptions\)/);
   assert.match(syncControls, /const permissionEntries = runtimeControlArray\(options\?\.permissionOptions\)/);
-  assert.match(syncControls, /els\.quickModelSelect\.disabled = !modelEntries\.length/);
+  assert.match(syncControls, /els\.quickModelSelect\.disabled = !\(modelEntries\.length \|\| effortEntries\.length\)/);
   assert.match(syncControls, /const hasSelectedModelEntry = Boolean\(selectedModelEntry\?\.id \|\| selectedModelEntry\?\.value \|\| selectedModelEntry\?\.model \|\| selectedModelEntry\?\.provider\)/);
   assert.match(syncControls, /setComposerModelAvatar\(selectedModelEntry,\s*engine,\s*\{\s*hidden:\s*!hasSelectedModelEntry\s*\}\)/);
   assert.match(setComposerSelectOptions, /value:\s*String\(entry\.id \|\| entry\.value \|\| entry\.model \|\| ""\)/);
   assert.match(setComposerSelectOptions, /placeholder:\s*true/);
   assert.match(setComposerSelectOptions, /option\.dataset\.placeholder = "true"/);
-  assert.match(openComposerSelectMenu, /composerSelectOptions\(select\)\.filter\(\(entry\) => entry\.type !== "option" \|\| !entry\.placeholder\)/);
+  assert.match(composerSelectMenuContent, /select === els\.quickModelSelect/);
+  assert.match(composerSelectMenuContent, /label: "模型"/);
+  assert.match(composerSelectMenuContent, /label: "推理强度"/);
+  assert.match(openComposerSelectMenu, /composerSelectMenuContent\(select\)/);
+  assert.match(openComposerSelectMenu, /composer-model-controls-menu/);
+  assert.match(openComposerSelectMenu, /menuitemradio/);
+  assert.match(modelControlSummary, /\[model, effort\]\.filter\(Boolean\)\.join\(" · "\)/);
   assert.match(appSource, /function activeBotRuntimeSendBlock\(\)/);
   assert.match(appSource, /options\?\.sendBlocked/);
   assert.match(appSource, /nudgeBotRuntimeSendBlock\(runtimeBlock\)/);
@@ -2665,7 +2674,44 @@ test("composer runtime controls hide values Core did not observe", () => {
   assert.match(contactControls, /class="model-avatar\$\{hasSelectedModelEntry \? "" : " hidden"\}"/);
 });
 
-test("local bot composer controls use native ACP snapshots and hide unsupported controls", () => {
+test("composer model menu groups reasoning while keeping the compact label model-only", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const menuSource = extractFunctionSource(appSource, "composerSelectMenuContent");
+  const summarySource = extractFunctionSource(appSource, "setComposerModelControlSummary");
+  const modelSelect = { id: "quickModelSelect", title: "" };
+  const effortSelect = { id: "effortSelect", disabled: false };
+  const quickModelLabel = { textContent: "" };
+  const context = vm.createContext({
+    els: { quickModelSelect: modelSelect, quickModelLabel, effortSelect },
+    composerSelectOptions: (select) => select === modelSelect
+      ? [{ type: "option", value: "mia-auto", label: "Auto", selected: true, disabled: false, placeholder: false }]
+      : [{ type: "option", value: "medium", label: "中", selected: true, disabled: false, placeholder: false }],
+    setText: (element, value) => { element.textContent = value; }
+  });
+  vm.runInContext(
+    `${menuSource}; ${summarySource}; this.menuContent = composerSelectMenuContent; this.setSummary = setComposerModelControlSummary;`,
+    context
+  );
+
+  const menu = context.menuContent(modelSelect);
+  assert.equal(menu.combinedModelControls, true);
+  assert.deepEqual(plain(menu.entries.map((entry) => ({
+    type: entry.type,
+    label: entry.label,
+    selectKey: entry.selectKey || ""
+  }))), [
+    { type: "group", label: "模型", selectKey: "" },
+    { type: "option", label: "Auto", selectKey: "quickModelSelect" },
+    { type: "group", label: "推理强度", selectKey: "" },
+    { type: "option", label: "中", selectKey: "effortSelect" }
+  ]);
+
+  context.setSummary("Auto", "中");
+  assert.equal(quickModelLabel.textContent, "Auto");
+  assert.equal(modelSelect.title, "Auto · 中");
+});
+
+test("local bot composer controls use runtime snapshots and hide unsupported controls", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
@@ -2673,8 +2719,8 @@ test("local bot composer controls use native ACP snapshots and hide unsupported 
 
   assert.match(preloadSource, /prepareConversationRuntimeControls/);
   assert.match(preloadSource, /setConversationRuntimeControl/);
-  assert.match(appSource, /runtimeControlOptionsFromAcpSnapshot/);
-  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.effortSelect,\s*effortEntries\.length > 0\)/);
+  assert.match(appSource, /runtimeControlOptionsFromSnapshot/);
+  assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.effortSelect,\s*false\)/);
   assert.match(syncControls, /setComposerRuntimeControlVisible\(els\.permissionMode,\s*permissionEntries\.length > 0\)/);
   assert.doesNotMatch(appSource, /CLI 默认|使用 CLI 模型/);
   assert.doesNotMatch(contactCardSource, /CLI 默认|使用 CLI 模型/);
@@ -2683,9 +2729,9 @@ test("local bot composer controls use native ACP snapshots and hide unsupported 
 test("Hermes native-memory fallback is explicit without inventing local controls", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
-  const source = extractFunctionSource(appSource, "runtimeControlOptionsFromAcpSnapshot");
+  const source = extractFunctionSource(appSource, "runtimeControlOptionsFromSnapshot");
   const context = vm.createContext({});
-  vm.runInContext(`${source}; this.convert = runtimeControlOptionsFromAcpSnapshot;`, context);
+  vm.runInContext(`${source}; this.convert = runtimeControlOptionsFromSnapshot;`, context);
 
   const options = context.convert({ engine: "hermes", state: "ready", memoryMode: "native" });
 
@@ -2695,7 +2741,7 @@ test("Hermes native-memory fallback is explicit without inventing local controls
   assert.match(contactCardSource, /<dd>由 Hermes 管理<\/dd>/);
 });
 
-test("native runtime controls keep Hermes ACP models and leave Codex discovery to Core", () => {
+test("native runtime controls keep Hermes Gateway models and leave Codex discovery to Core", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
   const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
@@ -2718,11 +2764,56 @@ test("native runtime controls keep Hermes ACP models and leave Codex discovery t
   assert.doesNotMatch(stylesSource, /\.model-switch-status\.native-memory/);
 });
 
+test("runtime control reads time out instead of leaving the composer loading forever", async () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const timeoutSource = extractFunctionSource(appSource, "runtimeControlRequestWithTimeout");
+  const requestSource = extractFunctionSource(appSource, "requestRuntimeControlOptions");
+  const context = vm.createContext({ setTimeout, clearTimeout, Promise, Error });
+  vm.runInContext(`${timeoutSource}; this.withTimeout = runtimeControlRequestWithTimeout;`, context);
+
+  assert.equal(await context.withTimeout(Promise.resolve("ready"), 10), "ready");
+  await assert.rejects(
+    context.withTimeout(new Promise(() => {}), 5),
+    /运行配置读取超时/
+  );
+  assert.match(requestSource, /runtimeControlRequestWithTimeout\(pending\)/);
+});
+
+test("Hermes runtime control reads use the lazy Gateway session without waiting for agent warmup", () => {
+  const gatewaySource = fs.readFileSync(
+    path.join(root, "crates/mia-core-runtime/src/hermes_gateway.rs"),
+    "utf8"
+  );
+  const backendStart = gatewaySource.indexOf(
+    "impl HermesGatewayBackend for RealHermesGatewayBackend"
+  );
+  const prepareStart = gatewaySource.indexOf(
+    "async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot>",
+    backendStart
+  );
+  const prepareEnd = gatewaySource.indexOf("async fn set_control(", prepareStart);
+  const prepareSource = gatewaySource.slice(prepareStart, prepareEnd);
+  const recreateStart = gatewaySource.indexOf("async fn recreate_platform_session(");
+  const recreateEnd = gatewaySource.indexOf("fn apply_session_result(", recreateStart);
+  const recreateSource = gatewaySource.slice(recreateStart, recreateEnd);
+  const waitStart = gatewaySource.indexOf("async fn wait_for_agent_ready(");
+  const waitEnd = gatewaySource.indexOf("async fn run_turn(", waitStart);
+  const waitSource = gatewaySource.slice(waitStart, waitEnd);
+
+  assert.notEqual(backendStart, -1);
+  assert.notEqual(prepareStart, -1);
+  assert.match(prepareSource, /ensure_session_created\(&plan, false\)/);
+  assert.doesNotMatch(prepareSource, /task\.ensure_session\(&plan\)/);
+  assert.match(recreateSource, /"session\.history"/);
+  assert.match(recreateSource, /create_session\(plan, Some\(messages\), Some\(resumed_session_id\)\)/);
+  assert.match(waitSource, /"session\.activate"/);
+});
+
 test("mixed platform snapshots preserve Mia Auto and native engine model identities", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const source = extractFunctionSource(appSource, "runtimeControlOptionsFromAcpSnapshot");
-  const context = vm.createContext({});
-  vm.runInContext(`${source}; this.convert = runtimeControlOptionsFromAcpSnapshot;`, context);
+  const source = extractFunctionSource(appSource, "runtimeControlOptionsFromSnapshot");
+  const context = vm.createContext({ miaEngineContracts: engineContracts });
+  vm.runInContext(`${source}; this.convert = runtimeControlOptionsFromSnapshot;`, context);
 
   const options = context.convert({
     engine: "codex",
@@ -2733,7 +2824,7 @@ test("mixed platform snapshots preserve Mia Auto and native engine model identit
       currentValue: "mia-auto",
       source: "mia_provider",
       options: [
-        { value: "mia-auto", label: "Auto", description: "Mia platform model" },
+        { value: "mia-auto", label: "mia-auto", description: "Mia platform model" },
         { value: "gpt-5.6-sol", label: "GPT-5.6-Sol", description: "Agent native model" }
       ]
     }]
@@ -2742,6 +2833,7 @@ test("mixed platform snapshots preserve Mia Auto and native engine model identit
   assert.equal(options.selectedModelEntry.provider, "mia");
   assert.equal(options.selectedModelEntry.providerConnectionId, "mia");
   assert.equal(options.selectedModelEntry.modelProfileId, "mia:mia-auto");
+  assert.equal(options.selectedModelEntry.label, "Auto");
   assert.equal(options.modelOptions[1].provider, "codex");
   assert.equal(options.modelOptions[1].providerConnectionId, "codex");
   assert.equal(options.modelOptions[1].modelProfileId, "codex:gpt-5.6-sol");

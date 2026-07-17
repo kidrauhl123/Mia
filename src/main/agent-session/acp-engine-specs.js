@@ -79,6 +79,9 @@ function buildAcpEngineSpecs(options = {}) {
   return Object.freeze([
     specFromManagedRuntime("claude", managedRuntimeForEngine("claude", options)),
     specFromManagedRuntime("codex", managedRuntimeForEngine("codex", options)),
+    // Legacy JS discovery metadata only. Active Hermes conversations are
+    // executed by Mia Core through RuntimeProtocol::HermesGateway; Core
+    // normalizes this historical `acp` entrypoint to `serve` before launch.
     Object.freeze({
       engineId: "hermes",
       transport: "acp",

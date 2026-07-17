@@ -257,20 +257,21 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     };
     use std::time::Duration;
 
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
+    use mia_core_api_types::CloudConnectRequest;
     use mia_core_conversation::{EVENT_CONVERSATION_CREATED, EVENT_CONVERSATION_MESSAGE_CREATED};
     use mia_core_realtime::RealtimeEvent;
     use mia_core_runtime::{
         EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDOUT,
-        NativeAcpBackend, NativeAcpSessionManager, RuntimeBuilder, RuntimeCancellation,
-        RuntimeCommand, RuntimeEventSink, RuntimeExecutionResult, RuntimeSessionManager,
-        RuntimeTurnPlan,
+        HermesGatewayBackend, HermesGatewaySessionManager, NativeAcpBackend,
+        NativeAcpSessionManager, RuntimeBuilder, RuntimeCancellation, RuntimeCommand,
+        RuntimeEventSink, RuntimeExecutionResult, RuntimeSessionManager, RuntimeTurnPlan,
     };
     use mia_core_tasks::{
         EVENT_TASK_CREATED, EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED,
@@ -336,8 +337,8 @@ mod tests {
             async fn prepare_session(
                 &self,
                 plan: RuntimeTurnPlan,
-            ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
-                Ok(mia_core_api_types::AcpRuntimeControlSnapshot {
+            ) -> anyhow::Result<mia_core_api_types::RuntimeControlSnapshot> {
+                Ok(mia_core_api_types::RuntimeControlSnapshot {
                     conversation_id: plan.conversation_id,
                     engine: plan.engine,
                     memory_mode: String::new(),
@@ -3222,18 +3223,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scheduler_runs_due_task_jobs_through_conversation_and_realtime() {
-        struct ScheduledBackend(Arc<AtomicUsize>);
+    async fn mia_managed_hermes_turns_prepare_proxy_for_scheduler_and_chat() {
+        struct ScheduledBackend {
+            calls: Arc<AtomicUsize>,
+            plans: Arc<Mutex<Vec<RuntimeTurnPlan>>>,
+        }
 
         #[async_trait::async_trait]
-        impl NativeAcpBackend for ScheduledBackend {
+        impl HermesGatewayBackend for ScheduledBackend {
             async fn send_message(
                 &self,
-                _plan: RuntimeTurnPlan,
+                plan: RuntimeTurnPlan,
                 _sink: RuntimeEventSink,
                 _cancellation: Option<RuntimeCancellation>,
             ) -> anyhow::Result<RuntimeExecutionResult> {
-                self.0.fetch_add(1, Ordering::SeqCst);
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                self.plans.lock().unwrap().push(plan);
                 Ok(RuntimeExecutionResult {
                     exit_code: Some(0),
                     stdout: "定时任务已完成".into(),
@@ -3249,10 +3254,28 @@ mod tests {
         config.workspace_dir = config.data_dir.join("workspace");
         let mut services = AppServices::from_config(&config).await.unwrap();
         let runtime_calls = Arc::new(AtomicUsize::new(0));
-        services.runtime_sessions =
-            RuntimeSessionManager::new(NativeAcpSessionManager::with_backend_for_tests(Arc::new(
-                ScheduledBackend(runtime_calls.clone()),
-            )));
+        let runtime_plans = Arc::new(Mutex::new(Vec::new()));
+        services.runtime_sessions = RuntimeSessionManager::with_interactive_backends(
+            NativeAcpSessionManager::unavailable(),
+            HermesGatewaySessionManager::with_backend_for_tests(Arc::new(ScheduledBackend {
+                calls: runtime_calls.clone(),
+                plans: runtime_plans.clone(),
+            })),
+        );
+        services
+            .cloud
+            .connect(CloudConnectRequest {
+                url: Some("https://mia.example".into()),
+                token: Some("secret-token".into()),
+                account_hint: None,
+                user: Some(json!({ "id": "u1" })),
+                account: None,
+                agent_runtime: None,
+                last_event_seq: None,
+                last_memory_sync_at: None,
+            })
+            .await
+            .unwrap();
         let app = create_router(&services);
 
         let bot_response = app
@@ -3284,7 +3307,7 @@ mod tests {
                     .uri("/api/conversations")
                     .header("content-type", "application/json")
                     .body(Body::from(format!(
-                        r#"{{"kind":"direct","title":"Scheduled Conversation","botId":"{bot_id}","metadata":{{"runtime":{{"engine":"codex"}},"cloudBridge":{{"conversationId":"cloud:scheduled"}}}}}}"#
+                        r#"{{"kind":"direct","title":"Scheduled Conversation","botId":"{bot_id}","metadata":{{"runtime":{{"agentEngine":"hermes","runtimeKind":"desktop-local","platformProvider":"mia","platformModel":"mia-auto","platformModelProfileId":"mia:mia-auto","modelEntries":[{{"provider":"mia","model":"mia-auto","authType":"mia_account"}}],"effortLevel":"medium","permissionMode":"default"}},"cloudBridge":{{"conversationId":"cloud:scheduled"}}}}}}"#
                     )))
                     .unwrap(),
             )
@@ -3327,6 +3350,29 @@ mod tests {
         let ran = run_due_tasks_once(&services).await.unwrap();
         assert_eq!(ran, 1);
         assert_eq!(runtime_calls.load(Ordering::SeqCst), 1);
+        let plans = runtime_plans.lock().unwrap();
+        let runtime_plan = plans.first().unwrap();
+        assert_eq!(runtime_plan.engine, "hermes");
+        assert_eq!(
+            runtime_plan
+                .environment
+                .get("MIA_PLATFORM_PROVIDER")
+                .map(String::as_str),
+            Some("mia")
+        );
+        assert_eq!(
+            runtime_plan
+                .environment
+                .get("HERMES_NONINTERACTIVE")
+                .map(String::as_str),
+            Some("1")
+        );
+        assert!(runtime_plan.environment.contains_key("CUSTOM_BASE_URL"));
+        assert!(runtime_plan.environment.contains_key("OPENAI_API_KEY"));
+        let hermes_home = Path::new(runtime_plan.environment.get("HERMES_HOME").unwrap());
+        assert!(hermes_home.starts_with(temp.path()));
+        assert!(hermes_home.join("config.yaml").is_file());
+        drop(plans);
 
         let started = next_event(&mut events).await;
         assert_eq!(started.name, EVENT_TASK_RUN_STARTED);
@@ -3387,6 +3433,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(message_roles, vec!["assistant"]);
+        assert_direct_chat_uses_mia_hermes_proxy(
+            &app,
+            conversation_id,
+            &runtime_calls,
+            &runtime_plans,
+            temp.path(),
+        )
+        .await;
         let assistant_body: String = sqlx::query_scalar(
             "SELECT body FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
         )
@@ -3395,6 +3449,54 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(assistant_body, "定时任务已完成");
+    }
+
+    async fn assert_direct_chat_uses_mia_hermes_proxy(
+        app: &Router,
+        conversation_id: &str,
+        runtime_calls: &Arc<AtomicUsize>,
+        runtime_plans: &Arc<Mutex<Vec<RuntimeTurnPlan>>>,
+        data_dir: &Path,
+    ) {
+        let expected_calls = runtime_calls.load(Ordering::SeqCst) + 1;
+        let chat_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/conversations/{conversation_id}/messages"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"body":"direct chat smoke","attachments":[],"selectedSkillIds":[]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(chat_response.status(), StatusCode::OK);
+        for _ in 0..50 {
+            if runtime_calls.load(Ordering::SeqCst) == expected_calls {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(runtime_calls.load(Ordering::SeqCst), expected_calls);
+        let plans = runtime_plans.lock().unwrap();
+        let chat_plan = plans.last().unwrap();
+        assert_eq!(
+            chat_plan.protocol,
+            mia_core_runtime::RuntimeProtocol::HermesGateway
+        );
+        assert_eq!(
+            chat_plan
+                .environment
+                .get("MIA_PLATFORM_PROVIDER")
+                .map(String::as_str),
+            Some("mia")
+        );
+        assert!(chat_plan.environment.contains_key("CUSTOM_BASE_URL"));
+        assert!(chat_plan.environment.contains_key("OPENAI_API_KEY"));
+        assert!(Path::new(chat_plan.environment.get("HERMES_HOME").unwrap()).starts_with(data_dir));
     }
 
     async fn next_event(

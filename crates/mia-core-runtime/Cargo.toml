@@ -8,13 +8,16 @@ license.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 dashmap.workspace = true
+futures-util.workspace = true
 agent-client-protocol = { version = "0.11.1", features = ["unstable_session_model", "unstable_session_close", "unstable_session_usage", "unstable_session_fork", "unstable_session_additional_directories", "unstable_session_resume"] }
 mia-core-api-types.workspace = true
 mia-core-common.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-tungstenite.workspace = true
 tokio-util = { version = "0.7", features = ["compat"] }
 tracing.workspace = true
 uuid.workspace = true

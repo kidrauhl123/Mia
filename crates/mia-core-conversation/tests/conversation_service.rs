@@ -822,6 +822,55 @@ async fn conversation_service_repairs_desktop_local_mia_provider_metadata() {
 }
 
 #[tokio::test]
+async fn internal_turn_keeps_full_runtime_config_alongside_native_provider_reference() {
+    let db = init_database_memory().await.unwrap();
+    let service = ConversationService::new(db.pool().clone());
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "cloud-bridge".into(),
+            title: "Hermes scheduled turn".into(),
+            bot_id: None,
+            metadata: json!({
+                "runtime": {
+                    "agentEngine": "hermes",
+                    "runtimeKind": "desktop-local",
+                    "platformProvider": "mia",
+                    "platformModel": "mia-auto",
+                    "platformModelProfileId": "mia:mia-auto",
+                    "modelEntries": [{
+                        "provider": "mia",
+                        "model": "mia-auto",
+                        "authType": "mia_account"
+                    }],
+                    "effortLevel": "medium",
+                    "permissionMode": "default"
+                }
+            }),
+        })
+        .await
+        .unwrap();
+
+    let planned = service
+        .plan_internal_turn(&created.conversation.id, "remind me to eat", vec![])
+        .await
+        .unwrap();
+
+    assert_eq!(planned.runtime_plan.engine, "hermes");
+    assert_eq!(
+        planned.runtime_plan.provider["providerConnectionId"],
+        "hermes"
+    );
+    assert_eq!(planned.runtime_plan.provider["nativeCli"], true);
+    assert_eq!(planned.runtime_config["runtimeKind"], "desktop-local");
+    assert_eq!(planned.runtime_config["platformProvider"], "mia");
+    assert_eq!(planned.runtime_config["platformModel"], "mia-auto");
+    assert_eq!(
+        planned.runtime_config["modelEntries"][0]["authType"],
+        "mia_account"
+    );
+}
+
+#[tokio::test]
 async fn conversation_service_formal_turn_payload_contains_current_user_message_only() {
     let db = init_database_memory().await.unwrap();
     sqlx::query(

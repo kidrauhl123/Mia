@@ -184,7 +184,7 @@ test("Core launcher rejects immediately when the Rust Core command is missing", 
 });
 
 test("process-mode launcher can stop a stale observed Core before starting replacement", async () => {
-  const { calls, launcher } = setup();
+  const { calls, launcher } = setup({ platform: "linux" });
 
   const result = await launcher.stopObservedProcess(5151);
 
@@ -196,8 +196,27 @@ test("process-mode launcher can stop a stale observed Core before starting repla
   ]);
 });
 
+test("Windows Core stop kills the full Core and Hermes descendant tree", async () => {
+  const { calls, launcher } = setup({
+    platform: "win32",
+    execFile: (command, args, options, callback) => {
+      calls.push({ execFile: [command, ...args], options });
+      callback(null, "SUCCESS", "");
+    }
+  });
+
+  const result = await launcher.stopObservedProcess(5151);
+
+  assert.deepEqual(result, { stopped: true, pid: 5151 });
+  assert.deepEqual(calls[0], {
+    execFile: ["taskkill.exe", "/PID", "5151", "/T", "/F"],
+    options: { windowsHide: true }
+  });
+  assert.equal(calls.some((entry) => entry.killProcess), false);
+});
+
 test("process-mode launcher reuses an in-flight Core process and can stop it", async () => {
-  const { calls, launcher } = setup();
+  const { calls, launcher } = setup({ platform: "linux" });
 
   const first = await launcher.start();
   const second = await launcher.start();

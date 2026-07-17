@@ -807,19 +807,19 @@ fn runtime_control_options_serialize_as_camel_case_contract() {
 }
 
 #[test]
-fn acp_runtime_control_snapshot_serializes_only_observed_controls() {
-    let snapshot = AcpRuntimeControlSnapshot {
+fn runtime_control_snapshot_serializes_only_observed_controls() {
+    let snapshot = RuntimeControlSnapshot {
         conversation_id: "conv_1".into(),
         engine: "claude-code".into(),
         memory_mode: "native".into(),
         session_id: Some("session_1".into()),
         state: "ready".into(),
-        controls: vec![AcpRuntimeControl {
+        controls: vec![RuntimeControl {
             id: "model".into(),
             category: "model".into(),
             current_value: "claude-sonnet-4-6".into(),
             source: "config_option".into(),
-            options: vec![AcpRuntimeControlChoice {
+            options: vec![RuntimeControlChoice {
                 value: "claude-sonnet-4-6".into(),
                 label: "Sonnet 4.6".into(),
                 description: String::new(),

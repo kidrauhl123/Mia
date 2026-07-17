@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="./styles/mcp.css">
   <link rel="stylesheet" href="./styles/bot-store.css">
   <link rel="stylesheet" href="./styles/contact-memory.css">
+  <link rel="stylesheet" href="./styles/hermes-permission-menu.css">
   <link rel="stylesheet" href="./styles/startup.css">
 </head>
 <body>
@@ -413,10 +414,10 @@
             <div class="composer-toolbar">
               <button id="composerAdd" class="composer-add-button" type="button" title="添加" aria-label="添加"><span class="composer-add-lottie" data-lottie="plusToX" data-lottie-trigger="toggle" aria-hidden="true"></span></button>
               <div class="composer-controls">
-                <label class="model-switcher hidden" title="切换当前模型">
+                <label class="model-switcher hidden" title="切换模型和推理强度">
                   <span class="model-avatar" aria-hidden="true">◇</span>
                   <span id="quickModelLabel" class="model-current-label"></span>
-                  <select id="quickModelSelect" aria-label="切换当前模型">
+                  <select id="quickModelSelect" aria-label="切换模型和推理强度">
                   </select>
                 </label>
                 <span class="composer-dot" aria-hidden="true">·</span>
@@ -1358,6 +1359,7 @@
   <script src="./settings/model-helpers.js"></script>
   <script src="./settings/engine-options.js"></script>
   <script src="./settings/model-settings.js"></script>
+  <script src="./hermes/permission-menu.js"></script>
   <script src="./settings/settings-appearance.js"></script>
   <script src="./settings/settings-remote.js"></script>
   <script src="./settings/settings-memory.js"></script>
