@@ -18,8 +18,20 @@ export interface AndroidInstallDeps {
   downloadApk: (target: AndroidUpdateManifest, onProgress?: DownloadProgress) => Promise<string>;
   sha256File: (uri: string) => Promise<string>;
   inspectApk: (uri: string) => Promise<AndroidApkInfo>;
+  removeApk?: (uri: string) => Promise<void>;
   installedPackageName: string;
   installedVersionCode: number;
+}
+
+export function canReuseDownloadedApk(
+  info: { exists?: boolean; size?: number } | null | undefined,
+  target: AndroidUpdateManifest
+): boolean {
+  return Boolean(
+    info?.exists
+      && target.apkSizeBytes > 0
+      && Number(info.size) === target.apkSizeBytes
+  );
 }
 
 export async function downloadAndroidApk(
@@ -33,7 +45,12 @@ export async function downloadAndroidApk(
   const dir = `${FileSystem.cacheDirectory}mia-updates/`;
   await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
   const targetUri = `${dir}mia-update-${target.versionCode}.apk`;
-  // Clear any partial leftover so a resumed-but-stale file can't corrupt the hash check.
+  const cached = await FileSystem.getInfoAsync(targetUri).catch(() => null);
+  if (canReuseDownloadedApk(cached, target)) {
+    onProgress?.(1);
+    return targetUri;
+  }
+  // Clear any partial or wrong-sized leftover before starting a fresh download.
   await FileSystem.deleteAsync(targetUri, { idempotent: true }).catch(() => {});
   const resumable = FileSystem.createDownloadResumable(
     target.apkUrl,
@@ -50,6 +67,11 @@ export async function downloadAndroidApk(
   return result.uri;
 }
 
+export async function removeDownloadedAndroidApk(localUri: string): Promise<void> {
+  const FileSystem = require("expo-file-system/legacy");
+  await FileSystem.deleteAsync(localUri, { idempotent: true });
+}
+
 export async function prepareAndroidApkInstall(
   target: AndroidUpdateManifest,
   deps: AndroidInstallDeps,
@@ -57,7 +79,10 @@ export async function prepareAndroidApkInstall(
 ): Promise<PreparedAndroidInstall> {
   const localUri = await deps.downloadApk(target, onProgress);
   const actualSha = (await deps.sha256File(localUri)).toLowerCase();
-  if (actualSha !== target.apkSha256.toLowerCase()) throw new Error("安装包校验失败");
+  if (actualSha !== target.apkSha256.toLowerCase()) {
+    await deps.removeApk?.(localUri).catch(() => {});
+    throw new Error("安装包校验失败");
+  }
   const apk = await deps.inspectApk(localUri);
   if (apk.packageName !== deps.installedPackageName) throw new Error("安装包包名不匹配");
   if (apk.versionCode <= deps.installedVersionCode) throw new Error("安装包版本不是更新版本");

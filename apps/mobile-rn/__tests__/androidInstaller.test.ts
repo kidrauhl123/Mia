@@ -1,4 +1,4 @@
-import { prepareAndroidApkInstall } from "../src/updates/androidInstaller";
+import { canReuseDownloadedApk, prepareAndroidApkInstall } from "../src/updates/androidInstaller";
 import { hexFromArrayBuffer } from "../src/updates/checksum";
 
 const target = {
@@ -18,16 +18,25 @@ test("formats SHA bytes as lowercase hex", () => {
   expect(hexFromArrayBuffer(new Uint8Array([0, 15, 16, 255]).buffer)).toBe("000f10ff");
 });
 
+test("reuses only a complete APK with the manifest size", () => {
+  expect(canReuseDownloadedApk({ exists: true, size: target.apkSizeBytes }, target)).toBe(true);
+  expect(canReuseDownloadedApk({ exists: true, size: target.apkSizeBytes - 1 }, target)).toBe(false);
+  expect(canReuseDownloadedApk({ exists: false }, target)).toBe(false);
+});
+
 test("rejects checksum mismatch before native install", async () => {
+  const removeApk = jest.fn(async () => {});
   await expect(
     prepareAndroidApkInstall(target, {
       downloadApk: async () => "file:///cache/mia.apk",
       sha256File: async () => "bad",
       inspectApk: async () => ({ packageName: "app.mia.mobile", versionCode: 12, versionName: "1.3.2" }),
+      removeApk,
       installedPackageName: "app.mia.mobile",
       installedVersionCode: 11,
     })
   ).rejects.toThrow(/校验失败/);
+  expect(removeApk).toHaveBeenCalledWith("file:///cache/mia.apk");
 });
 
 test("rejects APKs for a different package", async () => {

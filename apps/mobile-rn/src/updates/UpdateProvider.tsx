@@ -8,6 +8,7 @@ import {
   installDownloadedApk,
   openUnknownSourcesSettings,
   prepareAndroidApkInstall,
+  removeDownloadedAndroidApk,
   type PreparedAndroidInstall,
 } from "./androidInstaller";
 import { sha256File } from "./checksum";
@@ -180,6 +181,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
           downloadApk: downloadAndroidApk,
           sha256File,
           inspectApk: inspectDownloadedApk,
+          removeApk: removeDownloadedAndroidApk,
           installedPackageName: applicationId,
           installedVersionCode: installedVersionCode(installed),
         },
