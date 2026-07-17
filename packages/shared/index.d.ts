@@ -7,6 +7,8 @@ export * as approvalQueue from "./approval-queue";
 export * as optimisticSend from "./optimistic-send";
 export * as sessionHistory from "./session-history";
 export * as cloudClient from "./cloud-client";
+export * as cloudMessageRow from "./cloud-message-row";
+export * as assistantContentBlocks from "./assistant-content-blocks";
 export * as botIdentity from "./bot-identity";
 export * as skillDefaults from "./skill-defaults";
 export * as unread from "./unread";

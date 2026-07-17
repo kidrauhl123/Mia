@@ -46,6 +46,14 @@
       "types": "./cloud-client.d.ts",
       "default": "./cloud-client.js"
     },
+    "./cloud-message-row": {
+      "types": "./cloud-message-row.d.ts",
+      "default": "./cloud-message-row.js"
+    },
+    "./assistant-content-blocks": {
+      "types": "./assistant-content-blocks.d.ts",
+      "default": "./assistant-content-blocks.js"
+    },
     "./bot-identity": {
       "types": "./bot-identity.d.ts",
       "default": "./bot-identity.js"

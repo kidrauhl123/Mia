@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi } from "./clientProvider";
 import { useAuth } from "./auth";
@@ -47,7 +47,7 @@ import {
   loadCachedMessages,
   loadCachedValue,
   replaceCachedConversations,
-  replaceCachedMessages,
+  upsertCachedMessages,
   saveCachedValue,
   sqliteCacheKeys,
   upsertCachedConversation,
@@ -146,24 +146,47 @@ export function useCreateGroupConversation() {
 
 export function useConversationMessages(conversationId: string) {
   const api = useApi();
+  const qc = useQueryClient();
   const { session } = useAuth();
   const selfId = session?.user?.id;
   const cacheScope = session?.user?.id;
+  const [hasMoreBefore, setHasMoreBefore] = useState(true);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const oldestServerSeqByConversationRef = useRef(new Map<string, number>());
+  const activeConversationRef = useRef(conversationId);
+  activeConversationRef.current = conversationId;
+  const messageKey = useMemo(() => ["messages", conversationId] as const, [conversationId]);
+  useEffect(() => {
+    setHasMoreBefore(true);
+    setIsLoadingOlder(false);
+    loadingOlderRef.current = false;
+  }, [conversationId]);
   useCachedQueryHydration<ChatMessage[]>(
-    ["messages", conversationId],
+    messageKey,
     Boolean(cacheScope && conversationId),
     [cacheScope, conversationId],
     () => loadCachedMessages(cacheScope, conversationId)
   );
-  return useQuery<ChatMessage[]>({
-    queryKey: ["messages", conversationId],
+  const query = useQuery<ChatMessage[]>({
+    queryKey: messageKey,
     enabled: !!conversationId,
     ...LIVE_CACHE_QUERY,
     queryFn: async () => {
       const messages = await api
-        .api(`/api/conversations/${conversationId}/messages?limit=200`)
-        .then((d) => (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i)));
-      void replaceCachedMessages(cacheScope, conversationId, messages);
+        .api(`/api/conversations/${conversationId}/messages?latest=1&limit=200`)
+        .then((d) => {
+          const rows = (d.messages || []).map((r: MessageRow, i: number) => normalizeServerRow(r, selfId, i));
+          oldestServerSeqByConversationRef.current.set(
+            conversationId,
+            Number(d.pageInfo?.oldestSeq) || Number(rows[0]?.seq) || 0
+          );
+          if (activeConversationRef.current === conversationId) {
+            setHasMoreBefore(d.pageInfo?.hasMoreBefore ?? rows.length >= 200);
+          }
+          return rows;
+        });
+      void upsertCachedMessages(cacheScope, conversationId, messages);
       return messages;
     },
     structuralSharing: (oldData: unknown, newData: unknown) =>
@@ -172,6 +195,38 @@ export function useConversationMessages(conversationId: string) {
         Array.isArray(newData) ? newData as ChatMessage[] : []
       ),
   });
+
+  const loadOlder = useCallback(async () => {
+    if (!conversationId || loadingOlderRef.current || !hasMoreBefore) return;
+    const oldestSeq = oldestServerSeqByConversationRef.current.get(conversationId) || 0;
+    if (!oldestSeq) return;
+    loadingOlderRef.current = true;
+    setIsLoadingOlder(true);
+    try {
+      const data = await api.api(`/api/conversations/${conversationId}/messages?before_seq=${oldestSeq}&limit=100`);
+      const older = (data.messages || []).map((row: MessageRow, index: number) => normalizeServerRow(row, selfId, index));
+      qc.setQueryData<ChatMessage[]>(messageKey, (old) => mergeFetchedMessages(old || [], older));
+      void upsertCachedMessages(cacheScope, conversationId, older);
+      if (older.length) {
+        oldestServerSeqByConversationRef.current.set(
+          conversationId,
+          Number(data.pageInfo?.oldestSeq) || Number(older[0]?.seq) || oldestSeq
+        );
+      }
+      if (activeConversationRef.current === conversationId) {
+        setHasMoreBefore(data.pageInfo?.hasMoreBefore ?? older.length >= 100);
+      }
+    } catch {
+      // Keep the existing window intact. A later edge reach/reconnect can retry.
+    } finally {
+      if (activeConversationRef.current === conversationId) {
+        loadingOlderRef.current = false;
+        setIsLoadingOlder(false);
+      }
+    }
+  }, [api, cacheScope, conversationId, hasMoreBefore, messageKey, qc, selfId]);
+
+  return { ...query, hasMoreBefore, isLoadingOlder, loadOlder };
 }
 
 export function useConversationMembers(conversationId: string) {

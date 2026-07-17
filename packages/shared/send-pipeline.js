@@ -11,6 +11,29 @@
     return `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  function clientOpIdForTraceId(traceId) {
+    const trace = String(traceId || "").trim();
+    return trace ? `op_${trace}` : "";
+  }
+
+  function memberDisplayName(member) {
+    const m = member && typeof member === "object" ? member : {};
+    const identity = m.identity && typeof m.identity === "object" ? m.identity : {};
+    const user = m.user && typeof m.user === "object" ? m.user : {};
+    return m.name
+      || m.bot_name
+      || m.displayName
+      || m.display_name
+      || m.username
+      || identity.displayName
+      || identity.display_name
+      || identity.name
+      || user.displayName
+      || user.display_name
+      || user.username
+      || "";
+  }
+
   function parseMentions(text, members) {
     const list = Array.isArray(members) ? members : [];
     if (!list.length) return [];
@@ -18,12 +41,13 @@
     const byNameLower = new Map();
     for (const m of list) {
       if (!m) continue;
-      const name = m.name || m.displayName || m.username || "";
-      const kind = m.kind || m.member_kind || "";
+      const identity = m.identity && typeof m.identity === "object" ? m.identity : {};
+      const name = memberDisplayName(m);
+      const kind = m.kind || m.member_kind || identity.kind || "";
       if (kind !== MemberKind.Bot && kind !== MemberKind.User) continue;
       const ref = kind === MemberKind.Bot
-        ? (m.ref || m.member_ref || m.botId || m.bot_id || m.id || "")
-        : (m.ref || m.member_ref || m.userId || m.user_id || m.id || "");
+        ? (m.ref || m.member_ref || m.botId || m.bot_id || m.id || identity.id || "")
+        : (m.ref || m.member_ref || m.userId || m.user_id || m.id || identity.id || "");
       if (ref && !byRef.has(ref)) byRef.set(ref, { kind, ref });
       if (name) {
         const lower = name.toLowerCase();
@@ -72,11 +96,13 @@
       throw err;
     }
 
+    const clientTraceId = generateClientTraceId();
     const result = {
       bodyMd,
       mentions: bodyMd ? parseMentions(bodyMd, ctxObj.members) : [],
       attachments,
-      clientTraceId: generateClientTraceId()
+      clientTraceId,
+      clientOpId: clientOpIdForTraceId(clientTraceId)
     };
     if (input.replyTo) result.replyTo = input.replyTo;
     return result;
@@ -86,6 +112,7 @@
     prepareOutgoingMessage,
     parseMentions,
     generateClientTraceId,
+    clientOpIdForTraceId,
     MemberKind,
     DEFAULT_MAX_LENGTH
   };

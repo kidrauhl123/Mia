@@ -20,9 +20,11 @@ import {
 } from "../state/queries";
 import { useApi } from "../state/clientProvider";
 import { useAuth } from "../state/auth";
+import { useEvents } from "../state/events";
 import { buildPendingMessage } from "../logic/optimisticSend";
 import { MAX_COMPOSER_ATTACHMENTS, normalizeAttachments, pickedAssetAttachment } from "../logic/attachments";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
+import { messagePostBody, retryPayloadFromMessage, type MessageSendPayload } from "../logic/messageSend";
 import { patchConversationListSummary } from "../logic/conversationCache";
 import { lastSeenSeq, setConversationManualUnread } from "../logic/settings";
 import { conversationType } from "../logic/sessionHistory";
@@ -88,6 +90,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   const api = useApi();
   const qc = useQueryClient();
   const { session, apiBase } = useAuth();
+  const { runsByConversation } = useEvents();
   const insets = useSafeAreaInsets();
   const { data: conversations = [] } = useConversations();
   const { data: bots = [] } = useBots();
@@ -95,7 +98,13 @@ export default function ChatScreen({ navigation, route }: Props) {
   const { data: me } = useMe();
   const activeConversation = conversations.find((c) => c.id === conversationId) || null;
   const activeType = activeConversation ? conversationType(activeConversation) : "";
-  const { data: messages = [] } = useConversationMessages(conversationId);
+  const activeRun = runsByConversation[conversationId] || null;
+  const {
+    data: messages = [],
+    hasMoreBefore,
+    isLoadingOlder,
+    loadOlder,
+  } = useConversationMessages(conversationId);
   const { data: members = [] } = useConversationMembers(conversationId);
   const { data: settings } = useUserSettings();
   const saveSettings = useSaveUserSettings();
@@ -122,7 +131,19 @@ export default function ChatScreen({ navigation, route }: Props) {
     [activeConversation, bots, friends, membersByConv, self]
   );
   const headerTitle = route.params.title || activeConversation?.name || activeConversation?.title || "对话";
-  const headerMeta = activeType === "group" ? (members.length ? `群聊 · ${members.length} 人` : "群聊") : "私聊";
+  const headerMeta = activeRun?.hasActivity
+    ? activeRun.status === "cancelling"
+      ? "正在停止"
+      : activeRun.status === "error"
+        ? "运行失败"
+        : activeRun.status === "cancelled"
+          ? "已停止"
+          : activeRun.status === "complete"
+            ? "正在同步"
+            : "正在输入"
+    : activeType === "group"
+      ? (members.length ? `群聊 · ${members.length} 人` : "群聊")
+      : "私聊";
 
   const clearCurrentUnread = useCallback(() => {
     qc.setQueryData<UnreadCounts>(unreadCountsQueryKey, (old) => clearUnreadCount(old, conversationId));
@@ -184,11 +205,11 @@ export default function ChatScreen({ navigation, route }: Props) {
   };
 
   // 投递一条已乐观入列的消息;成功并入服务端行,失败标 failed 供重发。
-  const postMessage = async (payload: { bodyMd: string; clientTraceId: string; mentions?: unknown[]; attachments?: unknown[] }) => {
+  const postMessage = async (payload: MessageSendPayload) => {
     try {
       const res = await api.api(`/api/conversations/${conversationId}/messages`, {
         method: "POST",
-        body: { bodyMd: payload.bodyMd, turnId: payload.clientTraceId, mentions: payload.mentions, attachments: payload.attachments },
+        body: messagePostBody(payload),
       });
       const row = res.message || res;
       const norm = normalizeServerRow({ ...row, client_trace_id: row.client_trace_id || payload.clientTraceId }, session?.user?.id);
@@ -199,7 +220,11 @@ export default function ChatScreen({ navigation, route }: Props) {
       if (conversation) void upsertCachedConversation(session?.user?.id, conversation);
       scheduleMessageReconcile();
     } catch {
-      setMsgs((old) => old.map((m) => (m.clientTraceId === payload.clientTraceId ? { ...m, isPending: false, failed: true } : m)));
+      setMsgs((old) => old.map((m) => (
+        m.clientTraceId === payload.clientTraceId && (m.isPending || m.messageId.startsWith("pending:"))
+          ? { ...m, isPending: false, failed: true }
+          : m
+      )));
     }
   };
 
@@ -240,7 +265,13 @@ export default function ChatScreen({ navigation, route }: Props) {
     setAttachmentError("");
     setMsgs((old) => [...old, pendingMessage]);
     try {
-      await postMessage({ bodyMd: pendingMessage.bodyMd, clientTraceId: pendingMessage.clientTraceId, mentions: pending.mentions, attachments: pendingMessage.attachments });
+      await postMessage({
+        bodyMd: pendingMessage.bodyMd,
+        clientTraceId: pendingMessage.clientTraceId,
+        clientOpId: pendingMessage.clientOpId,
+        mentions: pendingMessage.mentions,
+        attachments: pendingMessage.attachments,
+      });
     } finally {
       setSending(false);
     }
@@ -253,7 +284,7 @@ export default function ChatScreen({ navigation, route }: Props) {
   // 重发:把失败消息标回 pending,用原 clientTraceId(turnId 幂等)重投。
   const resendMessage = async (m: ChatMessage) => {
     setMsgs((old) => old.map((x) => (x.messageId === m.messageId ? { ...x, failed: false, isPending: true } : x)));
-    await postMessage({ bodyMd: m.bodyMd, clientTraceId: m.clientTraceId, attachments: m.attachments });
+    await postMessage(retryPayloadFromMessage(m));
   };
 
   // 删除:未送达的(pending/failed)只本地移除;已送达的走云端微信式本地隐藏,失败则还原。
@@ -270,8 +301,25 @@ export default function ChatScreen({ navigation, route }: Props) {
     }
   };
 
+  const streamingMessage = useMemo<ChatMessage | null>(() => {
+    if (!activeRun?.contentBlocks.length) return null;
+    return {
+      messageId: `stream:${activeRun.runId}`,
+      clientTraceId: activeRun.runId,
+      role: "assistant",
+      senderKind: "bot",
+      senderRef: activeRun.botId,
+      bodyMd: "",
+      contentBlocks: activeRun.contentBlocks,
+      isOwn: false,
+      isPending: false,
+      isStreaming: true,
+      createdAt: "",
+    };
+  }, [activeRun]);
+
   // inverted 列表:倒序数据,最新在底部
-  const data = [...messages].reverse();
+  const data = [...messages, ...(streamingMessage ? [streamingMessage] : [])].reverse();
 
   return (
     <KeyboardAvoidingView
@@ -287,13 +335,19 @@ export default function ChatScreen({ navigation, route }: Props) {
         keyExtractor={(m) => m.messageId}
         contentContainerStyle={styles.listContent}
         keyboardShouldPersistTaps="handled"
+        maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+        onEndReached={() => {
+          if (hasMoreBefore && !isLoadingOlder) void loadOlder();
+        }}
+        onEndReachedThreshold={0.25}
+        ListFooterComponent={isLoadingOlder ? <ActivityIndicator color={color.accent} style={styles.olderLoader} /> : null}
         renderItem={({ item }) => (
           <MessageBubble
             msg={item}
             apiBase={apiBase}
             members={members}
             conversationKind={activeType}
-            onLongPress={setActionMsg}
+            onLongPress={item.isStreaming ? undefined : setActionMsg}
           />
         )}
       />
@@ -375,6 +429,7 @@ const styles = StyleSheet.create({
   headerAction: { color: color.accent },
   list: { flex: 1 },
   listContent: { paddingHorizontal: 10, paddingTop: 8, paddingBottom: 12 },
+  olderLoader: { marginVertical: space.md },
   headerTitleWrap: {
     flexDirection: "row",
     alignItems: "center",

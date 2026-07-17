@@ -7,6 +7,9 @@ test("buildPendingMessage 生成 pending 气泡", () => {
   expect(p.isOwn).toBe(true);
   expect(p.isPending).toBe(true);
   expect(p.clientTraceId).toBeTruthy();
+  expect(p.clientOpId).toBe(`op_${p.clientTraceId}`);
+  expect(p.senderKind).toBe("user");
+  expect(p.senderRef).toBe("u1");
 });
 
 test("空文本抛错", () => {

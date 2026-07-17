@@ -8,6 +8,9 @@ test("buildPendingMessage 生成 pending 气泡(含 clientTraceId)", () => {
   assert.equal(pending.isOwn, true);
   assert.equal(pending.isPending, true);
   assert.ok(pending.clientTraceId);
+  assert.equal(pending.clientOpId, `op_${pending.clientTraceId}`);
+  assert.equal(pending.senderKind, "user");
+  assert.equal(pending.senderRef, "u1");
 });
 
 test("空文本抛 EMPTY_MESSAGE", () => {

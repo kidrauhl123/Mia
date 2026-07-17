@@ -46,3 +46,24 @@ test("事件重放时先按 messageId/clientTraceId 去重", () => {
   expect(hasCachedMessage(cached as any, { messageId: "m2", clientTraceId: "t1" } as any)).toBe(true);
   expect(hasCachedMessage(cached as any, { messageId: "m3", clientTraceId: "t3" } as any)).toBe(false);
 });
+
+test("同一 turn 的用户消息与机器人回复不互相去重", () => {
+  const cached = [{
+    messageId: "m-user",
+    clientTraceId: "turn-1",
+    role: "user",
+    senderKind: "user",
+    senderRef: "u1",
+    bodyMd: "question",
+    isOwn: true,
+    isPending: false,
+    createdAt: "",
+  }];
+  expect(hasCachedMessage(cached as any, {
+    messageId: "m-bot",
+    clientTraceId: "turn-1",
+    role: "assistant",
+    senderKind: "bot",
+    senderRef: "bot_mia",
+  } as any)).toBe(false);
+});

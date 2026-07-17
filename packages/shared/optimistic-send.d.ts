@@ -1,10 +1,13 @@
 export interface PendingMessage {
   messageId: string;
   clientTraceId: string;
+  clientOpId: string;
   bodyMd: string;
   attachments: unknown[];
   mentions: unknown[];
   role: "user";
+  senderKind: "user";
+  senderRef: string;
   isOwn: true;
   isPending: true;
   createdAt: string;
@@ -13,6 +16,7 @@ export interface PendingMessage {
 export interface OptimisticMessage {
   messageId: string;
   clientTraceId?: string;
+  clientOpId?: string;
   bodyMd?: string;
   role?: "user" | "assistant" | "system";
   isOwn?: boolean;

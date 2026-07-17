@@ -8,6 +8,8 @@ module.exports = {
   optimisticSend: require("./optimistic-send.js"),
   sessionHistory: require("./session-history.js"),
   cloudClient: require("./cloud-client.js"),
+  cloudMessageRow: require("./cloud-message-row.js"),
+  assistantContentBlocks: require("./assistant-content-blocks.js"),
   botIdentity: require("./bot-identity.js"),
   skillDefaults: require("./skill-defaults.js"),
   unread: require("./unread.js"),

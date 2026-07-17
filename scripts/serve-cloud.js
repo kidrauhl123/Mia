@@ -4119,10 +4119,34 @@ async function handleRequest(req, res, context) {
       if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
         return writeError(res, 403, "not a member of this conversation");
       }
-      const sinceSeq = Number(url.searchParams.get("since_seq") || 0);
       const limit = Number(url.searchParams.get("limit") || 100);
       // Pass the requesting user so messages they've locally deleted (hidden)
       // are excluded — survives re-sync and new devices.
+      if (url.searchParams.has("before_seq")) {
+        const beforeSeq = Number(url.searchParams.get("before_seq"));
+        if (!Number.isFinite(beforeSeq) || beforeSeq <= 0) return writeError(res, 400, "before_seq must be a positive number");
+        const page = context.messagesStore.listMessagesBefore(conversationId, beforeSeq, limit, auth.user.id);
+        return writeJson(res, 200, {
+          messages: page.messages,
+          pageInfo: {
+            oldestSeq: Number(page.messages[0]?.seq) || 0,
+            newestSeq: Number(page.messages[page.messages.length - 1]?.seq) || 0,
+            hasMoreBefore: page.hasMoreBefore
+          }
+        });
+      }
+      if (url.searchParams.get("latest") === "1") {
+        const page = context.messagesStore.listLatestMessages(conversationId, limit, auth.user.id);
+        return writeJson(res, 200, {
+          messages: page.messages,
+          pageInfo: {
+            oldestSeq: Number(page.messages[0]?.seq) || 0,
+            newestSeq: Number(page.messages[page.messages.length - 1]?.seq) || 0,
+            hasMoreBefore: page.hasMoreBefore
+          }
+        });
+      }
+      const sinceSeq = Number(url.searchParams.get("since_seq") || 0);
       const messages = context.messagesStore.listMessagesSince(conversationId, sinceSeq, limit, auth.user.id);
       return writeJson(res, 200, { messages });
     }

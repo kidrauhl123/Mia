@@ -438,6 +438,39 @@ test("GET /api/conversations/:id/messages?since_seq=N returns incremental", asyn
   } finally { await stopServer(ctx); }
 });
 
+test("GET /messages latest + before_seq pages cover newest history in ascending display order", async () => {
+  const ctx = await startServer();
+  try {
+    const alice = await register(ctx.port, "alice");
+    const bob = await register(ctx.port, "bob");
+    const conversation = await friendUp(ctx.port, alice, bob);
+    for (let i = 1; i <= 5; i++) {
+      await api(ctx.port, "POST", "/api/conversations/" + conversation.id + "/messages", {
+        token: alice.token,
+        body: { bodyMd: "m" + i, clientOpId: "op_page_" + i },
+      });
+    }
+
+    const latest = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?latest=1&limit=2", { token: bob.token });
+    assert.equal(latest.status, 200);
+    assert.deepEqual(latest.body.messages.map((message) => message.seq), [4, 5]);
+    assert.deepEqual(latest.body.pageInfo, { oldestSeq: 4, newestSeq: 5, hasMoreBefore: true });
+
+    const middle = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?before_seq=4&limit=2", { token: bob.token });
+    assert.equal(middle.status, 200);
+    assert.deepEqual(middle.body.messages.map((message) => message.seq), [2, 3]);
+    assert.deepEqual(middle.body.pageInfo, { oldestSeq: 2, newestSeq: 3, hasMoreBefore: true });
+
+    const oldest = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?before_seq=2&limit=2", { token: bob.token });
+    assert.equal(oldest.status, 200);
+    assert.deepEqual(oldest.body.messages.map((message) => message.seq), [1]);
+    assert.equal(oldest.body.pageInfo.hasMoreBefore, false);
+
+    const invalid = await api(ctx.port, "GET", "/api/conversations/" + conversation.id + "/messages?before_seq=0", { token: bob.token });
+    assert.equal(invalid.status, 400);
+  } finally { await stopServer(ctx); }
+});
+
 test("GET /api/conversations/search returns individual message hits across bot sessions", async () => {
   const ctx = await startServer();
   try {

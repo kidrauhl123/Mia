@@ -5435,6 +5435,7 @@
       const res = await window.mia.social.postConversationMessage(postConversationId, {
         bodyMd: prepared.bodyMd,
         turnId: prepared.clientTraceId,
+        clientOpId: prepared.clientOpId,
         ...(prepared.attachments.length ? { attachments: prepared.attachments } : {}),
         ...(mentions.length ? { mentions } : {}),
         ...(skills ? { skills } : {}),

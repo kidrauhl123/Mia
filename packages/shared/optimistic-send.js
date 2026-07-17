@@ -15,10 +15,13 @@
     return {
       messageId: `pending:${prepared.clientTraceId}`,
       clientTraceId: prepared.clientTraceId,
+      clientOpId: prepared.clientOpId,
       bodyMd: prepared.bodyMd,
       attachments: prepared.attachments,
       mentions: prepared.mentions,
       role: "user",
+      senderKind: "user",
+      senderRef: String(ctx?.selfId || ""),
       isOwn: true,
       isPending: true,
       createdAt: ""

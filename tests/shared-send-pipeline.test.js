@@ -4,6 +4,7 @@ const {
   prepareOutgoingMessage,
   parseMentions,
   generateClientTraceId,
+  clientOpIdForTraceId,
   MemberKind,
   DEFAULT_MAX_LENGTH
 } = require("../src/shared/send-pipeline");
@@ -117,6 +118,12 @@ test("clientTraceId has expected shape", () => {
   assert.match(id, /^c_\d+_[0-9a-z]{6}$/);
 });
 
+test("clientOpId is stable for a prepared message trace", () => {
+  const out = prepareOutgoingMessage({ text: "retry me" }, {});
+  assert.equal(out.clientOpId, `op_${out.clientTraceId}`);
+  assert.equal(clientOpIdForTraceId(out.clientTraceId), out.clientOpId);
+});
+
 test("preserves attachments as-is (no validation)", () => {
   const attachments = [
     { id: "a1", path: "/tmp/x", weirdField: 42 },
@@ -165,6 +172,26 @@ test("members accept explicit bot/user shapes", () => {
     { kind: MemberKind.Bot, ref: "bot_codex" },
     { kind: MemberKind.Bot, ref: "bot_claude" },
     { kind: MemberKind.User, ref: "user_bob" }
+  ]);
+});
+
+test("members accept raw cloud conversation shapes used by web and mobile", () => {
+  const rawMembers = [
+    {
+      member_kind: "bot",
+      member_ref: "bot_mia",
+      bot_name: "Mia助手",
+      identity: { kind: "bot", id: "bot_mia", displayName: "Mia助手" }
+    },
+    {
+      member_kind: "user",
+      member_ref: "user_alice",
+      identity: { kind: "user", id: "user_alice", displayName: "小艾" }
+    }
+  ];
+  assert.deepEqual(parseMentions("@Mia助手 @小艾", rawMembers), [
+    { kind: MemberKind.Bot, ref: "bot_mia" },
+    { kind: MemberKind.User, ref: "user_alice" }
   ]);
 });
 

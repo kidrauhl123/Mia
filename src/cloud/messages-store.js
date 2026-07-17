@@ -88,6 +88,26 @@ function createMessagesStore(db) {
       AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
     ORDER BY seq ASC LIMIT ?
   `);
+  const selectLatest = db.prepare(`
+    SELECT * FROM messages WHERE conversation_id = ?
+    ORDER BY seq DESC LIMIT ?
+  `);
+  const selectLatestForViewer = db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = ?
+      AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+    ORDER BY seq DESC LIMIT ?
+  `);
+  const selectBefore = db.prepare(`
+    SELECT * FROM messages WHERE conversation_id = ? AND seq < ?
+    ORDER BY seq DESC LIMIT ?
+  `);
+  const selectBeforeForViewer = db.prepare(`
+    SELECT * FROM messages
+    WHERE conversation_id = ? AND seq < ?
+      AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+    ORDER BY seq DESC LIMIT ?
+  `);
   const searchForViewer = db.prepare(`
     SELECT m.*
     FROM messages m
@@ -194,6 +214,29 @@ function createMessagesStore(db) {
     return selectSince.all(String(conversationId), Number(sinceSeq) || 0, cap);
   }
 
+  function boundedPage(rows, cap) {
+    const hasMoreBefore = rows.length > cap;
+    const messages = rows.slice(0, cap).reverse();
+    return { messages, hasMoreBefore };
+  }
+
+  function listLatestMessages(conversationId, limit = 100, viewerId = null) {
+    const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    const rows = viewerId
+      ? selectLatestForViewer.all(String(conversationId), String(viewerId), cap + 1)
+      : selectLatest.all(String(conversationId), cap + 1);
+    return boundedPage(rows, cap);
+  }
+
+  function listMessagesBefore(conversationId, beforeSeq, limit = 100, viewerId = null) {
+    const cap = Math.min(Math.max(Number(limit) || 100, 1), 500);
+    const before = Math.max(1, Number(beforeSeq) || 1);
+    const rows = viewerId
+      ? selectBeforeForViewer.all(String(conversationId), before, String(viewerId), cap + 1)
+      : selectBefore.all(String(conversationId), before, cap + 1);
+    return boundedPage(rows, cap);
+  }
+
   function searchMessagesForUser(userId, query, limit = 80) {
     const user = String(userId || "").trim();
     const text = String(query || "").trim();
@@ -227,7 +270,17 @@ function createMessagesStore(db) {
     return row;
   }
 
-  return { appendMessage, getMessage, listMessagesSince, searchMessagesForUser, updateMessageStatus, deleteMessage, hideMessageForUser };
+  return {
+    appendMessage,
+    getMessage,
+    listMessagesSince,
+    listLatestMessages,
+    listMessagesBefore,
+    searchMessagesForUser,
+    updateMessageStatus,
+    deleteMessage,
+    hideMessageForUser
+  };
 }
 
 module.exports = { createMessagesStore, normalizeTrace };

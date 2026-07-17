@@ -251,6 +251,7 @@ let state = {
   incomingRequests: [],
   outgoingRequests: [],
   messageCache: new Map(),
+  failedSendsByConversation: new Map(),
   conversationMembersCache: new Map(),
   // (Phase 4 cutover: state.workspace removed. Every conversation now
   //  lives in state.conversations — bot chats are conversations-of-type-bot.)
@@ -1150,6 +1151,7 @@ function clearSession() {
   state.bots = [];
   state.settings = defaultWebSettings();
   state.messageCache.clear?.();
+  state.failedSendsByConversation.clear?.();
   state.conversationMembersCache.clear?.();
   pendingConversationMemberFetches.clear();
   state.incomingRequests = [];
@@ -1365,20 +1367,97 @@ function bridgeIsOnline() {
 
 async function ensureConversationMessages(conversationId) {
   if (!conversationId) return;
-  const cached = state.messageCache.get(conversationId);
-  const sinceSeq = cached?.maxSeq || 0;
+  const entry = ensureWebMessageCacheEntry(conversationId);
+  if (entry.loadingNewer) return;
+  entry.loadingNewer = true;
   try {
-    const data = await api(`/api/conversations/${conversationId}/messages?since_seq=${sinceSeq}&limit=200`);
-    const incoming = Array.isArray(data.messages) ? data.messages : [];
-    const messages = cached ? [...cached.messages] : [];
-    const seen = new Set(messages.map((m) => m.id));
-    for (const m of incoming) {
-      if (!seen.has(m.id)) { messages.push(m); seen.add(m.id); }
+    if (!entry.hydrated) {
+      const data = await api(`/api/conversations/${conversationId}/messages?latest=1&limit=200`);
+      mergeWebMessageWindow(conversationId, Array.isArray(data.messages) ? data.messages : []);
+      entry.hydrated = true;
+      entry.hasMoreBefore = Boolean(data.pageInfo?.hasMoreBefore);
+      return;
     }
-    const maxSeq = messages.reduce((acc, m) => Math.max(acc, Number(m.seq || 0)), sinceSeq);
-    state.messageCache.set(conversationId, { messages, maxSeq });
+    let sinceSeq = Number(entry.maxSeq) || 0;
+    while (true) {
+      const data = await api(`/api/conversations/${conversationId}/messages?since_seq=${sinceSeq}&limit=200`);
+      const incoming = Array.isArray(data.messages) ? data.messages : [];
+      mergeWebMessageWindow(conversationId, incoming);
+      const nextSeq = Number(entry.maxSeq) || sinceSeq;
+      if (incoming.length < 200 || nextSeq <= sinceSeq) break;
+      sinceSeq = nextSeq;
+    }
   } catch (err) {
     console.warn("[web] ensureConversationMessages failed:", err);
+  } finally {
+    entry.loadingNewer = false;
+  }
+}
+
+function ensureWebMessageCacheEntry(conversationId) {
+  let entry = state.messageCache.get(conversationId);
+  if (!entry) {
+    entry = {
+      messages: [],
+      minSeq: 0,
+      maxSeq: 0,
+      hydrated: false,
+      hasMoreBefore: true,
+      loadingNewer: false,
+      loadingOlder: false,
+    };
+    state.messageCache.set(conversationId, entry);
+  }
+  if (!Array.isArray(entry.messages)) entry.messages = [];
+  return entry;
+}
+
+function mergeWebMessageWindow(conversationId, incoming) {
+  const entry = ensureWebMessageCacheEntry(conversationId);
+  const byId = new Map(entry.messages.filter((message) => message?.id).map((message) => [message.id, message]));
+  for (const message of Array.isArray(incoming) ? incoming : []) {
+    if (!message?.id) continue;
+    const existing = byId.get(message.id);
+    const merged = existing ? { ...existing, ...message } : message;
+    if (existing?.contentBlocks && message.contentBlocks == null && message.content_blocks_json == null) {
+      merged.contentBlocks = existing.contentBlocks;
+    }
+    byId.set(message.id, merged);
+  }
+  entry.messages = [...byId.values()].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+  const bounds = entry.messages.reduce((result, message) => {
+    const seq = Number(message.seq) || 0;
+    if (seq <= 0) return result;
+    result.min = result.min ? Math.min(result.min, seq) : seq;
+    result.max = Math.max(result.max, seq);
+    return result;
+  }, { min: 0, max: 0 });
+  entry.minSeq = bounds.min;
+  entry.maxSeq = bounds.max;
+  state.messageCache.set(conversationId, entry);
+  return entry;
+}
+
+async function loadOlderConversationMessages(conversationId) {
+  const entry = ensureWebMessageCacheEntry(conversationId);
+  if (!entry.hydrated || entry.loadingOlder || entry.hasMoreBefore === false || !entry.minSeq) return;
+  entry.loadingOlder = true;
+  const shouldRestoreScroll = conversationId === state.activeConversationId;
+  const previousHeight = shouldRestoreScroll ? els.chat.scrollHeight : 0;
+  const previousTop = shouldRestoreScroll ? els.chat.scrollTop : 0;
+  try {
+    const data = await api(`/api/conversations/${conversationId}/messages?before_seq=${entry.minSeq}&limit=100`);
+    const incoming = Array.isArray(data.messages) ? data.messages : [];
+    mergeWebMessageWindow(conversationId, incoming);
+    entry.hasMoreBefore = Boolean(data.pageInfo?.hasMoreBefore);
+    if (shouldRestoreScroll && incoming.length) {
+      renderActiveChat();
+      els.chat.scrollTop = previousTop + Math.max(0, els.chat.scrollHeight - previousHeight);
+    }
+  } catch (err) {
+    console.warn("[web] older conversation messages failed:", err);
+  } finally {
+    entry.loadingOlder = false;
   }
 }
 
@@ -1465,21 +1544,21 @@ function startCloudEvents() {
     if (eventsSocket !== socket) return;
     let envelope;
     try { envelope = JSON.parse(event.data); } catch { return; }
-    // Track resume cursor (Phase 1.C). Persisted events carry `seq`;
-    // events_ready may carry `serverSeq` (no replay needed case).
-    if (Number.isFinite(Number(envelope.seq))) {
-      if (Number(envelope.seq) > loadLastEventSeq()) saveLastEventSeq(envelope.seq);
-    } else if (envelope.type === "events_ready") {
-      // Defensive clamp: server tells us when our cursor is ahead of
-      // its log (DB wipe / restore). Always honor resetTo; otherwise
-      // bump if we're behind.
+    // Track the resume cursor only after each persisted event is actually
+    // received. `events_ready.serverSeq` is informational: advancing to it
+    // before replay finishes would skip the remaining events if this socket
+    // disconnects mid-replay.
+    const deliveredSeq = Number.isFinite(Number(envelope.seq)) ? Number(envelope.seq) : 0;
+    if (!deliveredSeq && envelope.type === "events_ready") {
+      // Defensive clamp: the server tells us when our cursor is ahead of
+      // its log (DB wipe / restore). `resetTo` is the sole control-frame
+      // cursor mutation; replay envelopes advance it one event at a time.
       if (envelope.resetTo != null && Number.isFinite(Number(envelope.resetTo))) {
         saveLastEventSeq(envelope.resetTo);
-      } else if (Number.isFinite(Number(envelope.serverSeq))) {
-        if (Number(envelope.serverSeq) > loadLastEventSeq()) saveLastEventSeq(envelope.serverSeq);
       }
     }
     handleCloudEvent(envelope);
+    if (deliveredSeq > loadLastEventSeq()) saveLastEventSeq(deliveredSeq);
   });
   socket.addEventListener("close", () => {
     if (eventsSocket !== socket) return;
@@ -1797,12 +1876,10 @@ function handleCloudEvent(envelope) {
     const conversationId = msg?.conversation_id || envelope.conversation_id;
     if (!conversationId || !msg) return;
     const cachedMsg = messageWithFallbackRunContentBlocks(conversationId, msg);
-    const entry = state.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
+    const entry = ensureWebMessageCacheEntry(conversationId);
     const fresh = !entry.messages.some((m) => m.id === cachedMsg.id);
     if (fresh) {
-      entry.messages.push(cachedMsg);
-      entry.maxSeq = Math.max(entry.maxSeq, Number(cachedMsg.seq || 0));
-      state.messageCache.set(conversationId, entry);
+      mergeWebMessageWindow(conversationId, [cachedMsg]);
       if (cachedMsg.sender_kind === SenderKind.Bot || msg.sender_kind === SenderKind.Bot) state.cloudAgentRunsByConversation.delete(conversationId);
       // Bump unread if the message isn't mine and the conversation isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
@@ -3446,13 +3523,15 @@ async function sendInActive() {
   if (activeRun?.status === "cancelling") return;
   const rawText = els.chatInput.value || "";
   const members = isConversationId(id) ? (state.conversationMembersCache.get(id) || []) : [];
-  let prepared;
-  try {
-    prepared = prepareOutgoingMessage({ text: rawText }, { members });
-  } catch (err) {
-    if (err && err.code === "EMPTY_MESSAGE") return;
-    showToast(err.message);
-    return;
+  let prepared = state.failedSendsByConversation.get(id) || null;
+  if (!prepared || prepared.bodyMd !== rawText.trim()) {
+    try {
+      prepared = prepareOutgoingMessage({ text: rawText }, { members });
+    } catch (err) {
+      if (err && err.code === "EMPTY_MESSAGE") return;
+      showToast(err.message);
+      return;
+    }
   }
   const text = prepared.bodyMd;
 
@@ -3463,21 +3542,23 @@ async function sendInActive() {
         method: "POST",
         body: {
           bodyMd: text,
+          turnId: prepared.clientTraceId,
+          clientOpId: prepared.clientOpId,
           ...(prepared.mentions.length ? { mentions: prepared.mentions } : {})
         }
       });
+      state.failedSendsByConversation.delete(id);
       const msg = res?.message;
       if (msg && msg.id) {
-        const entry = state.messageCache.get(id) || { messages: [], maxSeq: 0 };
+        const entry = ensureWebMessageCacheEntry(id);
         if (!entry.messages.some((m) => m.id === msg.id)) {
-          entry.messages.push(msg);
-          entry.maxSeq = Math.max(entry.maxSeq, Number(msg.seq || 0));
-          state.messageCache.set(id, entry);
+          mergeWebMessageWindow(id, [msg]);
           if (id === state.activeConversationId) renderActiveChat();
           renderConversationList();
         }
       }
     } catch (err) {
+      state.failedSendsByConversation.set(id, prepared);
       showToast(err.message);
       els.chatInput.value = text;
     }
@@ -4479,6 +4560,14 @@ els.chat.addEventListener("click", async (event) => {
   if (!code || !els.chat.contains(code)) return;
   if (await copyTextToClipboard(code.textContent)) flashCopiedCode(code);
 });
+els.chat.addEventListener("scroll", () => {
+  if (els.chat.scrollTop > 80 || els.chat._olderLoadScheduled) return;
+  els.chat._olderLoadScheduled = true;
+  requestAnimationFrame(() => {
+    els.chat._olderLoadScheduled = false;
+    if (state.activeConversationId) void loadOlderConversationMessages(state.activeConversationId);
+  });
+});
 
 els.chat.addEventListener("toggle", (event) => {
   const row = event.target.closest?.("details.trace-row[data-trace-key]");
@@ -4522,6 +4611,9 @@ els.chatInput.addEventListener("keydown", (event) => {
     event.preventDefault();
     submitActiveComposer();
   }
+});
+els.chatInput.addEventListener("input", () => {
+  if (state.activeConversationId) state.failedSendsByConversation.delete(state.activeConversationId);
 });
 els.quickModelSelect?.addEventListener("change", () => saveWebAiControl("model", els.quickModelSelect.value));
 els.effortSelect?.addEventListener("change", () => saveWebAiControl("effort", els.effortSelect.value));

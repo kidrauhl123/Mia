@@ -95,8 +95,17 @@ export function hasCachedMessage(messages: ChatMessage[] | undefined, incoming: 
   if (!incoming) return false;
   const id = String(incoming.messageId || "");
   const trace = String(incoming.clientTraceId || "");
+  const incomingKind = String(incoming.senderKind || (incoming.role === "assistant" ? "bot" : incoming.role) || "");
+  const incomingRef = String(incomingKind === "user" && incoming.isOwn ? "self" : incoming.senderRef || "");
   return (messages || []).some((message) => {
     if (id && message.messageId === id) return true;
-    return Boolean(trace && message.clientTraceId === trace);
+    if (!trace || message.clientTraceId !== trace) return false;
+    const kind = String(message.senderKind || (message.role === "assistant" ? "bot" : message.role) || "");
+    if (kind && incomingKind && kind !== incomingKind) return false;
+    const ref = String(kind === "user" && message.isOwn ? "self" : message.senderRef || "");
+    if (ref && incomingRef) return ref === incomingRef;
+    // Old cached rows may predate sender metadata. In that case the trace is
+    // still the best available replay key; modern rows take the scoped path.
+    return true;
   });
 }

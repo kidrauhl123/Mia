@@ -10,11 +10,36 @@ export interface MessageRow {
   client_trace_id?: string;
   turn_id?: string;
   trace_json?: string;
+  trace?: Record<string, unknown> | null;
   created_at?: string;
   attachments?: MessageAttachment[];
+  attachments_json?: string;
   mentions?: unknown[];
+  mentions_json?: string;
+  skills?: unknown[];
+  skills_json?: string;
+  contentBlocks?: AssistantContentBlock[];
+  content_blocks?: AssistantContentBlock[];
+  content_blocks_json?: string;
   statusBadge?: StatusBadge | null;
   status_badge?: StatusBadge | null;
+}
+
+export interface AssistantContentBlock {
+  type: "text" | "thinking" | "recap" | "tool" | "file_edit" | string;
+  id?: string;
+  text?: string;
+  name?: string;
+  preview?: string;
+  path?: string;
+  title?: string;
+  diff?: string;
+  action?: string;
+  status?: string;
+  duration?: number | null;
+  additions?: number;
+  deletions?: number;
+  error?: boolean;
 }
 
 export interface Conversation {
@@ -259,6 +284,7 @@ export interface ChatMessage {
   messageId: string;
   seq?: number;
   clientTraceId: string;
+  clientOpId?: string;
   role: "user" | "assistant" | "system";
   senderKind?: SenderKind | string;
   senderRef?: string;
@@ -267,10 +293,14 @@ export interface ChatMessage {
   statusBadge?: StatusBadge | null;
   bodyMd: string;
   attachments?: MessageAttachment[];
+  mentions?: unknown[];
+  skills?: unknown[];
+  contentBlocks?: AssistantContentBlock[];
   trace?: { reasoning?: any; tools?: any } | null;
   isOwn: boolean;
   isPending: boolean;
   failed?: boolean;
+  isStreaming?: boolean;
   createdAt: string;
 }
 

@@ -80,6 +80,27 @@ test("listMessagesSince respects limit", () => {
   } finally { teardown(ctx); }
 });
 
+test("latest and backward pages expose the newest window without gaps", () => {
+  const ctx = setup();
+  try {
+    for (let i = 1; i <= 205; i++) {
+      ctx.messages.appendMessage({ conversationId: "r-msg", senderKind: "user", senderRef: ctx.alice.id, bodyMd: "m" + i });
+    }
+
+    const latest = ctx.messages.listLatestMessages("r-msg", 200, ctx.bob.id);
+    assert.deepEqual(latest.messages.map((message) => message.seq), Array.from({ length: 200 }, (_, index) => index + 6));
+    assert.equal(latest.hasMoreBefore, true);
+
+    const middle = ctx.messages.listMessagesBefore("r-msg", 106, 100, ctx.bob.id);
+    assert.deepEqual(middle.messages.map((message) => message.seq), Array.from({ length: 100 }, (_, index) => index + 6));
+    assert.equal(middle.hasMoreBefore, true);
+
+    const oldest = ctx.messages.listMessagesBefore("r-msg", 6, 100, ctx.bob.id);
+    assert.deepEqual(oldest.messages.map((message) => message.seq), [1, 2, 3, 4, 5]);
+    assert.equal(oldest.hasMoreBefore, false);
+  } finally { teardown(ctx); }
+});
+
 test("appendMessage persists attachments + mentions + turn_id", () => {
   const ctx = setup();
   try {

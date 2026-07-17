@@ -250,7 +250,7 @@ export async function loadCachedMessages(scope: string | undefined, conversation
     const db = await cacheDb();
     if (!db) return [];
     const rows = await db.getAllAsync<JsonRow>(
-      "SELECT json FROM messages WHERE scope = ? AND conversation_id = ? ORDER BY sort_time DESC, seq DESC LIMIT ?",
+      "SELECT json FROM messages WHERE scope = ? AND conversation_id = ? ORDER BY seq DESC, sort_time DESC LIMIT ?",
       [owner, conversationId, MAX_CACHED_MESSAGES]
     );
     const messages = rows.map((row) => jsonParse<ChatMessage>(row.json)).filter(isMessage);
@@ -278,15 +278,53 @@ export async function replaceCachedMessages(scope: string | undefined, conversat
 }
 
 export async function upsertCachedMessage(scope: string | undefined, conversationId: string | undefined, message: ChatMessage): Promise<void> {
+  return upsertCachedMessages(scope, conversationId, [message]);
+}
+
+export async function upsertCachedMessages(scope: string | undefined, conversationId: string | undefined, messages: ChatMessage[]): Promise<void> {
   return cacheWrite(async () => {
     const owner = cacheScope(scope);
-    if (!owner || !conversationId || !isCacheableMessage(message)) return;
+    if (!owner || !conversationId) return;
     const db = await cacheDb();
     if (!db) return;
-    await db.runAsync(
-      "REPLACE INTO messages(scope, conversation_id, message_id, seq, sort_time, json) VALUES(?, ?, ?, ?, ?, ?)",
-      [owner, conversationId, message.messageId, messageSeq(message), messageSortTime(message), JSON.stringify(message)]
-    );
+    const cacheable = (Array.isArray(messages) ? messages : []).filter(isCacheableMessage);
+    if (!cacheable.length) return;
+    await db.withTransactionAsync(async () => {
+      for (const message of cacheable) {
+        await db.runAsync(
+          "REPLACE INTO messages(scope, conversation_id, message_id, seq, sort_time, json) VALUES(?, ?, ?, ?, ?, ?)",
+          [owner, conversationId, message.messageId, messageSeq(message), messageSortTime(message), JSON.stringify(message)]
+        );
+      }
+      const bounds = cacheable.reduce((result, message) => {
+        const seq = messageSeq(message);
+        if (!seq) return result;
+        result.min = result.min ? Math.min(result.min, seq) : seq;
+        result.max = Math.max(result.max, seq);
+        return result;
+      }, { min: 0, max: 0 });
+      if (bounds.min && bounds.max) {
+        const ids = cacheable.map((message) => message.messageId);
+        const placeholders = ids.map(() => "?").join(", ");
+        await db.runAsync(
+          `DELETE FROM messages
+           WHERE scope = ? AND conversation_id = ?
+             AND seq BETWEEN ? AND ?
+             AND message_id NOT IN (${placeholders})`,
+          [owner, conversationId, bounds.min, bounds.max, ...ids]
+        );
+      }
+      await db.runAsync(
+        `DELETE FROM messages
+         WHERE scope = ? AND conversation_id = ?
+           AND message_id NOT IN (
+             SELECT message_id FROM messages
+             WHERE scope = ? AND conversation_id = ?
+             ORDER BY seq DESC, sort_time DESC LIMIT ?
+           )`,
+        [owner, conversationId, owner, conversationId, MAX_CACHED_MESSAGES]
+      );
+    });
   });
 }
 

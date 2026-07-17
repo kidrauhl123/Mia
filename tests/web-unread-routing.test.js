@@ -1375,8 +1375,8 @@ test("src/web/app.js preserves transient ordered file edits when final bot messa
   );
   assert.match(
     handlerMatch[0],
-    /entry\.messages\.push\(cachedMsg\)/,
-    "message_appended must push cachedMsg rather than the raw persisted msg"
+    /mergeWebMessageWindow\(conversationId, \[cachedMsg\]\)/,
+    "message_appended must merge cachedMsg rather than the raw persisted msg"
   );
   assert.match(
     handlerMatch[0],
@@ -1421,4 +1421,38 @@ test("src/web/app.js persists conversation readMarks as message seq, not timesta
     /readMarks:\s*\{\s*\[id\]:\s*lastSeenSeqForConversation\(id\)\s*\}/,
     "setActiveConversation should persist the conversation's cached max seq as the read mark"
   );
+});
+
+test("src/web/app.js hydrates the newest message window and paginates backward", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(source, /messages\?latest=1&limit=200/);
+  assert.match(source, /messages\?before_seq=\$\{entry\.minSeq\}&limit=100/);
+  assert.match(source, /mergeWebMessageWindow\(conversationId, incoming\)/);
+  assert.match(source, /entry\.messages = \[\.\.\.byId\.values\(\)\]\.sort/);
+  assert.match(source, /scrollTop = previousTop \+ Math\.max\(0, els\.chat\.scrollHeight - previousHeight\)/);
+});
+
+test("web event resume cursor advances per delivered event, never to events_ready.serverSeq", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const start = source.indexOf('socket.addEventListener("message"');
+  const end = source.indexOf('socket.addEventListener("close"', start);
+  assert.ok(start >= 0 && end > start, "websocket message handler must exist");
+  const handler = source.slice(start, end);
+  assert.match(handler, /saveLastEventSeq\(deliveredSeq\)/);
+  assert.match(handler, /saveLastEventSeq\(envelope\.resetTo\)/);
+  assert.doesNotMatch(handler, /saveLastEventSeq\(envelope\.serverSeq\)/);
+  assert.ok(
+    handler.indexOf("handleCloudEvent(envelope)") < handler.indexOf("saveLastEventSeq(deliveredSeq)"),
+    "the cursor must advance only after the event handler succeeds"
+  );
+});
+
+test("web retries a failed message with the same turn, op id, and mentions", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  assert.match(source, /failedSendsByConversation:\s*new Map\(\)/);
+  assert.match(source, /let prepared = state\.failedSendsByConversation\.get\(id\) \|\| null/);
+  assert.match(source, /turnId:\s*prepared\.clientTraceId/);
+  assert.match(source, /clientOpId:\s*prepared\.clientOpId/);
+  assert.match(source, /mentions:\s*prepared\.mentions/);
+  assert.match(source, /state\.failedSendsByConversation\.set\(id, prepared\)/);
 });

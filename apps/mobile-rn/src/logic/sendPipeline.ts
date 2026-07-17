@@ -1,6 +1,7 @@
 export {
   DEFAULT_MAX_LENGTH,
   MemberKind,
+  clientOpIdForTraceId,
   generateClientTraceId,
   parseMentions,
   prepareOutgoingMessage,

@@ -26,9 +26,11 @@ export interface PreparedMessage {
   mentions: Mention[];
   attachments: unknown[];
   clientTraceId: string;
+  clientOpId: string;
   replyTo?: unknown;
 }
 
 export function generateClientTraceId(): string;
+export function clientOpIdForTraceId(traceId: string): string;
 export function parseMentions(text: string, members?: unknown[] | null): Mention[];
 export function prepareOutgoingMessage(rawInput: OutgoingInput, ctx?: OutgoingCtx): PreparedMessage;

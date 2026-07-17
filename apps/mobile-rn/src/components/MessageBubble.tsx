@@ -8,6 +8,7 @@ import AttachmentList from "./AttachmentList";
 import TraceBlock from "./TraceBlock";
 import StatusBadge from "./StatusBadge";
 import AvatarMedia from "./AvatarMedia";
+import AssistantContentBlocks from "./AssistantContentBlocks";
 import { resolveMessageAuthor } from "../logic/messageAuthor";
 import type { ChatMessage, Member } from "../api/types";
 
@@ -53,55 +54,65 @@ export default function MessageBubble({
   const author = groupMessage ? resolveMessageAuthor(msg, members) : null;
   const timeText = formatMessageTime(msg.createdAt);
   const statusText = deliveryText(msg);
+  const orderedBlocks = !own && Array.isArray(msg.contentBlocks) ? msg.contentBlocks : [];
+  const senderHeader = groupMessage && !own && author?.name ? (
+    <View style={styles.senderRow}>
+      <Text
+        allowFontScaling={false}
+        numberOfLines={1}
+        style={withAndroidTextFace([styles.senderName, typography.type.messageName, { color: author.color }], author.name)}
+      >
+        {author.name}
+      </Text>
+      <StatusBadge badge={author.statusBadge} apiBase={apiBase} size={16} />
+    </View>
+  ) : null;
   return (
     <View style={[styles.row, own && styles.rowOwn, groupMessage && styles.groupRow]}>
       {groupMessage && author ? <AvatarMedia tile={author.avatar} size={36} /> : null}
       <View style={[styles.stack, own && styles.stackOwn, groupMessage ? styles.stackGroup : styles.stackSingle]}>
-        {!own && msg.trace ? <TraceBlock trace={msg.trace} /> : null}
-        <Pressable
-          onLongPress={
-            onLongPress
-              ? () => {
-                  Haptics.selectionAsync();
-                  onLongPress(msg);
-                }
-              : undefined
-          }
-          delayLongPress={300}
-          style={[
-            styles.bubble,
-            own ? styles.own : styles.other,
-            msg.isPending ? styles.pending : null,
-            msg.failed ? styles.failed : null,
-          ]}
-        >
-          <AttachmentList attachments={msg.attachments} apiBase={apiBase} own={own} />
-          {groupMessage && !own && author?.name ? (
-            <View style={styles.senderRow}>
-              <Text
-                allowFontScaling={false}
-                numberOfLines={1}
-                style={withAndroidTextFace([styles.senderName, typography.type.messageName, { color: author.color }], author.name)}
+        {!own && !orderedBlocks.length && msg.trace ? <TraceBlock trace={msg.trace} /> : null}
+        {orderedBlocks.length ? (
+          <>
+            {senderHeader}
+            <AssistantContentBlocks blocks={orderedBlocks} message={msg} onLongPress={onLongPress} />
+            <AttachmentList attachments={msg.attachments} apiBase={apiBase} own={own} />
+          </>
+        ) : (
+          <Pressable
+            onLongPress={
+              onLongPress
+                ? () => {
+                    Haptics.selectionAsync();
+                    onLongPress(msg);
+                  }
+                : undefined
+            }
+            delayLongPress={300}
+            style={[
+              styles.bubble,
+              own ? styles.own : styles.other,
+              msg.isPending ? styles.pending : null,
+              msg.failed ? styles.failed : null,
+            ]}
+          >
+            <AttachmentList attachments={msg.attachments} apiBase={apiBase} own={own} />
+            {senderHeader}
+            {msg.bodyMd ? (
+              <Markdown
+                style={{
+                  body: { ...typography.type.chatMessage, color: textColor, margin: 0 },
+                  paragraph: { marginTop: 0, marginBottom: 0 },
+                  code_inline: { ...typography.type.code, backgroundColor: "rgba(0,0,0,0.06)", color: textColor, borderWidth: 0 },
+                  fence: { ...typography.type.code, backgroundColor: color.codeBg, color: color.codeText, borderWidth: 0, borderRadius: 10, padding: 10 },
+                  link: { color: color.accent },
+                }}
               >
-                {author.name}
-              </Text>
-              <StatusBadge badge={author.statusBadge} apiBase={apiBase} size={16} />
-            </View>
-          ) : null}
-          {msg.bodyMd ? (
-            <Markdown
-              style={{
-                body: { ...typography.type.chatMessage, color: textColor, margin: 0 },
-                paragraph: { marginTop: 0, marginBottom: 0 },
-                code_inline: { ...typography.type.code, backgroundColor: "rgba(0,0,0,0.06)", color: textColor, borderWidth: 0 },
-                fence: { ...typography.type.code, backgroundColor: color.codeBg, color: color.codeText, borderWidth: 0, borderRadius: 10, padding: 10 },
-                link: { color: color.accent },
-              }}
-            >
-              {msg.bodyMd}
-            </Markdown>
-          ) : null}
-        </Pressable>
+                {msg.bodyMd}
+              </Markdown>
+            ) : null}
+          </Pressable>
+        )}
         {timeText ? (
           <Text
             allowFontScaling={false}

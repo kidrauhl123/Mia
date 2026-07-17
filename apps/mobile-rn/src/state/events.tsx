@@ -3,6 +3,10 @@ import { AppState } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { createEventsClient } from "../api/events";
 import { createApprovalQueue, type ApprovalItem } from "../logic/approvalQueue";
+import {
+  createMobileCloudRunProjector,
+  type MobileCloudRun,
+} from "../logic/mobileCloudRun";
 import { normalizeServerRow, mergeMessage } from "../logic/normalizeMessage";
 import { mergeConversationUpdate, patchConversationListSummary, prependConversation } from "../logic/conversationCache";
 import {
@@ -33,6 +37,7 @@ interface EventsCtx {
   activeApproval: ApprovalItem | null;
   pendingApprovalCount: number;
   resolveApproval: (runId: string) => void;
+  runsByConversation: Record<string, MobileCloudRun>;
 }
 
 const Ctx = createContext<EventsCtx>({
@@ -40,6 +45,7 @@ const Ctx = createContext<EventsCtx>({
   activeApproval: null,
   pendingApprovalCount: 0,
   resolveApproval: () => {},
+  runsByConversation: {},
 });
 
 // 从 Hermes 内层事件里取审批预览文本(命令/原因等),镜像 web 的 approvalPreview。
@@ -72,6 +78,28 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
   const [connStatus, setConn] = useState("open");
   const [activeApproval, setActive] = useState<ApprovalItem | null>(null);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [runsByConversation, setRunsByConversation] = useState<Record<string, MobileCloudRun>>({});
+  const runsByConversationRef = useRef<Record<string, MobileCloudRun>>({});
+  const runProjector = useRef(createMobileCloudRunProjector()).current;
+
+  const publishRun = useCallback((run: MobileCloudRun) => {
+    const next = { ...runsByConversationRef.current, [run.conversationId]: run };
+    runsByConversationRef.current = next;
+    setRunsByConversation(next);
+  }, []);
+
+  const clearConversationRun = useCallback((conversationId: string) => {
+    const id = String(conversationId || "");
+    if (!id) return;
+    const current = runsByConversationRef.current;
+    if (current[id]) {
+      const next = { ...current };
+      delete next[id];
+      runsByConversationRef.current = next;
+      setRunsByConversation(next);
+    }
+    runProjector.clearConversation(id);
+  }, [runProjector]);
 
   const reconcileUnreadFromCachedReadMarks = useCallback(() => {
     const settings = qc.getQueryData<UserSettings>(["settings"]);
@@ -112,6 +140,9 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
     if (!session?.token || !userId) {
       lastSeq.current = 0;
       setCursorScope("");
+      runsByConversationRef.current = {};
+      setRunsByConversation({});
+      runProjector.clear();
       return undefined;
     }
     let cancelled = false;
@@ -167,12 +198,12 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           refreshCrossDeviceReadState();
           return;
         }
-        advanceLastSeq(env?.seq);
         if (t === "conversation.message_appended") {
           const row: MessageRow = payload.message || {};
           const cid = row.conversation_id || payload.conversationId || payload.conversation_id;
           if (cid) {
             const incoming = normalizeServerRow({ ...row, conversation_id: row.conversation_id || cid }, userId);
+            if (row.sender_kind === "bot") clearConversationRun(cid);
             const cachedMessages = qc.getQueryData<ChatMessage[]>(["messages", cid]) || [];
             const fresh = !hasCachedMessage(cachedMessages, incoming);
             qc.setQueryData<ChatMessage[]>(["messages", cid], (old) => mergeMessage(old || [], incoming));
@@ -195,6 +226,12 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
                 qc.setQueryData<UnreadCounts>(unreadCountsQueryKey, (old) => incrementUnreadCount(old, cid));
               }
             }
+          }
+        } else if (t === "cloud_agent_run_started") {
+          const cid = String(payload.conversationId || payload.conversation_id || "");
+          if (cid) {
+            const run = runProjector.start(payload, runsByConversationRef.current[cid]);
+            if (run) publishRun(run);
           }
         } else if (t === "conversation.message_deleted") {
           // 本设备或其它设备的微信式本地隐藏:从对应会话列表里移除。
@@ -270,6 +307,11 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
           const inner = payload.event || {};
           const name = String(inner.type || inner.event || "");
           const runId = payload.runId || payload.run_id || "";
+          const cid = String(payload.conversationId || payload.conversation_id || "");
+          if (cid) {
+            const run = runProjector.apply(payload, runsByConversationRef.current[cid]);
+            if (run) publishRun(run);
+          }
           if (name === "approval.request") {
             queue.onRequest({
               conversationId: payload.conversationId || payload.conversation_id,
@@ -288,6 +330,7 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
             syncActive();
           }
         }
+        advanceLastSeq(env?.seq);
         } catch (err) {
           console.warn("[mia] ignored malformed event", err instanceof Error ? err.message : String(err));
         }
@@ -297,16 +340,19 @@ export function EventsProvider({ children }: { children: React.ReactNode }) {
   }, [
     advanceLastSeq,
     apiBase,
+    clearConversationRun,
     cursorScope,
+    publishRun,
     qc,
     reconcileUnreadFromCachedReadMarks,
     refreshCrossDeviceReadState,
+    runProjector,
     saveLastSeq,
     session?.token,
     userId,
   ]);
 
-  return <Ctx.Provider value={{ connStatus, activeApproval, pendingApprovalCount, resolveApproval }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ connStatus, activeApproval, pendingApprovalCount, resolveApproval, runsByConversation }}>{children}</Ctx.Provider>;
 }
 
 export const useEvents = () => useContext(Ctx);
