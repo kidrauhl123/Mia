@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.48",
+  "version": "0.1.49",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -83,7 +83,7 @@
   "engineBackups": {
     "manifestUrl": "https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json"
   },
-  "miaCoreVersion": "v0.1.2",
+  "miaCoreVersion": "v0.1.3",
   "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
     "electron": "^39.2.6",

@@ -10,7 +10,7 @@ on:
       release_tag:
         description: "Existing GitHub release tag"
         required: true
-        default: "v0.1.48"
+        default: "v0.1.49"
         type: string
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
         run: >-
           gh run download "$SOURCE_RUN_ID"
           --repo "$GITHUB_REPOSITORY"
-          --name Mia-desktop-assets-v0.1.48
+          --name Mia-desktop-assets-v0.1.49
           --dir dist/release-assets
 
       - name: Upload desktop assets to release

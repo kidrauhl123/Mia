@@ -16,12 +16,12 @@ jobs:
         run: |
           cd /Users/zuiyou/github/mia
           for file in \
-            release/Mia-0.1.48-Apple-Silicon.dmg \
-            release/Mia-0.1.48-Intel.dmg \
-            release/Mia-0.1.48-arm64-mac.zip \
-            release/Mia-0.1.48-arm64-mac.zip.blockmap \
-            release/Mia-0.1.48-mac.zip \
-            release/Mia-0.1.48-mac.zip.blockmap \
+            release/Mia-0.1.49-Apple-Silicon.dmg \
+            release/Mia-0.1.49-Intel.dmg \
+            release/Mia-0.1.49-arm64-mac.zip \
+            release/Mia-0.1.49-arm64-mac.zip.blockmap \
+            release/Mia-0.1.49-mac.zip \
+            release/Mia-0.1.49-mac.zip.blockmap \
             dist/mia-updates/latest-mac.yml \
             dist/mia-updates/SHA256SUMS; do
             test -s "$file"
@@ -30,14 +30,14 @@ jobs:
       - name: Upload desktop assets for release relay
         uses: actions/upload-artifact@v4
         with:
-          name: Mia-desktop-assets-v0.1.48
+          name: Mia-desktop-assets-v0.1.49
           path: |
-            /Users/zuiyou/github/mia/release/Mia-0.1.48-Apple-Silicon.dmg
-            /Users/zuiyou/github/mia/release/Mia-0.1.48-Intel.dmg
-            /Users/zuiyou/github/mia/release/Mia-0.1.48-arm64-mac.zip
-            /Users/zuiyou/github/mia/release/Mia-0.1.48-arm64-mac.zip.blockmap
-            /Users/zuiyou/github/mia/release/Mia-0.1.48-mac.zip
-            /Users/zuiyou/github/mia/release/Mia-0.1.48-mac.zip.blockmap
+            /Users/zuiyou/github/mia/release/Mia-0.1.49-Apple-Silicon.dmg
+            /Users/zuiyou/github/mia/release/Mia-0.1.49-Intel.dmg
+            /Users/zuiyou/github/mia/release/Mia-0.1.49-arm64-mac.zip
+            /Users/zuiyou/github/mia/release/Mia-0.1.49-arm64-mac.zip.blockmap
+            /Users/zuiyou/github/mia/release/Mia-0.1.49-mac.zip
+            /Users/zuiyou/github/mia/release/Mia-0.1.49-mac.zip.blockmap
             /Users/zuiyou/github/mia/dist/mia-updates/latest-mac.yml
             /Users/zuiyou/github/mia/dist/mia-updates/SHA256SUMS
           if-no-files-found: error
