@@ -234,6 +234,10 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /location = \/downloads\/mia-mobile-update\.json \{/);
   assert.match(source, /add_header Cache-Control "no-store, no-cache, must-revalidate" always;/);
   assert.match(source, /add_header Pragma "no-cache" always;/);
+  assert.match(
+    source,
+    /location = \/downloads\/mia-mobile-update\.json \{[^}]*add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;[^}]*\}/
+  );
   assert.match(source, /copyDir\("src\/cloud-agent", path\.join\(apiDir, "src", "cloud-agent"\)\)/);
   assert.doesNotMatch(source, /"api\/src\/cloud-agent\/default-bot\.js"/);
   assert.doesNotMatch(source, /default-fellow\.js/);

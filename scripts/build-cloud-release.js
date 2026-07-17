@@ -410,6 +410,7 @@ server {
         default_type application/json;
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
         add_header Pragma "no-cache" always;
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     }
 
     location = /updates/latest-mac.yml {
@@ -756,7 +757,7 @@ function verifyRelease() {
     throw new Error("Release nginx site must serve /mobile-scan as the phone authorization page.");
   }
   if (
-    !/location\s+=\s+\/downloads\/mia-mobile-update\.json\s+\{[^}]*add_header\s+Cache-Control\s+"no-store, no-cache, must-revalidate"\s+always;[^}]*add_header\s+Pragma\s+"no-cache"\s+always;[^}]*\}/.test(nginxSite)
+    !/location\s+=\s+\/downloads\/mia-mobile-update\.json\s+\{[^}]*add_header\s+Cache-Control\s+"no-store, no-cache, must-revalidate"\s+always;[^}]*add_header\s+Pragma\s+"no-cache"\s+always;[^}]*add_header\s+Strict-Transport-Security\s+"max-age=31536000; includeSubDomains"\s+always;[^}]*\}/.test(nginxSite)
   ) {
     throw new Error("Release nginx site must prevent caching the mobile update manifest.");
   }
