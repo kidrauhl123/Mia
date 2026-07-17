@@ -57,6 +57,19 @@ function sshRun(remoteCmd, opts = {}) {
   return execFileSync("ssh", [REMOTE, remoteCmd], { encoding: "utf8", stdio: ["pipe", "pipe", "inherit"], ...opts });
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function latestApkAliasCommand({ downloadsDir, apkName, latestApkName, nonce = process.pid }) {
+  const latestDest = `${downloadsDir}/${latestApkName}`;
+  const temporaryLink = `${downloadsDir}/.${latestApkName}.${nonce}.tmp`;
+  return [
+    `ln -sfn ${shellQuote(apkName)} ${shellQuote(temporaryLink)}`,
+    `mv -fT ${shellQuote(temporaryLink)} ${shellQuote(latestDest)}`,
+  ].join(" && ");
+}
+
 function resolveBuild(buildId) {
   console.log(`[publish] looking up EAS build ${buildId}…`);
   const json = JSON.parse(out("npx", ["-y", "eas-cli@latest", "build:view", buildId, "--json"], { cwd: path.join(ROOT, "apps", "mobile-rn") }));
@@ -98,7 +111,9 @@ function main() {
     execFileSync("ssh", [REMOTE, `cat > '${dest}'`], { input: fs.readFileSync(localApk), stdio: ["pipe", "inherit", "inherit"] });
   }
   console.log(`[publish] updating website latest APK → ${latestDest}`);
-  sshRun(`cp '${dest}' '${latestDest}'`, { stdio: ["pipe", "inherit", "inherit"] });
+  sshRun(latestApkAliasCommand({ downloadsDir: DOWNLOADS_DIR, apkName, latestApkName }), {
+    stdio: ["pipe", "inherit", "inherit"],
+  });
 
   // Read the authoritative sha256 + size back from the served file.
   const stat = sshRun(`sha256sum '${dest}' | awk '{print $1}'; stat -c %s '${dest}'`).trim().split(/\s+/);
@@ -137,4 +152,6 @@ function main() {
   console.log("[publish] done — clients on a lower versionCode will now see the update.");
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { latestApkAliasCommand };
