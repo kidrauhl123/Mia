@@ -337,8 +337,8 @@ mod tests {
             async fn prepare_session(
                 &self,
                 plan: RuntimeTurnPlan,
-            ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
-                Ok(mia_core_api_types::AcpRuntimeControlSnapshot {
+            ) -> anyhow::Result<mia_core_api_types::RuntimeControlSnapshot> {
+                Ok(mia_core_api_types::RuntimeControlSnapshot {
                     conversation_id: plan.conversation_id,
                     engine: plan.engine,
                     memory_mode: String::new(),

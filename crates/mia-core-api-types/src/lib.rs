@@ -977,29 +977,36 @@ pub struct BotRuntimeControlOption {
     pub model_profile_id: String,
 }
 
+/// A protocol-neutral choice exposed by an interactive engine runtime.
+///
+/// Native ACP and Hermes Gateway both adapt their protocol-specific session
+/// metadata into this shared API shape.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct AcpRuntimeControlChoice {
+pub struct RuntimeControlChoice {
     pub value: String,
     pub label: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
 }
 
+/// A protocol-neutral runtime setting such as model or reasoning effort.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct AcpRuntimeControl {
+pub struct RuntimeControl {
     pub id: String,
     pub category: String,
     pub current_value: String,
     pub source: String,
     #[serde(default)]
-    pub options: Vec<AcpRuntimeControlChoice>,
+    pub options: Vec<RuntimeControlChoice>,
 }
 
+/// Current runtime settings for a conversation, independent of the engine's
+/// wire protocol. This is not an ACP session snapshot.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct AcpRuntimeControlSnapshot {
+pub struct RuntimeControlSnapshot {
     pub conversation_id: String,
     pub engine: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -1008,14 +1015,14 @@ pub struct AcpRuntimeControlSnapshot {
     pub session_id: Option<String>,
     pub state: String,
     #[serde(default)]
-    pub controls: Vec<AcpRuntimeControl>,
+    pub controls: Vec<RuntimeControl>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub error: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct SetAcpRuntimeControlRequest {
+pub struct SetRuntimeControlRequest {
     pub control_id: String,
     pub value: String,
 }

@@ -367,7 +367,7 @@
         if (result && result.ok === false) throw new Error(result.error || result.message || "Runtime control options failed");
         const raw = runtimeControlPayload(result);
         const payload = nativeControls
-          ? global.miaRuntimeControlOptionsFromAcpSnapshot?.(raw, runtimeKind)
+          ? global.miaRuntimeControlOptionsFromSnapshot?.(raw, runtimeKind)
           : raw;
         if (!payload || typeof payload !== "object") return;
         botRuntimeControlOptionsCache.set(cacheKey, { ...payload, runtimeKind });
@@ -510,7 +510,7 @@
             value
           });
           if (observed && observed.ok === false) throw new Error(observed.error || "Agent 未确认设置");
-          const confirmed = global.miaRuntimeControlOptionsFromAcpSnapshot?.(
+          const confirmed = global.miaRuntimeControlOptionsFromSnapshot?.(
             runtimeControlPayload(observed),
             runtimeKind
           );

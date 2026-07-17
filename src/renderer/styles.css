@@ -6956,6 +6956,12 @@ select.select-open {
   opacity: 0.58;
 }
 
+.composer-model-controls-menu .composer-select-section:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 9px;
+  border-top: 1px solid var(--menu-border);
+}
+
 .composer-select-option {
   display: flex;
   align-items: center;

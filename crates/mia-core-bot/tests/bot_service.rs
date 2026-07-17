@@ -641,7 +641,7 @@ async fn bot_service_blocks_desktop_runtime_controls_until_inventory_is_ready() 
     assert!(response.permission_options.is_empty());
     assert_eq!(response.selected_permission, "");
     assert!(response.send_blocked);
-    assert_eq!(response.send_block_reason, "Hermes ACP 自检未完成");
+    assert_eq!(response.send_block_reason, "Hermes 运行时自检未完成");
 }
 
 #[tokio::test]
@@ -790,7 +790,7 @@ async fn bot_service_treats_checking_agent_inventory_as_not_ready() {
     });
 
     assert!(response.send_blocked);
-    assert_eq!(response.send_block_reason, "Hermes ACP 自检未完成");
+    assert_eq!(response.send_block_reason, "Hermes 运行时自检未完成");
 }
 
 #[tokio::test]

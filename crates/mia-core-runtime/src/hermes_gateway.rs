@@ -11,9 +11,9 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use futures_util::{SinkExt, StreamExt};
 use mia_core_api_types::{
-    AcpRuntimeControl, AcpRuntimeControlChoice, AcpRuntimeControlSnapshot,
     AgentPermissionListResponse, AgentPermissionPendingRequest, AgentPermissionRespondRequest,
-    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode,
+    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode, RuntimeControl,
+    RuntimeControlChoice, RuntimeControlSnapshot,
 };
 use mia_core_common::process::configure_background_command;
 use serde_json::{Map, Value, json};
@@ -42,7 +42,7 @@ pub(crate) async fn probe_hermes_gateway_command(
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
     timeout: Duration,
-) -> Result<AcpRuntimeControlSnapshot> {
+) -> Result<RuntimeControlSnapshot> {
     command.args = crate::hermes_gateway_args(&command.args);
     let conversation_id = format!("hermes-probe-{}", Uuid::now_v7().simple());
     let plan = RuntimeTurnPlan {
@@ -97,7 +97,7 @@ pub trait HermesGatewayBackend: Send + Sync {
         cancellation: Option<RuntimeCancellation>,
     ) -> Result<RuntimeExecutionResult>;
 
-    async fn prepare_session(&self, _plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
+    async fn prepare_session(&self, _plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         bail!("Hermes Gateway runtime does not expose session controls")
     }
 
@@ -106,7 +106,7 @@ pub trait HermesGatewayBackend: Send + Sync {
         _plan: RuntimeTurnPlan,
         _control_id: String,
         _value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         bail!("Hermes Gateway runtime does not expose session controls")
     }
 
@@ -176,10 +176,7 @@ impl HermesGatewaySessionManager {
         self.backend.send_message(plan, sink, cancellation).await
     }
 
-    pub async fn prepare_session(
-        &self,
-        plan: RuntimeTurnPlan,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    pub async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         self.backend.prepare_session(plan).await
     }
 
@@ -188,7 +185,7 @@ impl HermesGatewaySessionManager {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         self.backend.set_control(plan, control_id, value).await
     }
 
@@ -329,10 +326,14 @@ impl HermesGatewayBackend for RealHermesGatewayBackend {
         }
     }
 
-    async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
+    async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         let task = self.task_for_plan(&plan).await?;
         let mut task = task.lock().await;
-        task.ensure_session(&plan).await?;
+        // The official Gateway returns lazy session.create/session.resume
+        // snapshots immediately and warms the agent in the background. Runtime
+        // controls only need that snapshot; waiting for session.info here turns
+        // the lazy API back into a blocking composer load.
+        task.ensure_session_created(&plan, false).await?;
         Ok(task.control_snapshot(&plan))
     }
 
@@ -341,7 +342,7 @@ impl HermesGatewayBackend for RealHermesGatewayBackend {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let task = self.task_for_plan(&plan).await?;
         let mut task = task.lock().await;
         task.ensure_session(&plan).await?;
@@ -433,6 +434,7 @@ impl HermesGatewayTask {
             .map(str::trim)
             .filter(|value| !value.is_empty());
         if let Some(stored_session_id) = requested_resume {
+            let refreshes_platform_runtime = uses_mia_platform_proxy(plan);
             match self
                 .process
                 .rpc
@@ -442,14 +444,20 @@ impl HermesGatewayTask {
                         "session_id": stored_session_id,
                         "source": "mia-desktop",
                         "close_on_disconnect": false,
+                        "lazy": refreshes_platform_runtime,
                     }),
                 )
                 .await
             {
                 Ok(result) => {
                     self.apply_session_result(result, Some(stored_session_id.to_string()))?;
-                    self.refresh_approval_mode(plan).await;
                     self.pending_initial_prompt = None;
+                    if refreshes_platform_runtime {
+                        self.recreate_platform_session(plan, stored_session_id)
+                            .await?;
+                    } else {
+                        self.refresh_approval_mode(plan).await;
+                    }
                     if wait_for_agent {
                         self.wait_for_agent_ready(&mut events).await?;
                     }
@@ -460,6 +468,19 @@ impl HermesGatewayTask {
             }
         }
 
+        self.create_session(plan, None, None).await?;
+        if wait_for_agent {
+            self.wait_for_agent_ready(&mut events).await?;
+        }
+        Ok(())
+    }
+
+    async fn create_session(
+        &mut self,
+        plan: &RuntimeTurnPlan,
+        messages: Option<Vec<Value>>,
+        parent_session_id: Option<&str>,
+    ) -> Result<()> {
         let mut params = Map::new();
         params.insert(
             "cwd".into(),
@@ -479,6 +500,15 @@ impl HermesGatewayTask {
         {
             params.insert("reasoning_effort".into(), Value::String(effort.into()));
         }
+        if let Some(messages) = messages {
+            params.insert("messages".into(), Value::Array(messages));
+        }
+        if let Some(parent_session_id) = parent_session_id {
+            params.insert(
+                "parent_session_id".into(),
+                Value::String(parent_session_id.into()),
+            );
+        }
         let result = self
             .process
             .rpc
@@ -487,10 +517,52 @@ impl HermesGatewayTask {
             .context("create Hermes Gateway session")?;
         self.apply_session_result(result, None)?;
         self.refresh_approval_mode(plan).await;
-        if wait_for_agent {
-            self.wait_for_agent_ready(&mut events).await?;
-        }
         Ok(())
+    }
+
+    async fn recreate_platform_session(
+        &mut self,
+        plan: &RuntimeTurnPlan,
+        resumed_session_id: &str,
+    ) -> Result<()> {
+        let runtime_session_id = self
+            .runtime_session_id
+            .clone()
+            .ok_or_else(|| anyhow!("Hermes Gateway resumed session is missing"))?;
+        let history_result = self
+            .process
+            .rpc
+            .request(
+                "session.history",
+                json!({"session_id": runtime_session_id.clone()}),
+            )
+            .await;
+        if let Err(error) = self
+            .process
+            .rpc
+            .request("session.close", json!({"session_id": runtime_session_id}))
+            .await
+        {
+            tracing::debug!(error = %error, "close temporary Hermes resume session failed");
+        }
+        let history_result = history_result.context("read Hermes Gateway resume history")?;
+        let messages = history_result
+            .get("messages")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| anyhow!("Hermes Gateway session history did not include messages"))?;
+
+        // Hermes correctly restores a session's persisted provider identity,
+        // but Mia's account proxy uses a new loopback URL on every Core start.
+        // Rehydrate the transcript into a continuation session so the agent
+        // resolves the current proxy config instead of the expired URL.
+        self.runtime_session_id = None;
+        self.stored_session_id = None;
+        self.session_info = Value::Null;
+        self.agent_ready = false;
+        self.create_session(plan, Some(messages), Some(resumed_session_id))
+            .await
+            .context("recreate Hermes session with current Mia platform proxy")
     }
 
     fn apply_session_result(&mut self, result: Value, resumed: Option<String>) -> Result<()> {
@@ -577,6 +649,25 @@ impl HermesGatewayTask {
             .runtime_session_id
             .clone()
             .ok_or_else(|| anyhow!("Hermes Gateway runtime session is missing"))?;
+        match self
+            .process
+            .rpc
+            .request(
+                "session.activate",
+                json!({"session_id": runtime_session_id.clone()}),
+            )
+            .await
+        {
+            Ok(result) => {
+                self.apply_session_result(result, None)?;
+                if self.agent_ready {
+                    return Ok(());
+                }
+            }
+            Err(error) => {
+                tracing::debug!(error = %error, "refresh Hermes agent readiness failed");
+            }
+        }
         tokio::time::timeout(HERMES_AGENT_READY_TIMEOUT, async {
             loop {
                 match events.recv().await {
@@ -994,7 +1085,7 @@ impl HermesGatewayTask {
         Ok(())
     }
 
-    fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> AcpRuntimeControlSnapshot {
+    fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> RuntimeControlSnapshot {
         let model = value_string(&self.session_info, &["model"])
             .or_else(|| desired_model(plan))
             .unwrap_or_default();
@@ -1011,7 +1102,7 @@ impl HermesGatewayTask {
             .unwrap_or_else(|| "medium".into());
         let mut controls = Vec::new();
         if !model.is_empty() {
-            controls.push(AcpRuntimeControl {
+            controls.push(RuntimeControl {
                 id: "model".into(),
                 category: "model".into(),
                 current_value: model.clone(),
@@ -1019,7 +1110,7 @@ impl HermesGatewayTask {
                 options: vec![control_choice(&model, &model)],
             });
         }
-        controls.push(AcpRuntimeControl {
+        controls.push(RuntimeControl {
             id: "reasoning_effort".into(),
             category: "thought_level".into(),
             current_value: effort,
@@ -1029,7 +1120,7 @@ impl HermesGatewayTask {
                 .map(|value| control_choice(value, reasoning_effort_label(value)))
                 .collect(),
         });
-        controls.push(AcpRuntimeControl {
+        controls.push(RuntimeControl {
             id: "approval_mode".into(),
             category: "permission".into(),
             current_value: self.approval_mode.clone(),
@@ -1040,14 +1131,14 @@ impl HermesGatewayTask {
                 control_choice_with_description("off", "关闭", "不再询问，直接执行"),
             ],
         });
-        controls.push(AcpRuntimeControl {
+        controls.push(RuntimeControl {
             id: "session_yolo".into(),
             category: "session_permission".into(),
             current_value: if self.session_yolo { "on" } else { "off" }.into(),
             source: "hermes_gateway".into(),
             options: vec![control_choice("off", "关闭"), control_choice("on", "开启")],
         });
-        AcpRuntimeControlSnapshot {
+        RuntimeControlSnapshot {
             conversation_id: plan.conversation_id.clone(),
             engine: plan.engine.clone(),
             memory_mode: match plan.memory_mode {
@@ -1707,6 +1798,12 @@ fn desired_model(plan: &RuntimeTurnPlan) -> Option<String> {
     provider_value(plan, &["model", "platformModel", "platform_model"])
 }
 
+fn uses_mia_platform_proxy(plan: &RuntimeTurnPlan) -> bool {
+    plan.environment
+        .get("MIA_PLATFORM_PROVIDER")
+        .is_some_and(|provider| provider.eq_ignore_ascii_case("mia"))
+}
+
 fn native_model_from_plan(plan: &RuntimeTurnPlan) -> Option<String> {
     let model = desired_model(plan)?;
     (!matches!(model.as_str(), "mia-auto" | "mia-default") && !model.starts_with("mia:"))
@@ -1900,8 +1997,8 @@ fn gateway_event_matches_session(event: &GatewayEvent, runtime_session_id: &str)
     event.session_id.is_empty() || event.session_id == runtime_session_id
 }
 
-fn control_choice(value: &str, label: &str) -> AcpRuntimeControlChoice {
-    AcpRuntimeControlChoice {
+fn control_choice(value: &str, label: &str) -> RuntimeControlChoice {
+    RuntimeControlChoice {
         value: value.into(),
         label: label.into(),
         description: String::new(),
@@ -1912,8 +2009,8 @@ fn control_choice_with_description(
     value: &str,
     label: &str,
     description: &str,
-) -> AcpRuntimeControlChoice {
-    AcpRuntimeControlChoice {
+) -> RuntimeControlChoice {
+    RuntimeControlChoice {
         value: value.into(),
         label: label.into(),
         description: description.into(),
@@ -2043,9 +2140,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn only_mia_platform_sessions_refresh_the_gateway_runtime_on_resume() {
+        let mut plan =
+            bundled_turn_plan("hermes".into(), BTreeMap::new(), PathBuf::from("workspace"));
+        assert!(!uses_mia_platform_proxy(&plan));
+
+        plan.environment
+            .insert("MIA_PLATFORM_PROVIDER".into(), "mia".into());
+        assert!(uses_mia_platform_proxy(&plan));
+    }
+
     #[tokio::test]
     #[ignore = "requires MIA_TEST_HERMES_PYTHON and MIA_TEST_HERMES_PYTHONPATH"]
-    async fn bundled_hermes_probe_converts_acp_launcher_and_creates_gateway_session() {
+    async fn bundled_hermes_probe_normalizes_legacy_launcher_and_creates_gateway_session() {
         let python = std::env::var("MIA_TEST_HERMES_PYTHON")
             .expect("MIA_TEST_HERMES_PYTHON must point to the bundled Python executable");
         let python_path = std::env::var("MIA_TEST_HERMES_PYTHONPATH")
@@ -2109,7 +2217,7 @@ mod tests {
         let plan = bundled_turn_plan(python, environment, workspace);
         let mut task = HermesGatewayTask::spawn(&plan, None).await.unwrap();
         task.ensure_session_created(&plan, false).await.unwrap();
-        let current = |snapshot: &AcpRuntimeControlSnapshot, category: &str| {
+        let current = |snapshot: &RuntimeControlSnapshot, category: &str| {
             snapshot
                 .controls
                 .iter()

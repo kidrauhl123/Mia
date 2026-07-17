@@ -25,9 +25,9 @@ use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use dashmap::DashMap;
 use mia_core_api_types::{
-    AcpRuntimeControl, AcpRuntimeControlChoice, AcpRuntimeControlSnapshot,
     AgentPermissionListResponse, AgentPermissionPendingRequest, AgentPermissionRespondRequest,
-    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode,
+    AgentPermissionRespondResponse, AgentPermissionRule, MemoryMode, RuntimeControl,
+    RuntimeControlChoice, RuntimeControlSnapshot,
 };
 use mia_core_common::process::configure_background_command;
 use serde_json::{Value, json};
@@ -69,7 +69,7 @@ pub async fn probe_native_acp_command(
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
     timeout: Duration,
-) -> std::result::Result<AcpRuntimeControlSnapshot, NativeAcpProbeError> {
+) -> std::result::Result<RuntimeControlSnapshot, NativeAcpProbeError> {
     match tokio::time::timeout(
         timeout,
         probe_native_acp_command_inner(command, environment, workspace_dir),
@@ -321,7 +321,7 @@ pub trait NativeAcpBackend: Send + Sync {
         cancellation: Option<RuntimeCancellation>,
     ) -> Result<RuntimeExecutionResult>;
 
-    async fn prepare_session(&self, _plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
+    async fn prepare_session(&self, _plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         bail!("native ACP runtime does not expose session controls")
     }
 
@@ -330,7 +330,7 @@ pub trait NativeAcpBackend: Send + Sync {
         _plan: RuntimeTurnPlan,
         _control_id: String,
         _value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         bail!("native ACP runtime does not expose session controls")
     }
 
@@ -398,10 +398,7 @@ impl NativeAcpSessionManager {
         self.backend.send_message(plan, sink, cancellation).await
     }
 
-    pub async fn prepare_session(
-        &self,
-        plan: RuntimeTurnPlan,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    pub async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         self.backend.prepare_session(plan).await
     }
 
@@ -410,7 +407,7 @@ impl NativeAcpSessionManager {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         self.backend.set_control(plan, control_id, value).await
     }
 
@@ -490,7 +487,7 @@ impl NativeAcpBackend for RealNativeAcpBackend {
         }
     }
 
-    async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
+    async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<RuntimeControlSnapshot> {
         let key = native_acp_task_key(&plan);
         match self.prepare_session_once(&key, &plan).await {
             Err(error) if is_restartable_session_error(&error) => {
@@ -513,7 +510,7 @@ impl NativeAcpBackend for RealNativeAcpBackend {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let key = native_acp_task_key(&plan);
         match self
             .set_control_once(&key, &plan, &control_id, &value)
@@ -552,7 +549,7 @@ impl RealNativeAcpBackend {
         &self,
         key: &str,
         plan: &RuntimeTurnPlan,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let task = self.task_for_plan(key, plan).await?;
         let mut task = task.lock().await;
         task.ensure_session(plan).await?;
@@ -566,7 +563,7 @@ impl RealNativeAcpBackend {
         plan: &RuntimeTurnPlan,
         control_id: &str,
         value: &str,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let task = self.task_for_plan(key, plan).await?;
         let mut task = task.lock().await;
         task.ensure_session(plan).await?;
@@ -885,7 +882,7 @@ async fn probe_native_acp_command_inner(
     command: RuntimeCommand,
     environment: BTreeMap<String, String>,
     workspace_dir: PathBuf,
-) -> std::result::Result<AcpRuntimeControlSnapshot, NativeAcpProbeError> {
+) -> std::result::Result<RuntimeControlSnapshot, NativeAcpProbeError> {
     let workspace_dir =
         absolute_workspace_dir(&workspace_dir.to_string_lossy()).map_err(|error| {
             NativeAcpProbeError {
@@ -949,7 +946,7 @@ async fn probe_native_acp_command_inner(
         }
     };
 
-    let result: std::result::Result<AcpRuntimeControlSnapshot, (NativeAcpProbeErrorKind, String)> =
+    let result: std::result::Result<RuntimeControlSnapshot, (NativeAcpProbeErrorKind, String)> =
         async {
             let session_state = Arc::new(StdMutex::new(NativeAcpSessionState::default()));
             let protocol = AcpProtocol::connect(
@@ -1079,7 +1076,7 @@ impl NativeAcpSessionState {
         }
     }
 
-    fn control_snapshot(&self, conversation_id: &str, engine: &str) -> AcpRuntimeControlSnapshot {
+    fn control_snapshot(&self, conversation_id: &str, engine: &str) -> RuntimeControlSnapshot {
         let mut controls = self
             .config_options
             .as_deref()
@@ -1101,7 +1098,7 @@ impl NativeAcpSessionState {
             controls.push(control_from_legacy_modes(modes));
         }
 
-        AcpRuntimeControlSnapshot {
+        RuntimeControlSnapshot {
             conversation_id: conversation_id.to_string(),
             engine: engine.to_string(),
             memory_mode: String::new(),
@@ -1153,14 +1150,14 @@ impl NativeAcpSessionState {
     }
 }
 
-fn control_from_config_option(option: &SessionConfigOption) -> Option<AcpRuntimeControl> {
+fn control_from_config_option(option: &SessionConfigOption) -> Option<RuntimeControl> {
     let category = control_category(option)?;
     let SessionConfigKind::Select(select) = &option.kind else {
         return None;
     };
     let options = flatten_config_select_options(&select.options)
         .into_iter()
-        .map(|choice| AcpRuntimeControlChoice {
+        .map(|choice| RuntimeControlChoice {
             value: choice.value.to_string(),
             label: choice.name.clone(),
             description: choice.description.clone().unwrap_or_default(),
@@ -1173,7 +1170,7 @@ fn control_from_config_option(option: &SessionConfigOption) -> Option<AcpRuntime
     if current_value.is_empty() || !options.iter().any(|choice| choice.value == current_value) {
         return None;
     }
-    Some(AcpRuntimeControl {
+    Some(RuntimeControl {
         id: option.id.to_string(),
         category: category.to_string(),
         current_value,
@@ -1210,8 +1207,8 @@ fn flatten_config_select_options(
     }
 }
 
-fn control_from_legacy_models(models: &SessionModelState) -> AcpRuntimeControl {
-    AcpRuntimeControl {
+fn control_from_legacy_models(models: &SessionModelState) -> RuntimeControl {
+    RuntimeControl {
         id: "model".to_string(),
         category: "model".to_string(),
         current_value: models.current_model_id.to_string(),
@@ -1219,7 +1216,7 @@ fn control_from_legacy_models(models: &SessionModelState) -> AcpRuntimeControl {
         options: models
             .available_models
             .iter()
-            .map(|model| AcpRuntimeControlChoice {
+            .map(|model| RuntimeControlChoice {
                 value: model.model_id.to_string(),
                 label: model.name.clone(),
                 description: model.description.clone().unwrap_or_default(),
@@ -1228,8 +1225,8 @@ fn control_from_legacy_models(models: &SessionModelState) -> AcpRuntimeControl {
     }
 }
 
-fn control_from_legacy_modes(modes: &SessionModeState) -> AcpRuntimeControl {
-    AcpRuntimeControl {
+fn control_from_legacy_modes(modes: &SessionModeState) -> RuntimeControl {
+    RuntimeControl {
         id: "mode".to_string(),
         category: "permission".to_string(),
         current_value: modes.current_mode_id.to_string(),
@@ -1237,7 +1234,7 @@ fn control_from_legacy_modes(modes: &SessionModeState) -> AcpRuntimeControl {
         options: modes
             .available_modes
             .iter()
-            .map(|mode| AcpRuntimeControlChoice {
+            .map(|mode| RuntimeControlChoice {
                 value: mode.id.to_string(),
                 label: mode.name.clone(),
                 description: mode.description.clone().unwrap_or_default(),
@@ -1535,7 +1532,7 @@ impl NativeAcpTask {
         Ok(())
     }
 
-    fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> AcpRuntimeControlSnapshot {
+    fn control_snapshot(&self, plan: &RuntimeTurnPlan) -> RuntimeControlSnapshot {
         let mut snapshot = self
             .session_state
             .lock()
@@ -1553,7 +1550,7 @@ impl NativeAcpTask {
                 .retain(|control| control.category != "model");
             snapshot.controls.insert(
                 0,
-                AcpRuntimeControl {
+                RuntimeControl {
                     id: "model".into(),
                     category: "model".into(),
                     current_value: model.to_string(),
@@ -1574,7 +1571,7 @@ impl NativeAcpTask {
                 .split(',')
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(|value| AcpRuntimeControlChoice {
+                .map(|value| RuntimeControlChoice {
                     value: value.to_string(),
                     label: match value {
                         "none" => "None".into(),
@@ -1594,7 +1591,7 @@ impl NativeAcpTask {
                 let index = usize::from(!snapshot.controls.is_empty());
                 snapshot.controls.insert(
                     index,
-                    AcpRuntimeControl {
+                    RuntimeControl {
                         id: "reasoning_effort".into(),
                         category: "thought_level".into(),
                         current_value: current_effort.to_string(),
@@ -1644,7 +1641,7 @@ impl NativeAcpTask {
         plan: &RuntimeTurnPlan,
         control_id: &str,
         value: &str,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         if control_id == "model"
             && platform_model_from_plan(plan).is_some_and(|model| model == value)
         {
@@ -1659,7 +1656,7 @@ impl NativeAcpTask {
         plan: &RuntimeTurnPlan,
         control_id: &str,
         value: &str,
-    ) -> Result<AcpRuntimeControlSnapshot> {
+    ) -> Result<RuntimeControlSnapshot> {
         let (session_id, path) = {
             let state = self.session_state.lock().unwrap();
             let session_id = state
@@ -1779,7 +1776,7 @@ fn platform_model_from_plan(plan: &RuntimeTurnPlan) -> Option<&str> {
 fn platform_model_options_from_plan(
     plan: &RuntimeTurnPlan,
     current_model: &str,
-) -> Vec<AcpRuntimeControlChoice> {
+) -> Vec<RuntimeControlChoice> {
     let mut models = Vec::new();
     push_platform_model_choice(&mut models, current_model);
     if let Some(raw_models) = plan.environment.get("MIA_PLATFORM_MODELS") {
@@ -1789,7 +1786,7 @@ fn platform_model_options_from_plan(
     }
     models
         .into_iter()
-        .map(|model| AcpRuntimeControlChoice {
+        .map(|model| RuntimeControlChoice {
             label: if matches!(model.as_str(), "mia-auto" | "mia-default") {
                 "Auto".into()
             } else {

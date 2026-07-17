@@ -2,11 +2,11 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use mia_core_api_types::{
-    AcpRuntimeControlSnapshot, AgentSessionSkillRuntimeRequest, AgentSessionSkillRuntimeResponse,
-    ConversationListResponse, ConversationMessageListResponse, ConversationResponse,
-    CreateConversationRequest, DeleteConversationResponse, RunConversationUtilityTurnRequest,
-    RunConversationUtilityTurnResponse, SendConversationMessageRequest,
-    SendConversationMessageResponse, SetAcpRuntimeControlRequest, SkillMaterializationRequest,
+    AgentSessionSkillRuntimeRequest, AgentSessionSkillRuntimeResponse, ConversationListResponse,
+    ConversationMessageListResponse, ConversationResponse, CreateConversationRequest,
+    DeleteConversationResponse, RunConversationUtilityTurnRequest,
+    RunConversationUtilityTurnResponse, RuntimeControlSnapshot, SendConversationMessageRequest,
+    SendConversationMessageResponse, SetRuntimeControlRequest, SkillMaterializationRequest,
     SkillMaterializationResponse,
 };
 use mia_core_conversation::{
@@ -75,7 +75,7 @@ pub async fn get_conversation(
 pub async fn prepare_conversation_runtime_controls(
     State(states): State<ModuleStates>,
     Path(conversation_id): Path<String>,
-) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+) -> Result<Json<RuntimeControlSnapshot>, StatusCode> {
     let mut planned = states
         .conversation
         .plan_runtime_session_with_config(&conversation_id)
@@ -121,8 +121,8 @@ pub async fn prepare_conversation_runtime_controls(
 pub async fn set_conversation_runtime_control(
     State(states): State<ModuleStates>,
     Path(conversation_id): Path<String>,
-    Json(request): Json<SetAcpRuntimeControlRequest>,
-) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
+    Json(request): Json<SetRuntimeControlRequest>,
+) -> Result<Json<RuntimeControlSnapshot>, StatusCode> {
     let mut planned = states
         .conversation
         .plan_runtime_session_with_config(&conversation_id)

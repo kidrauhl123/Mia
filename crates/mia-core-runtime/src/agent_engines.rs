@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use mia_core_api_types::AcpRuntimeControl;
+use mia_core_api_types::RuntimeControl;
 use mia_core_common::process::configure_background_command;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -26,11 +26,11 @@ const PINNED_CLAUDE_CLI_VERSION: &str = "2.1.211";
 const PINNED_CLAUDE_SDK_VERSION: &str = "0.3.211";
 const PINNED_CODEX_CLI_VERSION: &str = "0.144.5";
 static MANAGED_ACP_PREPARE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-static AGENT_RUNTIME_CONTROL_CACHE: OnceLock<RwLock<BTreeMap<String, Vec<AcpRuntimeControl>>>> =
+static AGENT_RUNTIME_CONTROL_CACHE: OnceLock<RwLock<BTreeMap<String, Vec<RuntimeControl>>>> =
     OnceLock::new();
 static AGENT_RUNTIME_SOURCE_CACHE: OnceLock<RwLock<BTreeMap<String, String>>> = OnceLock::new();
 
-pub fn cached_agent_runtime_controls(engine: &str) -> Vec<AcpRuntimeControl> {
+pub fn cached_agent_runtime_controls(engine: &str) -> Vec<RuntimeControl> {
     let engine = normalize_agent_engine_id(engine);
     agent_runtime_control_cache()
         .read()
@@ -40,7 +40,7 @@ pub fn cached_agent_runtime_controls(engine: &str) -> Vec<AcpRuntimeControl> {
         .unwrap_or_default()
 }
 
-fn cache_agent_runtime_controls(engine: &str, controls: Vec<AcpRuntimeControl>) {
+fn cache_agent_runtime_controls(engine: &str, controls: Vec<RuntimeControl>) {
     let engine = normalize_agent_engine_id(engine);
     let mut cache = agent_runtime_control_cache().write().unwrap();
     if controls.is_empty() {
@@ -50,7 +50,7 @@ fn cache_agent_runtime_controls(engine: &str, controls: Vec<AcpRuntimeControl>) 
     }
 }
 
-fn agent_runtime_control_cache() -> &'static RwLock<BTreeMap<String, Vec<AcpRuntimeControl>>> {
+fn agent_runtime_control_cache() -> &'static RwLock<BTreeMap<String, Vec<RuntimeControl>>> {
     AGENT_RUNTIME_CONTROL_CACHE.get_or_init(|| RwLock::new(BTreeMap::new()))
 }
 
@@ -211,7 +211,7 @@ impl AgentEngineScanOptions {
 #[derive(Clone)]
 pub struct AgentEngineScanner {
     resolver: Arc<dyn AgentCommandResolver>,
-    prober: Arc<dyn AcpCommandProber>,
+    prober: Arc<dyn AgentRuntimeCommandProber>,
 }
 
 impl std::fmt::Debug for AgentEngineScanner {
@@ -232,7 +232,7 @@ impl AgentEngineScanner {
     pub fn real() -> Self {
         Self {
             resolver: Arc::new(RealAgentCommandResolver),
-            prober: Arc::new(RealAcpCommandProber),
+            prober: Arc::new(RealAgentRuntimeCommandProber),
         }
     }
 
@@ -274,8 +274,8 @@ impl AgentEngineScanner {
             managed = resolve_managed_acp_runtime(definition, options)
                 .with_previous_diagnostics(diagnostics);
         }
-        let mut acp_launcher = if definition.id == "hermes" && primary.source == "mia-managed" {
-            let Some(runtime) = resolve_mia_stable_hermes_acp(options) else {
+        let mut runtime_launcher = if definition.id == "hermes" && primary.source == "mia-managed" {
+            let Some(runtime) = resolve_mia_stable_hermes_gateway_runtime(options) else {
                 return blocked_status(
                     definition,
                     primary,
@@ -304,8 +304,8 @@ impl AgentEngineScanner {
                 String::new(),
             );
         } else {
-            let acp_launcher = self.resolver.resolve(definition.acp_command, options).await;
-            let Some(acp_launcher) = acp_launcher else {
+            let runtime_launcher = self.resolver.resolve(definition.acp_command, options).await;
+            let Some(runtime_launcher) = runtime_launcher else {
                 cache_agent_runtime_source(definition.id, "");
                 return blocked_status(
                     definition,
@@ -322,29 +322,29 @@ impl AgentEngineScanner {
                     String::new(),
                 );
             };
-            ResolvedAcpRuntime::system(acp_launcher, definition.acp_args)
+            ResolvedAgentRuntime::system(runtime_launcher, definition.acp_args)
         };
         if definition.id == "hermes" {
-            acp_launcher = as_hermes_gateway_runtime(acp_launcher);
+            runtime_launcher = as_hermes_gateway_runtime(runtime_launcher);
         }
 
         let outcome = self
             .prober
-            .probe(AcpProbeRequest {
+            .probe(AgentRuntimeProbeRequest {
                 engine_id: definition.acp_engine_id.to_string(),
                 command: RuntimeCommand {
-                    program: acp_launcher.path.clone(),
-                    args: acp_launcher.args.clone(),
+                    program: runtime_launcher.path.clone(),
+                    args: runtime_launcher.args.clone(),
                 },
-                display: acp_launcher.display(),
-                env: acp_probe_environment(definition, options, &primary, &acp_launcher),
+                display: runtime_launcher.display(),
+                env: runtime_probe_environment(definition, options, &primary, &runtime_launcher),
                 workspace_dir: options.workspace_dir.clone(),
                 timeout: options.probe_timeout,
             })
             .await;
 
         match outcome {
-            AcpProbeOutcome::Ready {
+            AgentRuntimeProbeOutcome::Ready {
                 detail, controls, ..
             } => {
                 cache_agent_runtime_controls(definition.id, controls);
@@ -353,13 +353,13 @@ impl AgentEngineScanner {
                     definition,
                     primary,
                     version,
-                    acp_launcher,
+                    runtime_launcher,
                     detail
                         .as_deref()
                         .unwrap_or_else(|| default_probe_success_detail(definition)),
                 )
             }
-            AcpProbeOutcome::Failed {
+            AgentRuntimeProbeOutcome::Failed {
                 error_code, detail, ..
             } => {
                 cache_agent_runtime_controls(definition.id, Vec::new());
@@ -371,32 +371,32 @@ impl AgentEngineScanner {
                         } else {
                             fallback_primary.version.clone()
                         };
-                        let fallback_acp = if definition.id == "hermes" {
-                            resolve_mia_stable_hermes_acp(options).map(as_hermes_gateway_runtime)
+                        let fallback_runtime = if definition.id == "hermes" {
+                            resolve_mia_stable_hermes_gateway_runtime(options)
                         } else {
-                            Some(acp_launcher.clone())
+                            Some(runtime_launcher.clone())
                         };
-                        if let Some(fallback_acp) = fallback_acp {
+                        if let Some(fallback_runtime) = fallback_runtime {
                             let fallback_outcome = self
                                 .prober
-                                .probe(AcpProbeRequest {
+                                .probe(AgentRuntimeProbeRequest {
                                     engine_id: definition.acp_engine_id.to_string(),
                                     command: RuntimeCommand {
-                                        program: fallback_acp.path.clone(),
-                                        args: fallback_acp.args.clone(),
+                                        program: fallback_runtime.path.clone(),
+                                        args: fallback_runtime.args.clone(),
                                     },
-                                    display: fallback_acp.display(),
-                                    env: acp_probe_environment(
+                                    display: fallback_runtime.display(),
+                                    env: runtime_probe_environment(
                                         definition,
                                         options,
                                         &fallback_primary,
-                                        &fallback_acp,
+                                        &fallback_runtime,
                                     ),
                                     workspace_dir: options.workspace_dir.clone(),
                                     timeout: options.probe_timeout,
                                 })
                                 .await;
-                            if let AcpProbeOutcome::Ready {
+                            if let AgentRuntimeProbeOutcome::Ready {
                                 detail, controls, ..
                             } = fallback_outcome
                             {
@@ -406,7 +406,7 @@ impl AgentEngineScanner {
                                     definition,
                                     fallback_primary,
                                     fallback_version,
-                                    fallback_acp,
+                                    fallback_runtime,
                                     detail.as_deref().unwrap_or_else(|| {
                                         default_probe_success_detail(definition)
                                     }),
@@ -419,7 +419,7 @@ impl AgentEngineScanner {
                         definition,
                         primary,
                         version,
-                        acp_launcher,
+                        runtime_launcher,
                         &error_code,
                         &format!("{} 本机版本自检失败", definition.label),
                         &detail,
@@ -430,7 +430,7 @@ impl AgentEngineScanner {
                     definition,
                     primary,
                     version,
-                    acp_launcher,
+                    runtime_launcher,
                     &error_code,
                     &format!("{} ACP 可用性待确认", definition.label),
                     &detail,
@@ -443,7 +443,7 @@ impl AgentEngineScanner {
     fn fake_for_tests<C, P>(commands: C, probes: P) -> Self
     where
         C: IntoIterator<Item = (&'static str, &'static str)>,
-        P: IntoIterator<Item = (&'static str, AcpProbeOutcome)>,
+        P: IntoIterator<Item = (&'static str, AgentRuntimeProbeOutcome)>,
     {
         Self {
             resolver: Arc::new(FakeAgentCommandResolver {
@@ -452,7 +452,7 @@ impl AgentEngineScanner {
                     .map(|(command, path)| (command.to_string(), path.to_string()))
                     .collect(),
             }),
-            prober: Arc::new(FakeAcpCommandProber {
+            prober: Arc::new(FakeAgentRuntimeCommandProber {
                 probes: probes
                     .into_iter()
                     .map(|(engine, outcome)| (engine.to_string(), outcome))
@@ -612,7 +612,7 @@ struct ResolvedCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ResolvedAcpRuntime {
+struct ResolvedAgentRuntime {
     command: String,
     path: String,
     args: Vec<String>,
@@ -625,7 +625,7 @@ struct ResolvedAcpRuntime {
     root_dir: String,
 }
 
-impl ResolvedAcpRuntime {
+impl ResolvedAgentRuntime {
     fn system(command: ResolvedCommand, args: &[&str]) -> Self {
         Self {
             command: command.command,
@@ -651,7 +651,7 @@ impl ResolvedAcpRuntime {
     }
 }
 
-fn as_hermes_gateway_runtime(mut runtime: ResolvedAcpRuntime) -> ResolvedAcpRuntime {
+fn as_hermes_gateway_runtime(mut runtime: ResolvedAgentRuntime) -> ResolvedAgentRuntime {
     runtime.args = crate::hermes_gateway_args(&runtime.args);
     runtime.protocol = "tui-gateway".into();
     runtime
@@ -705,7 +705,7 @@ impl AgentCommandResolver for RealAgentCommandResolver {
 }
 
 #[derive(Debug, Clone)]
-struct AcpProbeRequest {
+struct AgentRuntimeProbeRequest {
     #[cfg_attr(not(test), allow(dead_code))]
     engine_id: String,
     command: RuntimeCommand,
@@ -716,11 +716,11 @@ struct AcpProbeRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum AcpProbeOutcome {
+enum AgentRuntimeProbeOutcome {
     Ready {
         detail: Option<String>,
         latency_ms: u64,
-        controls: Vec<AcpRuntimeControl>,
+        controls: Vec<RuntimeControl>,
     },
     Failed {
         error_code: String,
@@ -729,7 +729,7 @@ enum AcpProbeOutcome {
     },
 }
 
-impl AcpProbeOutcome {
+impl AgentRuntimeProbeOutcome {
     #[cfg(test)]
     fn failed(error_code: &str, detail: &str) -> Self {
         Self::Failed {
@@ -741,16 +741,16 @@ impl AcpProbeOutcome {
 }
 
 #[async_trait]
-trait AcpCommandProber: Send + Sync {
-    async fn probe(&self, request: AcpProbeRequest) -> AcpProbeOutcome;
+trait AgentRuntimeCommandProber: Send + Sync {
+    async fn probe(&self, request: AgentRuntimeProbeRequest) -> AgentRuntimeProbeOutcome;
 }
 
 #[derive(Debug, Default)]
-struct RealAcpCommandProber;
+struct RealAgentRuntimeCommandProber;
 
 #[async_trait]
-impl AcpCommandProber for RealAcpCommandProber {
-    async fn probe(&self, request: AcpProbeRequest) -> AcpProbeOutcome {
+impl AgentRuntimeCommandProber for RealAgentRuntimeCommandProber {
+    async fn probe(&self, request: AgentRuntimeProbeRequest) -> AgentRuntimeProbeOutcome {
         let started = Instant::now();
         if request.engine_id == "hermes" {
             return match probe_hermes_gateway_command(
@@ -761,7 +761,7 @@ impl AcpCommandProber for RealAcpCommandProber {
             )
             .await
             {
-                Ok(snapshot) => AcpProbeOutcome::Ready {
+                Ok(snapshot) => AgentRuntimeProbeOutcome::Ready {
                     detail: Some("Hermes Gateway ready + session.create ok".into()),
                     latency_ms: elapsed_ms(started),
                     controls: snapshot.controls,
@@ -776,7 +776,7 @@ impl AcpCommandProber for RealAcpCommandProber {
                     } else {
                         "gateway_probe_failed"
                     };
-                    AcpProbeOutcome::Failed {
+                    AgentRuntimeProbeOutcome::Failed {
                         error_code: error_code.into(),
                         detail,
                         latency_ms: elapsed_ms(started),
@@ -792,7 +792,7 @@ impl AcpCommandProber for RealAcpCommandProber {
         )
         .await
         {
-            Ok(snapshot) => AcpProbeOutcome::Ready {
+            Ok(snapshot) => AgentRuntimeProbeOutcome::Ready {
                 detail: Some(format!("{}: initialize + session/new ok", request.display)),
                 latency_ms: elapsed_ms(started),
                 controls: snapshot.controls,
@@ -802,7 +802,7 @@ impl AcpCommandProber for RealAcpCommandProber {
                     "{}: {} {}",
                     request.display, error.message, error.stderr
                 ));
-                AcpProbeOutcome::Failed {
+                AgentRuntimeProbeOutcome::Failed {
                     error_code: classify_acp_probe_error(error.kind, &detail),
                     detail,
                     latency_ms: elapsed_ms(started),
@@ -843,7 +843,7 @@ fn ready_status(
     definition: AgentEngineDefinition,
     primary: ResolvedCommand,
     version: String,
-    acp: ResolvedAcpRuntime,
+    runtime: ResolvedAgentRuntime,
     detail: &str,
 ) -> AgentEngineStatus {
     let integration = if definition.id == "hermes" {
@@ -862,7 +862,7 @@ fn ready_status(
         definition,
         Some(primary),
         version,
-        Some(acp),
+        Some(runtime),
         true,
         true,
         "system",
@@ -884,7 +884,7 @@ fn blocked_status(
     definition: AgentEngineDefinition,
     primary: ResolvedCommand,
     version: String,
-    acp: Option<ResolvedAcpRuntime>,
+    runtime: Option<ResolvedAgentRuntime>,
     error_code: &str,
     summary: &str,
     detail: &str,
@@ -901,7 +901,7 @@ fn blocked_status(
         definition,
         Some(primary),
         version,
-        acp,
+        runtime,
         true,
         false,
         "system",
@@ -915,7 +915,7 @@ fn degraded_status(
     definition: AgentEngineDefinition,
     primary: ResolvedCommand,
     version: String,
-    acp: ResolvedAcpRuntime,
+    runtime: ResolvedAgentRuntime,
     error_code: &str,
     summary: &str,
     detail: &str,
@@ -925,7 +925,7 @@ fn degraded_status(
         definition,
         Some(primary),
         version,
-        Some(acp),
+        Some(runtime),
         true,
         true,
         "system",
@@ -939,7 +939,7 @@ fn repairable_status(
     definition: AgentEngineDefinition,
     primary: ResolvedCommand,
     version: String,
-    acp: ResolvedAcpRuntime,
+    runtime: ResolvedAgentRuntime,
     error_code: &str,
     summary: &str,
     detail: &str,
@@ -956,7 +956,7 @@ fn repairable_status(
         definition,
         Some(primary),
         version,
-        Some(acp),
+        Some(runtime),
         true,
         false,
         "system",
@@ -970,7 +970,7 @@ fn status_from_parts(
     definition: AgentEngineDefinition,
     primary: Option<ResolvedCommand>,
     version: String,
-    acp: Option<ResolvedAcpRuntime>,
+    runtime: Option<ResolvedAgentRuntime>,
     installed: bool,
     usable_in_mia: bool,
     source: &str,
@@ -991,29 +991,29 @@ fn status_from_parts(
         .as_ref()
         .map(|item| item.command.clone())
         .unwrap_or_else(|| definition.primary_command.into());
-    let acp_path = acp
+    let runtime_path = runtime
         .as_ref()
         .map(|item| item.path.clone())
         .unwrap_or_default();
-    let runtime_source = acp
+    let runtime_source = runtime
         .as_ref()
         .map(|item| item.source.clone())
         .unwrap_or_else(|| "missing".into());
-    let runtime_managed = acp.as_ref().map(|item| item.managed).unwrap_or(false);
-    let runtime_version = acp
+    let runtime_managed = runtime.as_ref().map(|item| item.managed).unwrap_or(false);
+    let runtime_version = runtime
         .as_ref()
         .map(|item| item.version.clone())
         .unwrap_or_default();
-    let runtime_protocol = acp
+    let runtime_protocol = runtime
         .as_ref()
         .map(|item| item.protocol.clone())
         .filter(|item| !item.trim().is_empty())
         .unwrap_or_else(|| "acp".into());
-    let runtime_command = acp
+    let runtime_command = runtime
         .as_ref()
         .map(|item| item.command.clone())
         .unwrap_or_else(|| definition.acp_command.into());
-    let runtime_args = acp
+    let runtime_args = runtime
         .as_ref()
         .map(|item| item.args.clone())
         .unwrap_or_else(|| {
@@ -1058,8 +1058,8 @@ fn status_from_parts(
         runtime: AgentEngineRuntimeStatus {
             source: runtime_source,
             managed: runtime_managed,
-            supported: acp.is_some(),
-            path: acp_path,
+            supported: runtime.is_some(),
+            path: runtime_path,
             version: runtime_version,
             protocol: runtime_protocol,
             command: runtime_command,
@@ -1085,11 +1085,11 @@ fn readiness(
     }
 }
 
-fn acp_probe_environment(
+fn runtime_probe_environment(
     definition: AgentEngineDefinition,
     options: &AgentEngineScanOptions,
     primary: &ResolvedCommand,
-    runtime: &ResolvedAcpRuntime,
+    runtime: &ResolvedAgentRuntime,
 ) -> BTreeMap<String, String> {
     let mut env = options.env.clone();
     env.extend(runtime.env.clone());
@@ -1121,7 +1121,7 @@ fn primary_cli_environment_key(definition: AgentEngineDefinition) -> Option<&'st
 
 #[derive(Debug, Default)]
 struct ManagedAcpSearchResult {
-    runtime: Option<ResolvedAcpRuntime>,
+    runtime: Option<ResolvedAgentRuntime>,
     diagnostics: Vec<String>,
 }
 
@@ -1850,7 +1850,7 @@ fn managed_manifest_locations(
 fn runtime_from_managed_manifest(
     location: &ManagedManifestLocation,
     options: &AgentEngineScanOptions,
-) -> Result<Option<ResolvedAcpRuntime>, String> {
+) -> Result<Option<ResolvedAgentRuntime>, String> {
     if !location.manifest_path.is_file() {
         return Ok(None);
     }
@@ -1917,7 +1917,7 @@ fn runtime_from_managed_manifest(
             args,
         )
     };
-    Ok(Some(ResolvedAcpRuntime {
+    Ok(Some(ResolvedAgentRuntime {
         command: command_path.clone(),
         path: command_path,
         args: runtime_args,
@@ -2033,7 +2033,7 @@ fn mia_stable_hermes_runtime(options: &AgentEngineScanOptions) -> Option<MiaStab
 
 fn managed_primary_path(
     definition: AgentEngineDefinition,
-    runtime: &ResolvedAcpRuntime,
+    runtime: &ResolvedAgentRuntime,
     options: &AgentEngineScanOptions,
 ) -> Option<PathBuf> {
     let root = Path::new(&runtime.root_dir);
@@ -2083,7 +2083,7 @@ fn codex_platform_target(runtime_key: &str) -> Option<(&'static str, &'static st
 
 fn managed_primary_version(
     definition: AgentEngineDefinition,
-    runtime: &ResolvedAcpRuntime,
+    runtime: &ResolvedAgentRuntime,
 ) -> String {
     let root = Path::new(&runtime.root_dir);
     let package_json = match definition.id {
@@ -2146,7 +2146,12 @@ fn resolve_mia_stable_primary(
     })
 }
 
-fn resolve_mia_stable_hermes_acp(options: &AgentEngineScanOptions) -> Option<ResolvedAcpRuntime> {
+/// Resolves the bundled Hermes runtime as its actual Gateway transport. Older
+/// manifests still store the historical `acp` entrypoint, so the legacy value
+/// is normalized here and never escapes into runtime planning.
+fn resolve_mia_stable_hermes_gateway_runtime(
+    options: &AgentEngineScanOptions,
+) -> Option<ResolvedAgentRuntime> {
     let definition = agent_definitions()
         .into_iter()
         .find(|definition| definition.id == "hermes")?;
@@ -2165,7 +2170,7 @@ fn resolve_mia_stable_hermes_acp(options: &AgentEngineScanOptions) -> Option<Res
         python_path.push(existing.clone());
     }
     env.insert("PYTHONPATH".into(), python_path.join(delimiter));
-    Some(ResolvedAcpRuntime {
+    Some(as_hermes_gateway_runtime(ResolvedAgentRuntime {
         command: path_to_string(&runtime.python),
         path: path_to_string(&runtime.python),
         args: vec!["-m".into(), "hermes_cli.main".into(), "acp".into()],
@@ -2176,7 +2181,7 @@ fn resolve_mia_stable_hermes_acp(options: &AgentEngineScanOptions) -> Option<Res
         env,
         path_entries: Vec::new(),
         root_dir: path_to_string(runtime.root),
-    })
+    }))
 }
 
 fn validate_managed_platform_binary(
@@ -2468,7 +2473,7 @@ fn runtime_arch() -> &'static str {
     }
 }
 
-fn runtime_path_entries(runtime: &ResolvedAcpRuntime) -> Vec<String> {
+fn runtime_path_entries(runtime: &ResolvedAgentRuntime) -> Vec<String> {
     let mut entries = runtime.path_entries.clone();
     if let Some(parent) = Path::new(&runtime.path).parent() {
         entries.insert(0, path_to_string(parent));
@@ -2589,7 +2594,7 @@ pub(crate) fn resolve_managed_agent_runtime_plan(
         {
             return None;
         }
-        let runtime = resolve_mia_stable_hermes_acp(&initial_options)?;
+        let runtime = resolve_mia_stable_hermes_gateway_runtime(&initial_options)?;
         let mut environment = base_env;
         environment.extend(runtime.env.clone());
         return Some(AgentManagedRuntimePlan {
@@ -2911,18 +2916,18 @@ impl AgentCommandResolver for FakeAgentCommandResolver {
 
 #[cfg(test)]
 #[derive(Debug)]
-struct FakeAcpCommandProber {
-    probes: HashMap<String, AcpProbeOutcome>,
+struct FakeAgentRuntimeCommandProber {
+    probes: HashMap<String, AgentRuntimeProbeOutcome>,
 }
 
 #[cfg(test)]
 #[async_trait]
-impl AcpCommandProber for FakeAcpCommandProber {
-    async fn probe(&self, request: AcpProbeRequest) -> AcpProbeOutcome {
+impl AgentRuntimeCommandProber for FakeAgentRuntimeCommandProber {
+    async fn probe(&self, request: AgentRuntimeProbeRequest) -> AgentRuntimeProbeOutcome {
         self.probes
             .get(&request.engine_id)
             .cloned()
-            .unwrap_or(AcpProbeOutcome::Ready {
+            .unwrap_or(AgentRuntimeProbeOutcome::Ready {
                 detail: Some(format!("{} ok", request.display)),
                 latency_ms: 1,
                 controls: Vec::new(),
@@ -3015,15 +3020,15 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct RecordingAcpCommandProber {
-        requests: Arc<Mutex<Vec<AcpProbeRequest>>>,
+    struct RecordingAgentRuntimeCommandProber {
+        requests: Arc<Mutex<Vec<AgentRuntimeProbeRequest>>>,
     }
 
     #[async_trait]
-    impl AcpCommandProber for RecordingAcpCommandProber {
-        async fn probe(&self, request: AcpProbeRequest) -> AcpProbeOutcome {
+    impl AgentRuntimeCommandProber for RecordingAgentRuntimeCommandProber {
+        async fn probe(&self, request: AgentRuntimeProbeRequest) -> AgentRuntimeProbeOutcome {
             self.requests.lock().unwrap().push(request);
-            AcpProbeOutcome::Ready {
+            AgentRuntimeProbeOutcome::Ready {
                 detail: Some("ok".into()),
                 latency_ms: 1,
                 controls: Vec::new(),
@@ -3033,22 +3038,22 @@ mod tests {
 
     #[derive(Debug)]
     struct SystemFailsStableReadyProber {
-        requests: Arc<Mutex<Vec<AcpProbeRequest>>>,
+        requests: Arc<Mutex<Vec<AgentRuntimeProbeRequest>>>,
         system_path: String,
     }
 
     #[async_trait]
-    impl AcpCommandProber for SystemFailsStableReadyProber {
-        async fn probe(&self, request: AcpProbeRequest) -> AcpProbeOutcome {
+    impl AgentRuntimeCommandProber for SystemFailsStableReadyProber {
+        async fn probe(&self, request: AgentRuntimeProbeRequest) -> AgentRuntimeProbeOutcome {
             let uses_system = request
                 .env
                 .get("CLAUDE_CODE_EXECUTABLE")
                 .is_some_and(|path| path == &self.system_path);
             self.requests.lock().unwrap().push(request);
             if uses_system {
-                AcpProbeOutcome::failed("acp_init_failed", "system cli failed")
+                AgentRuntimeProbeOutcome::failed("acp_init_failed", "system cli failed")
             } else {
-                AcpProbeOutcome::Ready {
+                AgentRuntimeProbeOutcome::Ready {
                     detail: Some("stable fallback ok".into()),
                     latency_ms: 1,
                     controls: Vec::new(),
@@ -3526,7 +3531,10 @@ mod tests {
         let entrypoint = write_codex_managed_acp(&root);
         let scanner = AgentEngineScanner::fake_for_tests(
             [("codex", "/usr/local/bin/codex")],
-            [("codex", AcpProbeOutcome::failed("acp_init_failed", "boom"))],
+            [(
+                "codex",
+                AgentRuntimeProbeOutcome::failed("acp_init_failed", "boom"),
+            )],
         );
 
         let inventory = scanner.scan(managed_test_options(&root)).await;
@@ -3563,7 +3571,7 @@ mod tests {
             [("hermes", "/usr/local/bin/hermes")],
             [(
                 "hermes",
-                AcpProbeOutcome::failed("acp_session_failed", "model must be non-empty"),
+                AgentRuntimeProbeOutcome::failed("acp_session_failed", "model must be non-empty"),
             )],
         );
 
@@ -3598,7 +3606,7 @@ mod tests {
                     .into_iter()
                     .collect(),
             }),
-            prober: Arc::new(RecordingAcpCommandProber {
+            prober: Arc::new(RecordingAgentRuntimeCommandProber {
                 requests: requests.clone(),
             }),
         };
@@ -3684,7 +3692,7 @@ mod tests {
                 .into_iter()
                 .collect(),
             }),
-            prober: Arc::new(RecordingAcpCommandProber {
+            prober: Arc::new(RecordingAgentRuntimeCommandProber {
                 requests: requests.clone(),
             }),
         };

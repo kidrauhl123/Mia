@@ -4767,6 +4767,35 @@ function composerSelectOptions(select) {
   return entries;
 }
 
+function composerSelectMenuContent(select) {
+  const primaryEntries = composerSelectOptions(select)
+    .filter((entry) => entry.type !== "option" || !entry.placeholder);
+  const effortEntries = select === els.quickModelSelect && els.effortSelect && !els.effortSelect.disabled
+    ? composerSelectOptions(els.effortSelect)
+      .filter((entry) => entry.type !== "option" || !entry.placeholder)
+    : [];
+  const combinedModelControls = effortEntries.some((entry) => entry.type === "option" && !entry.disabled);
+  const sections = combinedModelControls
+    ? [
+      ...(primaryEntries.some((entry) => entry.type === "option")
+        ? [{ label: "模型", select, entries: primaryEntries }]
+        : []),
+      { label: "推理强度", select: els.effortSelect, entries: effortEntries }
+    ]
+    : [{ label: "", select, entries: primaryEntries }];
+  const selectTargets = new Map();
+  const entries = [];
+  sections.forEach((section, index) => {
+    const selectKey = String(section.select?.id || `select-${index}`);
+    selectTargets.set(selectKey, section.select);
+    if (combinedModelControls) {
+      entries.push({ type: "group", label: section.label, section: true });
+    }
+    section.entries.forEach((entry) => entries.push({ ...entry, selectKey }));
+  });
+  return { entries, selectTargets, combinedModelControls };
+}
+
 function ensureComposerSelectMenu() {
   let menu = document.getElementById("composerSelectMenu");
   if (menu) return menu;
@@ -4803,6 +4832,8 @@ function closeComposerSelectMenu() {
   const menu = document.getElementById("composerSelectMenu");
   if (menu) {
     window.miaHermesPermissionMenu?.resetMenu?.(menu);
+    menu.classList.remove("composer-model-controls-menu");
+    menu.setAttribute("role", "listbox");
     menu.classList.add("hidden");
     menu.innerHTML = "";
   }
@@ -4810,14 +4841,26 @@ function closeComposerSelectMenu() {
   activeComposerSelectMenu = null;
 }
 
-function chooseComposerSelectOption(select, value) {
+function chooseComposerSelectOption(select, value, focusSelect = select) {
   if (!select || select.disabled) return;
   if (select.value !== value) {
     select.value = value;
     select.dispatchEvent(new Event("change", { bubbles: true }));
   }
   closeComposerSelectMenu();
-  select.focus({ preventScroll: true });
+  focusSelect?.focus?.({ preventScroll: true });
+}
+
+function chooseComposerSelectMenuOption(option) {
+  if (!option || !activeComposerSelectMenu) return;
+  const selectKey = String(option.dataset.selectKey || "");
+  const targetSelect = activeComposerSelectMenu.selectTargets?.get(selectKey)
+    || activeComposerSelectMenu.select;
+  chooseComposerSelectOption(
+    targetSelect,
+    option.dataset.value || "",
+    activeComposerSelectMenu.select
+  );
 }
 
 function openComposerSelectMenu(select) {
@@ -4829,30 +4872,38 @@ function openComposerSelectMenu(select) {
   }
   closeComposerSelectMenu();
   const menu = ensureComposerSelectMenu();
-  const entries = composerSelectOptions(select).filter((entry) => entry.type !== "option" || !entry.placeholder);
+  const { entries, selectTargets, combinedModelControls } = composerSelectMenuContent(select);
   const options = entries.filter((option) => option.type === "option" && !option.disabled);
   if (!options.length) return;
   const selectedValue = String(select.value || options.find((option) => option.selected)?.value || options[0]?.value || "");
   window.miaHermesPermissionMenu?.resetMenu?.(menu);
-  const renderedHermesMenu = window.miaHermesPermissionMenu?.renderMenu?.({
-    select,
-    menu,
-    entries,
-    selectedValue,
-    escapeHtml: window.miaMarkdown.escapeHtml
-  });
+  menu.classList.toggle("composer-model-controls-menu", combinedModelControls);
+  menu.setAttribute("role", combinedModelControls ? "menu" : "listbox");
+  const renderedHermesMenu = combinedModelControls
+    ? false
+    : window.miaHermesPermissionMenu?.renderMenu?.({
+      select,
+      menu,
+      entries,
+      selectedValue,
+      escapeHtml: window.miaMarkdown.escapeHtml
+    });
   if (!renderedHermesMenu) {
     menu.innerHTML = entries.map((option) => {
       if (option.type === "group") {
-        return `<div class="composer-select-group${option.disabled ? " disabled" : ""}">${window.miaMarkdown.escapeHtml(option.label)}</div>`;
+        return `<div class="composer-select-group${option.section ? " composer-select-section" : ""}${option.disabled ? " disabled" : ""}">${window.miaMarkdown.escapeHtml(option.label)}</div>`;
       }
-      const selected = String(option.value) === selectedValue;
-      return `<button class="composer-select-option${selected ? " selected" : ""}" type="button" role="option" aria-selected="${selected ? "true" : "false"}" data-value="${window.miaMarkdown.escapeHtml(option.value)}"${option.disabled ? " disabled" : ""}>${window.miaMarkdown.escapeHtml(option.label)}</button>`;
+      const selected = Boolean(option.selected) || (!combinedModelControls && String(option.value) === selectedValue);
+      const role = combinedModelControls ? "menuitemradio" : "option";
+      const checkedState = combinedModelControls
+        ? `aria-checked="${selected ? "true" : "false"}"`
+        : `aria-selected="${selected ? "true" : "false"}"`;
+      return `<button class="composer-select-option${selected ? " selected" : ""}" type="button" role="${role}" ${checkedState} data-select-key="${window.miaMarkdown.escapeHtml(option.selectKey || "")}" data-value="${window.miaMarkdown.escapeHtml(option.value)}"${option.disabled ? " disabled" : ""}>${window.miaMarkdown.escapeHtml(option.label)}</button>`;
     }).join("");
   }
   menu.classList.remove("hidden");
   trigger.classList.add("select-open");
-  activeComposerSelectMenu = { select, trigger, menu };
+  activeComposerSelectMenu = { select, trigger, menu, selectTargets };
   positionComposerSelectMenu(menu, trigger);
   const selectedButton = menu.querySelector(".composer-select-option.selected:not(:disabled)") || menu.querySelector(".composer-select-option:not(:disabled)");
   selectedButton?.scrollIntoView({ block: "nearest" });
@@ -5017,7 +5068,7 @@ function runtimeControlFieldCategory(field = "") {
   return "";
 }
 
-function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desktop-local") {
+function runtimeControlOptionsFromSnapshot(snapshot = {}, runtimeKind = "desktop-local") {
   const controls = Array.isArray(snapshot?.controls) ? snapshot.controls : [];
   const snapshotEngine = String(snapshot?.engine || "").trim().toLowerCase();
   const find = (category) => controls.find((control) => control?.category === category) || null;
@@ -5028,6 +5079,9 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
         || value === "mia-default"
         || String(choice?.description || "") === "Mia platform model");
     const isNativeModel = control?.category === "model" && Boolean(snapshotEngine) && !isMiaModel;
+    const label = isMiaModel && typeof globalThis.miaEngineContracts?.platformModelDisplayLabel === "function"
+      ? globalThis.miaEngineContracts.platformModelDisplayLabel(choice, value)
+      : String(choice?.label || value);
     return {
       id: value,
       value,
@@ -5041,7 +5095,7 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
         providerConnectionId: snapshotEngine,
         modelProfileId: `${snapshotEngine}:${value}`
       } : {}),
-      label: String(choice?.label || value),
+      label,
       title: String(choice?.description || "")
     };
   }).filter((choice) => choice.id);
@@ -5075,7 +5129,7 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
     _acpControls: controls
   };
 }
-window.miaRuntimeControlOptionsFromAcpSnapshot = runtimeControlOptionsFromAcpSnapshot;
+window.miaRuntimeControlOptionsFromSnapshot = runtimeControlOptionsFromSnapshot;
 
 function usesNativeConversationRuntimeControls(context = {}) {
   return context?.runtimeKind === "desktop-local" && Boolean(context?.conversationId);
@@ -5102,6 +5156,24 @@ function invalidateRuntimeControlOptions(context = activeBotRuntimeControlContex
   if (key) botRuntimeControlOptionsCache.delete(key);
 }
 
+const RUNTIME_CONTROL_REQUEST_TIMEOUT_MS = 65_000;
+
+function runtimeControlRequestWithTimeout(pending, timeoutMs = RUNTIME_CONTROL_REQUEST_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error("运行配置读取超时")), timeoutMs);
+    Promise.resolve(pending).then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
+
 function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
   if (!key || botRuntimeControlOptionsInFlight.has(key)) return;
@@ -5119,12 +5191,12 @@ function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()
     ? nativeConversationRuntimeControlInput(context)
     : runtimeControlOptionsRequest(context);
   const pending = nativeControls ? api(context.conversationId, request) : api(request);
-  pending
+  runtimeControlRequestWithTimeout(pending)
     .then((result) => {
       if (result && result.ok === false) throw new Error(result.error || result.message || "Runtime control options failed");
       const payload = runtimeControlOptionsPayload(result);
       const options = nativeControls
-        ? runtimeControlOptionsFromAcpSnapshot(payload, context.runtimeKind)
+        ? runtimeControlOptionsFromSnapshot(payload, context.runtimeKind)
         : payload;
       if (options && typeof options === "object") botRuntimeControlOptionsCache.set(key, options);
       const latest = activeConversationBotContext();
@@ -5153,6 +5225,15 @@ function setComposerModelAvatar(entry = {}, engine = "hermes", options = {}) {
   applyComposerModelAvatar(modelAvatar, icon);
 }
 
+function setComposerModelControlSummary(modelLabel = "", effortLabel = "") {
+  const model = String(modelLabel || "").trim();
+  const effort = String(effortLabel || "").trim();
+  setText(els.quickModelLabel, model || (effort ? "模型" : ""));
+  if (els.quickModelSelect) {
+    els.quickModelSelect.title = [model, effort].filter(Boolean).join(" · ");
+  }
+}
+
 function syncConversationBotRuntimeControls() {
   els.modelSwitchStatus?.classList.remove("runtime-feedback");
   const context = activeConversationBotContext();
@@ -5179,21 +5260,26 @@ function syncConversationBotRuntimeControls() {
   }
   const engine = String(options?.agentEngine || "").trim();
   const modelEntries = runtimeControlArray(options?.modelOptions);
+  const effortEntries = runtimeControlArray(options?.effortOptions);
   const selectedModelValue = String(options?.selectedModel || "").trim();
   const configuredModelEntry = options?.selectedModelEntry || runtimeControlSelectedEntry(modelEntries, selectedModelValue) || {};
-  setComposerRuntimeControlVisible(els.quickModelSelect, modelEntries.length > 0);
+  setComposerRuntimeControlVisible(els.quickModelSelect, modelEntries.length > 0 || effortEntries.length > 0);
   const modelLabel = setComposerSelectOptions(
     els.quickModelSelect,
     modelEntries,
     selectedModelValue,
     { allowEmpty: false, selectFirst: false }
   );
-  setText(els.quickModelLabel, modelLabel);
-  if (els.quickModelSelect) {
-    els.quickModelSelect.title = modelEntries.length
-      ? `当前模型：${modelLabel || selectedModelValue}`
-      : "";
-  }
+  const selectedEffort = String(options?.selectedEffort || "").trim();
+  setComposerRuntimeControlVisible(els.effortSelect, false);
+  const effortLabel = setComposerSelectOptions(
+    els.effortSelect,
+    effortEntries,
+    selectedEffort,
+    { allowEmpty: false, selectFirst: false }
+  );
+  setText(els.effortLabel, effortLabel);
+  setComposerModelControlSummary(modelLabel, effortLabel);
   const selectedModelSelectValue = String(els.quickModelSelect?.value || selectedModelValue || "").trim();
   const selectedModelEntry = selectedModelSelectValue
     ? (modelEntries.find((entry) => String(entry.id || entry.value || "") === selectedModelSelectValue)
@@ -5202,17 +5288,7 @@ function syncConversationBotRuntimeControls() {
     : configuredModelEntry;
   const hasSelectedModelEntry = Boolean(selectedModelEntry?.id || selectedModelEntry?.value || selectedModelEntry?.model || selectedModelEntry?.provider);
   setComposerModelAvatar(selectedModelEntry, engine, { hidden: !hasSelectedModelEntry });
-  const effortEntries = runtimeControlArray(options?.effortOptions);
-  const selectedEffort = String(options?.selectedEffort || "").trim();
   const selectedEffortEntry = runtimeControlSelectedEntry(effortEntries, selectedEffort) || {};
-  setComposerRuntimeControlVisible(els.effortSelect, effortEntries.length > 0);
-  const effortLabel = setComposerSelectOptions(
-    els.effortSelect,
-    effortEntries,
-    selectedEffort,
-    { allowEmpty: false, selectFirst: false }
-  );
-  setText(els.effortLabel, effortLabel);
   const permissionEntries = runtimeControlArray(options?.permissionOptions);
   const selectedPermission = String(options?.selectedPermission || "").trim();
   const selectedPermissionEntry = runtimeControlSelectedEntry(permissionEntries, selectedPermission) || {};
@@ -5245,7 +5321,7 @@ function syncConversationBotRuntimeControls() {
     || els.permissionMode?.value === ":danger-full-access"
     || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
-  if (els.quickModelSelect) els.quickModelSelect.disabled = !modelEntries.length;
+  if (els.quickModelSelect) els.quickModelSelect.disabled = !(modelEntries.length || effortEntries.length);
   if (els.effortSelect) els.effortSelect.disabled = !effortEntries.length;
   if (els.permissionMode) els.permissionMode.disabled = !permissionEntries.length;
   setModelSwitchStatusText(options?.statusText || "运行配置读取中...");
@@ -5307,7 +5383,7 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
         value
       });
       if (observed && observed.ok === false) throw new Error(observed.error || observed.message || "Agent 未确认设置");
-      confirmedNativeOptions = runtimeControlOptionsFromAcpSnapshot(
+      confirmedNativeOptions = runtimeControlOptionsFromSnapshot(
         runtimeControlOptionsPayload(observed),
         context.runtimeKind
       );
@@ -5378,7 +5454,7 @@ async function setActiveHermesSessionYolo(enabled) {
     if (observed && observed.ok === false) {
       throw new Error(observed.error || observed.message || "Hermes 未确认会话 YOLO 设置");
     }
-    const confirmed = runtimeControlOptionsFromAcpSnapshot(
+    const confirmed = runtimeControlOptionsFromSnapshot(
       runtimeControlOptionsPayload(observed),
       context.runtimeKind
     );
@@ -6109,7 +6185,7 @@ document.addEventListener("click", (event) => {
   if (!option || !activeComposerSelectMenu?.menu?.contains(option)) return;
   event.preventDefault();
   event.stopPropagation();
-  chooseComposerSelectOption(activeComposerSelectMenu.select, option.dataset.value || "");
+  chooseComposerSelectMenuOption(option);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -6134,7 +6210,7 @@ document.addEventListener("keydown", (event) => {
         return;
       }
       const active = currentComposerSelectMenuOption();
-      if (active) chooseComposerSelectOption(select, active.dataset.value || "");
+      if (active) chooseComposerSelectMenuOption(active);
       return;
     }
     if (event.key === "Escape" && activeComposerSelectMenu?.select === select) {
@@ -6163,7 +6239,7 @@ document.addEventListener("keydown", (event) => {
     const active = currentComposerSelectMenuOption();
     if (active) {
       event.preventDefault();
-      chooseComposerSelectOption(activeComposerSelectMenu.select, active.dataset.value || "");
+      chooseComposerSelectMenuOption(active);
     }
   }
 });
@@ -6763,7 +6839,10 @@ els.codexInlineAuth?.addEventListener("click", async (event) => {
 });
 
 els.quickModelSelect?.addEventListener("change", async () => {
-  setText(els.quickModelLabel, els.quickModelSelect.selectedOptions?.[0]?.textContent || "");
+  setComposerModelControlSummary(
+    els.quickModelSelect.selectedOptions?.[0]?.textContent || "",
+    els.effortSelect?.selectedOptions?.[0]?.textContent || ""
+  );
   const context = activeBotRuntimeControlContext();
   const modelEntries = runtimeControlArray(runtimeControlOptionsForContext(context)?.modelOptions);
   if (!els.quickModelSelect.value) return;
@@ -6780,6 +6859,10 @@ els.quickModelSelect?.addEventListener("change", async () => {
 els.effortSelect?.addEventListener("change", async () => {
   const level = els.effortSelect.value;
   setText(els.effortLabel, els.effortSelect.selectedOptions?.[0]?.textContent || "");
+  setComposerModelControlSummary(
+    els.quickModelSelect?.selectedOptions?.[0]?.textContent || "",
+    els.effortSelect.selectedOptions?.[0]?.textContent || ""
+  );
   if (!level) return;
   await saveActiveBotRuntimeControl(
     "effortLevel",

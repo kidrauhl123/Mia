@@ -414,7 +414,7 @@ impl RuntimeSessionManager {
     pub async fn prepare_session(
         &self,
         plan: RuntimeTurnPlan,
-    ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
+    ) -> anyhow::Result<mia_core_api_types::RuntimeControlSnapshot> {
         match plan.protocol {
             RuntimeProtocol::NativeAcp => self.native_acp.prepare_session(plan).await,
             RuntimeProtocol::HermesGateway => self.hermes_gateway.prepare_session(plan).await,
@@ -429,7 +429,7 @@ impl RuntimeSessionManager {
         plan: RuntimeTurnPlan,
         control_id: String,
         value: String,
-    ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
+    ) -> anyhow::Result<mia_core_api_types::RuntimeControlSnapshot> {
         match plan.protocol {
             RuntimeProtocol::NativeAcp => {
                 self.native_acp.set_control(plan, control_id, value).await
@@ -1463,8 +1463,8 @@ mod tests {
             async fn prepare_session(
                 &self,
                 plan: RuntimeTurnPlan,
-            ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
-                Ok(mia_core_api_types::AcpRuntimeControlSnapshot {
+            ) -> anyhow::Result<mia_core_api_types::RuntimeControlSnapshot> {
+                Ok(mia_core_api_types::RuntimeControlSnapshot {
                     conversation_id: plan.conversation_id,
                     engine: plan.engine,
                     memory_mode: String::new(),

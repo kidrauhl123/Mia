@@ -105,7 +105,7 @@ test("getAcpEngineSpec returns null for Claude without a managed runtime", () =>
   assert.equal(spec, null);
 });
 
-test("Hermes ACP spec can use the resolved system Hermes executable", () => {
+test("legacy Hermes discovery spec can use the resolved system executable", () => {
   const hermesPath = process.platform === "win32"
     ? "C:\\Users\\alice\\AppData\\Local\\hermes\\hermes-agent\\venv\\Scripts\\hermes.exe"
     : "/Users/alice/.local/bin/hermes";

@@ -2889,14 +2889,14 @@ fn runtime_control_send_block_reason(runtime_kind: &str, engine: &str, runtime: 
                 || state.source == "checking"
                 || state.readiness_status == "checking" =>
         {
-            format!("{label} ACP 自检未完成")
+            format!("{label} 运行时自检未完成")
         }
         Some(state) => [state.readiness_summary, state.readiness_detail]
             .into_iter()
             .find(|value| !value.trim().is_empty())
             .unwrap_or_else(|| format!("{label} 不可用")),
         None if runtime_agent_inventory_present(runtime) => format!("{label} 不可用"),
-        None => format!("{label} ACP 自检未完成"),
+        None => format!("{label} 运行时自检未完成"),
     }
 }
 
