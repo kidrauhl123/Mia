@@ -4802,6 +4802,7 @@ function positionComposerSelectMenu(menu, trigger) {
 function closeComposerSelectMenu() {
   const menu = document.getElementById("composerSelectMenu");
   if (menu) {
+    window.miaHermesPermissionMenu?.resetMenu?.(menu);
     menu.classList.add("hidden");
     menu.innerHTML = "";
   }
@@ -4832,13 +4833,23 @@ function openComposerSelectMenu(select) {
   const options = entries.filter((option) => option.type === "option" && !option.disabled);
   if (!options.length) return;
   const selectedValue = String(select.value || options.find((option) => option.selected)?.value || options[0]?.value || "");
-  menu.innerHTML = entries.map((option) => {
-    if (option.type === "group") {
-      return `<div class="composer-select-group${option.disabled ? " disabled" : ""}">${window.miaMarkdown.escapeHtml(option.label)}</div>`;
-    }
-    const selected = String(option.value) === selectedValue;
-    return `<button class="composer-select-option${selected ? " selected" : ""}" type="button" role="option" aria-selected="${selected ? "true" : "false"}" data-value="${window.miaMarkdown.escapeHtml(option.value)}"${option.disabled ? " disabled" : ""}>${window.miaMarkdown.escapeHtml(option.label)}</button>`;
-  }).join("");
+  window.miaHermesPermissionMenu?.resetMenu?.(menu);
+  const renderedHermesMenu = window.miaHermesPermissionMenu?.renderMenu?.({
+    select,
+    menu,
+    entries,
+    selectedValue,
+    escapeHtml: window.miaMarkdown.escapeHtml
+  });
+  if (!renderedHermesMenu) {
+    menu.innerHTML = entries.map((option) => {
+      if (option.type === "group") {
+        return `<div class="composer-select-group${option.disabled ? " disabled" : ""}">${window.miaMarkdown.escapeHtml(option.label)}</div>`;
+      }
+      const selected = String(option.value) === selectedValue;
+      return `<button class="composer-select-option${selected ? " selected" : ""}" type="button" role="option" aria-selected="${selected ? "true" : "false"}" data-value="${window.miaMarkdown.escapeHtml(option.value)}"${option.disabled ? " disabled" : ""}>${window.miaMarkdown.escapeHtml(option.label)}</button>`;
+    }).join("");
+  }
   menu.classList.remove("hidden");
   trigger.classList.add("select-open");
   activeComposerSelectMenu = { select, trigger, menu };
@@ -5037,6 +5048,7 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
   const model = find("model");
   const effort = find("thought_level");
   const permission = find("permission");
+  const sessionPermission = find("session_permission");
   const modelOptions = normalizeOptions(model);
   const selectedModel = String(model?.currentValue || "");
   const agentEngine = String(snapshot?.engine || "");
@@ -5057,6 +5069,8 @@ function runtimeControlOptionsFromAcpSnapshot(snapshot = {}, runtimeKind = "desk
     selectedEffort: String(effort?.currentValue || ""),
     permissionOptions: normalizeOptions(permission),
     selectedPermission: String(permission?.currentValue || ""),
+    hermesSessionYoloActive: String(sessionPermission?.currentValue || "") === "on",
+    hermesSessionYoloControlId: String(sessionPermission?.id || ""),
     acpSessionId: String(snapshot?.sessionId || ""),
     _acpControls: controls
   };
@@ -5140,6 +5154,7 @@ function setComposerModelAvatar(entry = {}, engine = "hermes", options = {}) {
 }
 
 function syncConversationBotRuntimeControls() {
+  els.modelSwitchStatus?.classList.remove("runtime-feedback");
   const context = activeConversationBotContext();
   if (!context) {
     if (window.miaSocial?.getActiveConversationId?.()) {
@@ -5147,6 +5162,7 @@ function syncConversationBotRuntimeControls() {
       clearComposerRuntimeControl(els.quickModelSelect, els.quickModelLabel);
       clearComposerRuntimeControl(els.effortSelect, els.effortLabel);
       clearComposerRuntimeControl(els.permissionMode, els.permissionLabel);
+      window.miaHermesPermissionMenu?.clear?.(els.permissionMode);
       setComposerRuntimeControlVisible(els.quickModelSelect, false);
       setComposerRuntimeControlVisible(els.effortSelect, false);
       setComposerRuntimeControlVisible(els.permissionMode, false);
@@ -5157,6 +5173,7 @@ function syncConversationBotRuntimeControls() {
   const controlContext = activeBotRuntimeControlContext();
   const options = runtimeControlOptionsForContext(controlContext);
   if (!options) {
+    els.modelSwitchStatus?.classList.add("runtime-feedback");
     setModelSwitchStatusText("运行配置读取中...");
     requestRuntimeControlOptions(controlContext);
   }
@@ -5199,6 +5216,10 @@ function syncConversationBotRuntimeControls() {
   const permissionEntries = runtimeControlArray(options?.permissionOptions);
   const selectedPermission = String(options?.selectedPermission || "").trim();
   const selectedPermissionEntry = runtimeControlSelectedEntry(permissionEntries, selectedPermission) || {};
+  const hermesPermissionMenuEnabled = engine.toLowerCase() === "hermes"
+    && Boolean(options?.hermesSessionYoloControlId);
+  const hermesSessionYoloActive = hermesPermissionMenuEnabled
+    && Boolean(options?.hermesSessionYoloActive);
   setComposerRuntimeControlVisible(els.permissionMode, permissionEntries.length > 0);
   const permissionLabel = setComposerSelectOptions(
     els.permissionMode,
@@ -5206,9 +5227,23 @@ function syncConversationBotRuntimeControls() {
     selectedPermission,
     { allowEmpty: false, selectFirst: false }
   );
-  setText(els.permissionLabel, permissionLabel);
+  setText(
+    els.permissionLabel,
+    hermesSessionYoloActive && selectedPermission !== "off" ? "YOLO（仅本会话）" : permissionLabel
+  );
+  window.miaHermesPermissionMenu?.configure?.({
+    select: els.permissionMode,
+    enabled: hermesPermissionMenuEnabled,
+    approvalMode: selectedPermission,
+    sessionYoloActive: hermesSessionYoloActive,
+    onToggleYolo: setActiveHermesSessionYolo
+  });
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
-  permissionSwitcher?.classList.toggle("yolo", els.permissionMode?.value === "yolo" || els.permissionMode?.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
+  permissionSwitcher?.classList.toggle("yolo", hermesSessionYoloActive
+    || (hermesPermissionMenuEnabled && els.permissionMode?.value === "off")
+    || els.permissionMode?.value === "yolo"
+    || els.permissionMode?.value === ":danger-full-access"
+    || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
   if (els.quickModelSelect) els.quickModelSelect.disabled = !modelEntries.length;
   if (els.effortSelect) els.effortSelect.disabled = !effortEntries.length;
@@ -5320,6 +5355,49 @@ async function saveActivePermissionRuntimeControl(mode) {
     "权限已更新",
     "Permission mode failed"
   );
+}
+
+async function setActiveHermesSessionYolo(enabled) {
+  const context = activeBotRuntimeControlContext();
+  const options = runtimeControlOptionsForContext(context);
+  if (!context || String(options?.agentEngine || "").trim().toLowerCase() !== "hermes") return false;
+  const control = runtimeControlArray(options?._acpControls)
+    .find((entry) => entry?.category === "session_permission");
+  if (!control?.id || !usesNativeConversationRuntimeControls(context)) return false;
+  closeComposerSelectMenu();
+  setModelSwitchStatusText(enabled ? "正在开启会话 YOLO..." : "正在关闭会话 YOLO...");
+  setRuntimeControlDisabled(true);
+  try {
+    const setControl = window.mia?.social?.setConversationRuntimeControl;
+    if (typeof setControl !== "function") throw new Error("运行配置接口不可用");
+    const observed = await setControl(context.conversationId, {
+      ...nativeConversationRuntimeControlInput(context),
+      controlId: control.id,
+      value: enabled ? "on" : "off"
+    });
+    if (observed && observed.ok === false) {
+      throw new Error(observed.error || observed.message || "Hermes 未确认会话 YOLO 设置");
+    }
+    const confirmed = runtimeControlOptionsFromAcpSnapshot(
+      runtimeControlOptionsPayload(observed),
+      context.runtimeKind
+    );
+    if (Boolean(confirmed.hermesSessionYoloActive) !== Boolean(enabled)) {
+      throw new Error("Hermes 未确认会话 YOLO 设置");
+    }
+    const key = runtimeControlOptionsCacheKey(context);
+    if (key) botRuntimeControlOptionsCache.set(key, confirmed);
+    setModelSwitchStatusText(enabled ? "当前会话 YOLO 已开启" : "当前会话 YOLO 已关闭");
+    render();
+    return true;
+  } catch (error) {
+    setModelSwitchStatusText("会话 YOLO 切换失败");
+    appendTransientChat("assistant", `Hermes session YOLO failed: ${error.message || error}`);
+    syncConversationBotRuntimeControls();
+    return false;
+  } finally {
+    setRuntimeControlDisabled(false);
+  }
 }
 
 function activeConversationBotKey() {

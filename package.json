@@ -11,8 +11,8 @@
   "main": "src/main.js",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "open": "electron .",
-    "start": "electron .",
+    "open": "npm run core:dev && electron .",
+    "start": "npm run core:dev && electron .",
     "web": "node scripts/serve-web.js",
     "cloud": "node scripts/serve-cloud.js",
     "cloud:release": "node scripts/build-cloud-release.js",
@@ -44,6 +44,7 @@
     "desktop:permission-smoke": "node scripts/smoke-desktop-permission.js",
     "desktop:package:verify": "node scripts/verify-packaged-mia-core.js",
     "core:smoke": "node scripts/smoke-rust-core.js",
+    "core:dev": "cargo build -p mia-core-app --bin mia-core",
     "core:release": "node scripts/build-mia-core-release.js",
     "core:prepare": "node scripts/prepare-mia-core-rs.js",
     "core:publish": "node scripts/publish-mia-core-release.js",

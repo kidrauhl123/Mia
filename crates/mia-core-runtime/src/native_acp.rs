@@ -492,11 +492,20 @@ impl NativeAcpBackend for RealNativeAcpBackend {
 
     async fn prepare_session(&self, plan: RuntimeTurnPlan) -> Result<AcpRuntimeControlSnapshot> {
         let key = native_acp_task_key(&plan);
-        let task = self.task_for_plan(&key, &plan).await?;
-        let mut task = task.lock().await;
-        task.ensure_session(&plan).await?;
-        task.reconcile_plan_controls(&plan).await?;
-        Ok(task.control_snapshot(&plan))
+        match self.prepare_session_once(&key, &plan).await {
+            Err(error) if is_restartable_session_error(&error) => {
+                tracing::warn!(
+                    engine = %plan.engine,
+                    conversation_id = %plan.conversation_id,
+                    error = %error,
+                    "ACP control session became unavailable; retrying with a fresh process"
+                );
+                self.tasks.remove(&key);
+                let fresh_plan = plan_without_resume_session(plan);
+                self.prepare_session_once(&key, &fresh_plan).await
+            }
+            result => result,
+        }
     }
 
     async fn set_control(
@@ -506,10 +515,24 @@ impl NativeAcpBackend for RealNativeAcpBackend {
         value: String,
     ) -> Result<AcpRuntimeControlSnapshot> {
         let key = native_acp_task_key(&plan);
-        let task = self.task_for_plan(&key, &plan).await?;
-        let mut task = task.lock().await;
-        task.ensure_session(&plan).await?;
-        task.set_control(&plan, &control_id, &value).await
+        match self
+            .set_control_once(&key, &plan, &control_id, &value)
+            .await
+        {
+            Err(error) if is_restartable_session_error(&error) => {
+                tracing::warn!(
+                    engine = %plan.engine,
+                    conversation_id = %plan.conversation_id,
+                    error = %error,
+                    "ACP control update lost its session; retrying with a fresh process"
+                );
+                self.tasks.remove(&key);
+                let fresh_plan = plan_without_resume_session(plan);
+                self.set_control_once(&key, &fresh_plan, &control_id, &value)
+                    .await
+            }
+            result => result,
+        }
     }
 
     fn list_pending_permissions(&self, session_id: Option<&str>) -> AgentPermissionListResponse {
@@ -525,6 +548,31 @@ impl NativeAcpBackend for RealNativeAcpBackend {
 }
 
 impl RealNativeAcpBackend {
+    async fn prepare_session_once(
+        &self,
+        key: &str,
+        plan: &RuntimeTurnPlan,
+    ) -> Result<AcpRuntimeControlSnapshot> {
+        let task = self.task_for_plan(key, plan).await?;
+        let mut task = task.lock().await;
+        task.ensure_session(plan).await?;
+        task.reconcile_plan_controls(plan).await?;
+        Ok(task.control_snapshot(plan))
+    }
+
+    async fn set_control_once(
+        &self,
+        key: &str,
+        plan: &RuntimeTurnPlan,
+        control_id: &str,
+        value: &str,
+    ) -> Result<AcpRuntimeControlSnapshot> {
+        let task = self.task_for_plan(key, plan).await?;
+        let mut task = task.lock().await;
+        task.ensure_session(plan).await?;
+        task.set_control(plan, control_id, value).await
+    }
+
     fn with_initial_prompt_provider(provider: Arc<dyn RuntimeInitialPromptProvider>) -> Self {
         Self {
             initial_prompt_provider: Some(provider),
@@ -559,9 +607,7 @@ impl RealNativeAcpBackend {
             Err(error) if is_restartable_session_error(&error) => {
                 first_attempt_events.finish(false);
                 self.tasks.remove(&key);
-                let mut fresh_plan = plan;
-                fresh_plan.runtime_session.resume_session_key = None;
-                fresh_plan.runtime_session.resumed = false;
+                let fresh_plan = plan_without_resume_session(plan);
                 let fresh_task = self.task_for_plan(&key, &fresh_plan).await?;
                 fresh_task
                     .lock()
@@ -673,6 +719,12 @@ fn resumable_session_id(plan: &RuntimeTurnPlan) -> Option<SessionId> {
         .map(|value| SessionId::new(value.to_string()))
 }
 
+fn plan_without_resume_session(mut plan: RuntimeTurnPlan) -> RuntimeTurnPlan {
+    plan.runtime_session.resume_session_key = None;
+    plan.runtime_session.resumed = false;
+    plan
+}
+
 fn join_initial_prompt(prefix: &str, user_content: &str) -> String {
     if prefix.trim().is_empty() {
         return user_content.to_string();
@@ -703,7 +755,21 @@ fn capabilities_support_session_resume(capabilities: &AgentCapabilities) -> bool
 
 fn is_stale_session_error(error: &anyhow::Error) -> bool {
     let text = error.to_string().to_lowercase();
-    text.contains("session") && (text.contains("not found") || text.contains("not_found"))
+    let identifies_session = text.contains("session") || text.contains("conversation");
+    let reports_missing = text.contains("not found")
+        || text.contains("not_found")
+        || text.contains("resource not found")
+        || text.contains("resource_not_found")
+        || ((text.contains("no session") || text.contains("no conversation"))
+            && text.contains("found"));
+    identifies_session && reports_missing
+}
+
+fn should_open_fresh_session_after_resume_failure(
+    plan: &RuntimeTurnPlan,
+    error: &anyhow::Error,
+) -> bool {
+    plan.memory_mode == MemoryMode::Mia || is_stale_session_error(error)
 }
 
 fn is_restartable_session_error(error: &anyhow::Error) -> bool {
@@ -714,6 +780,8 @@ fn is_restartable_session_error(error: &anyhow::Error) -> bool {
     text.contains("process exited unexpectedly")
         || text.contains("please start a new session")
         || text.contains("connection closed")
+        || text.contains("connection is not connected")
+        || text.contains("connection not connected")
         || text.contains("invalid session id")
 }
 
@@ -1431,8 +1499,14 @@ impl NativeAcpTask {
                     state.clear_pending_initial_prompt();
                     return Ok(session_id);
                 }
-                Err(error) if is_stale_session_error(&error) => {
-                    tracing::debug!(?error, "ACP resume session failed; opening a new session");
+                Err(error) if should_open_fresh_session_after_resume_failure(plan, &error) => {
+                    tracing::warn!(
+                        engine = %plan.engine,
+                        conversation_id = %plan.conversation_id,
+                        memory_mode = ?plan.memory_mode,
+                        error = %error,
+                        "ACP resume session failed; opening a new session"
+                    );
                 }
                 Err(error) => return Err(error),
             }
@@ -2661,6 +2735,18 @@ mod tests {
     }
 
     #[test]
+    fn native_acp_fresh_plan_clears_persisted_resume_state() {
+        let mut plan = native_acp_test_plan();
+        plan.runtime_session.resume_session_key = Some("acp-session-1".into());
+        plan.runtime_session.resumed = true;
+
+        let fresh = plan_without_resume_session(plan);
+
+        assert_eq!(fresh.runtime_session.resume_session_key, None);
+        assert!(!fresh.runtime_session.resumed);
+    }
+
+    #[test]
     fn initial_prompt_prefix_is_taken_once_by_the_first_non_empty_turn() {
         let mut state = NativeAcpSessionState {
             pending_initial_prompt_prefix: Some("frozen memory".into()),
@@ -2766,7 +2852,30 @@ mod tests {
     fn native_acp_stale_session_detection_is_narrow() {
         assert!(is_stale_session_error(&anyhow!("session not found")));
         assert!(is_stale_session_error(&anyhow!("SESSION_NOT_FOUND")));
+        assert!(is_stale_session_error(&anyhow!(
+            "No conversation found with session ID"
+        )));
         assert!(!is_stale_session_error(&anyhow!("permission denied")));
+    }
+
+    #[test]
+    fn mia_memory_recovers_controls_from_any_resume_failure() {
+        let mut plan = native_acp_test_plan();
+        plan.memory_mode = MemoryMode::Mia;
+        assert!(should_open_fresh_session_after_resume_failure(
+            &plan,
+            &anyhow!("Claude resume failed with an internal error")
+        ));
+
+        plan.memory_mode = MemoryMode::Native;
+        assert!(!should_open_fresh_session_after_resume_failure(
+            &plan,
+            &anyhow!("Claude resume failed with an internal error")
+        ));
+        assert!(should_open_fresh_session_after_resume_failure(
+            &plan,
+            &anyhow!("session not found")
+        ));
     }
 
     #[test]
@@ -2776,6 +2885,9 @@ mod tests {
         )));
         assert!(is_restartable_session_error(&anyhow!(
             "ACP connection closed"
+        )));
+        assert!(is_restartable_session_error(&anyhow!(
+            "ACP connection is not connected"
         )));
         assert!(is_restartable_session_error(&anyhow!(
             "invalid session id: expected UUID"

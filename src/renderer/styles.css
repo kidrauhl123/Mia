@@ -7147,6 +7147,7 @@ select.select-open {
   display: none;
 }
 
+.model-switch-status.runtime-feedback,
 .model-switch-status.core-starting {
   display: inline-flex;
   align-items: center;

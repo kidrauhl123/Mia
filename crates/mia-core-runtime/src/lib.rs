@@ -5,6 +5,7 @@
 //! but the plan owner remains Rust.
 
 mod agent_engines;
+mod hermes_gateway;
 mod memory_isolation;
 mod native_acp;
 
@@ -18,6 +19,7 @@ pub use agent_engines::{
     ManagedAgentResourcePrepareReport, ManagedAgentResourcePrepareStatus,
     cached_agent_runtime_controls, prepare_managed_agent_resources,
 };
+pub use hermes_gateway::{HermesGatewayBackend, HermesGatewaySessionManager};
 pub use memory_isolation::{apply_memory_isolation_to_plan, preflight_memory_isolation};
 use mia_core_common::process::configure_background_command;
 pub use native_acp::{NativeAcpBackend, NativeAcpSessionManager};
@@ -51,6 +53,7 @@ pub enum RuntimeProtocol {
     Mock,
     Process,
     NativeAcp,
+    HermesGateway,
 }
 
 impl Default for RuntimeProtocol {
@@ -328,6 +331,7 @@ impl RuntimeExecutor {
 pub struct RuntimeSessionManager {
     executor: RuntimeExecutor,
     native_acp: NativeAcpSessionManager,
+    hermes_gateway: HermesGatewaySessionManager,
 }
 
 impl Default for RuntimeSessionManager {
@@ -335,6 +339,7 @@ impl Default for RuntimeSessionManager {
         Self {
             executor: RuntimeExecutor,
             native_acp: NativeAcpSessionManager::unavailable(),
+            hermes_gateway: HermesGatewaySessionManager::unavailable(),
         }
     }
 }
@@ -344,19 +349,41 @@ impl RuntimeSessionManager {
         Self {
             executor: RuntimeExecutor,
             native_acp,
+            hermes_gateway: HermesGatewaySessionManager::unavailable(),
+        }
+    }
+
+    pub fn with_interactive_backends(
+        native_acp: NativeAcpSessionManager,
+        hermes_gateway: HermesGatewaySessionManager,
+    ) -> Self {
+        Self {
+            executor: RuntimeExecutor,
+            native_acp,
+            hermes_gateway,
         }
     }
 
     pub fn native_acp() -> Self {
-        Self::new(NativeAcpSessionManager::real())
+        Self {
+            executor: RuntimeExecutor,
+            native_acp: NativeAcpSessionManager::real(),
+            hermes_gateway: HermesGatewaySessionManager::real(),
+        }
     }
 
     pub fn native_acp_with_initial_prompt_provider(
         provider: Arc<dyn RuntimeInitialPromptProvider>,
     ) -> Self {
-        Self::new(NativeAcpSessionManager::real_with_initial_prompt_provider(
-            provider,
-        ))
+        Self {
+            executor: RuntimeExecutor,
+            native_acp: NativeAcpSessionManager::real_with_initial_prompt_provider(
+                provider.clone(),
+            ),
+            hermes_gateway: HermesGatewaySessionManager::real_with_initial_prompt_provider(
+                provider,
+            ),
+        }
     }
 
     pub fn new_without_native_acp_for_tests() -> Self {
@@ -373,6 +400,11 @@ impl RuntimeSessionManager {
             RuntimeProtocol::NativeAcp => {
                 self.native_acp.send_message(plan, sink, cancellation).await
             }
+            RuntimeProtocol::HermesGateway => {
+                self.hermes_gateway
+                    .send_message(plan, sink, cancellation)
+                    .await
+            }
             RuntimeProtocol::Mock | RuntimeProtocol::Process => {
                 self.executor.execute_plan(plan, sink, cancellation).await
             }
@@ -383,10 +415,13 @@ impl RuntimeSessionManager {
         &self,
         plan: RuntimeTurnPlan,
     ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
-        if plan.protocol != RuntimeProtocol::NativeAcp {
-            anyhow::bail!("runtime controls require a native ACP session");
+        match plan.protocol {
+            RuntimeProtocol::NativeAcp => self.native_acp.prepare_session(plan).await,
+            RuntimeProtocol::HermesGateway => self.hermes_gateway.prepare_session(plan).await,
+            RuntimeProtocol::Mock | RuntimeProtocol::Process => {
+                anyhow::bail!("runtime controls require an interactive agent session")
+            }
         }
-        self.native_acp.prepare_session(plan).await
     }
 
     pub async fn set_control(
@@ -395,23 +430,45 @@ impl RuntimeSessionManager {
         control_id: String,
         value: String,
     ) -> anyhow::Result<mia_core_api_types::AcpRuntimeControlSnapshot> {
-        if plan.protocol != RuntimeProtocol::NativeAcp {
-            anyhow::bail!("runtime controls require a native ACP session");
+        match plan.protocol {
+            RuntimeProtocol::NativeAcp => {
+                self.native_acp.set_control(plan, control_id, value).await
+            }
+            RuntimeProtocol::HermesGateway => {
+                self.hermes_gateway
+                    .set_control(plan, control_id, value)
+                    .await
+            }
+            RuntimeProtocol::Mock | RuntimeProtocol::Process => {
+                anyhow::bail!("runtime controls require an interactive agent session")
+            }
         }
-        self.native_acp.set_control(plan, control_id, value).await
     }
 
     pub fn list_pending_permissions(
         &self,
         session_id: Option<&str>,
     ) -> mia_core_api_types::AgentPermissionListResponse {
-        self.native_acp.list_pending_permissions(session_id)
+        let mut response = self.native_acp.list_pending_permissions(session_id);
+        response.requests.extend(
+            self.hermes_gateway
+                .list_pending_permissions(session_id)
+                .requests,
+        );
+        response
+            .requests
+            .sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        response
     }
 
     pub fn respond_permission(
         &self,
         request: mia_core_api_types::AgentPermissionRespondRequest,
     ) -> mia_core_api_types::AgentPermissionRespondResponse {
+        let gateway = self.hermes_gateway.respond_permission(request.clone());
+        if gateway.ok || gateway.error.as_deref() != Some("permission request not found") {
+            return gateway;
+        }
         self.native_acp.respond_permission(request)
     }
 }
@@ -495,7 +552,10 @@ async fn write_stdin(stdin: Option<ChildStdin>, input: String) {
 
 fn prepare_command_input(plan: &RuntimeTurnPlan, _command: &mut RuntimeCommand) -> String {
     let input = plan.send_message.content.clone();
-    if plan.protocol == RuntimeProtocol::NativeAcp {
+    if matches!(
+        plan.protocol,
+        RuntimeProtocol::NativeAcp | RuntimeProtocol::HermesGateway
+    ) {
         input
     } else {
         input
@@ -571,7 +631,7 @@ impl RuntimeBuilder {
         if let Some(runtime) = &managed_runtime {
             environment = runtime.environment.clone();
         }
-        let command = self
+        let mut command = self
             .command_overrides
             .get(&engine)
             .cloned()
@@ -582,6 +642,11 @@ impl RuntimeBuilder {
         } else {
             protocol_for_engine(&engine)
         };
+        if protocol == RuntimeProtocol::HermesGateway
+            && let Some(current) = command.as_mut()
+        {
+            current.args = hermes_gateway_args(&current.args);
+        }
         let body = input.body;
         let turn_id = format!("turn_{}", Uuid::now_v7().simple());
         let message_id = clean_non_empty(&input.message_id)
@@ -724,7 +789,8 @@ where
 fn protocol_for_engine(engine: &str) -> RuntimeProtocol {
     match engine {
         "mock" | "mock-agent" | "mia-mock" => RuntimeProtocol::Mock,
-        "codex" | "claude-code" | "hermes" => RuntimeProtocol::NativeAcp,
+        "codex" | "claude-code" => RuntimeProtocol::NativeAcp,
+        "hermes" => RuntimeProtocol::HermesGateway,
         _ => RuntimeProtocol::Process,
     }
 }
@@ -736,13 +802,36 @@ fn command_for_engine(engine: &str, env: &BTreeMap<String, String>) -> Option<Ru
         "hermes" => Some(RuntimeCommand {
             program: agent_engines::resolve_agent_command_path("hermes", env)
                 .unwrap_or_else(|| "hermes".into()),
-            args: vec!["acp".into()],
+            args: hermes_gateway_args(&[]),
         }),
         other => Some(RuntimeCommand {
             program: other.to_string(),
             args: vec![],
         }),
     }
+}
+
+fn hermes_gateway_args(existing: &[String]) -> Vec<String> {
+    let mut args = existing.to_vec();
+    if args.iter().any(|arg| arg == "serve")
+        && args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"])
+        && args.windows(2).any(|pair| pair == ["--port", "0"])
+    {
+        return args;
+    }
+    if args.last().is_some_and(|arg| arg == "acp") {
+        args.pop();
+    }
+    if !args.iter().any(|arg| arg == "serve") {
+        args.push("serve".into());
+    }
+    args.extend([
+        "--host".into(),
+        "127.0.0.1".into(),
+        "--port".into(),
+        "0".into(),
+    ]);
+    args
 }
 
 #[cfg(test)]
@@ -1017,12 +1106,15 @@ mod tests {
                 .program
                 .eq_ignore_ascii_case(hermes.to_string_lossy().as_ref())
         );
-        assert_eq!(command.args, vec!["acp"]);
+        assert_eq!(
+            command.args,
+            vec!["serve", "--host", "127.0.0.1", "--port", "0"]
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
-    fn runtime_builder_maps_codex_and_claude_to_native_acp_specs() {
+    fn runtime_builder_maps_acp_engines_and_hermes_gateway_specs() {
         let root = test_dir("managed-acp-plan");
         let bin = root.join("bin");
         let resources = root.join("managed-resources");
@@ -1136,10 +1228,13 @@ mod tests {
             selected_skill_ids: vec![],
             body: "hello".into(),
         });
-        assert_eq!(hermes_plan.protocol, RuntimeProtocol::NativeAcp);
-        let hermes_command = hermes_plan.command.expect("hermes ACP command");
+        assert_eq!(hermes_plan.protocol, RuntimeProtocol::HermesGateway);
+        let hermes_command = hermes_plan.command.expect("Hermes Gateway command");
         assert_eq!(hermes_command.program, "hermes");
-        assert_eq!(hermes_command.args, vec!["acp"]);
+        assert_eq!(
+            hermes_command.args,
+            vec!["serve", "--host", "127.0.0.1", "--port", "0"]
+        );
         assert!(
             !hermes_command
                 .args

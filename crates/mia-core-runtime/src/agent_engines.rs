@@ -16,6 +16,7 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::RuntimeCommand;
+use crate::hermes_gateway::probe_hermes_gateway_command;
 use crate::native_acp::{NativeAcpProbeErrorKind, probe_native_acp_command};
 
 const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(35);
@@ -273,7 +274,7 @@ impl AgentEngineScanner {
             managed = resolve_managed_acp_runtime(definition, options)
                 .with_previous_diagnostics(diagnostics);
         }
-        let acp_launcher = if definition.id == "hermes" && primary.source == "mia-managed" {
+        let mut acp_launcher = if definition.id == "hermes" && primary.source == "mia-managed" {
             let Some(runtime) = resolve_mia_stable_hermes_acp(options) else {
                 return blocked_status(
                     definition,
@@ -323,6 +324,9 @@ impl AgentEngineScanner {
             };
             ResolvedAcpRuntime::system(acp_launcher, definition.acp_args)
         };
+        if definition.id == "hermes" {
+            acp_launcher = as_hermes_gateway_runtime(acp_launcher);
+        }
 
         let outcome = self
             .prober
@@ -352,7 +356,7 @@ impl AgentEngineScanner {
                     acp_launcher,
                     detail
                         .as_deref()
-                        .unwrap_or("ACP initialize + session/new ok"),
+                        .unwrap_or_else(|| default_probe_success_detail(definition)),
                 )
             }
             AcpProbeOutcome::Failed {
@@ -368,7 +372,7 @@ impl AgentEngineScanner {
                             fallback_primary.version.clone()
                         };
                         let fallback_acp = if definition.id == "hermes" {
-                            resolve_mia_stable_hermes_acp(options)
+                            resolve_mia_stable_hermes_acp(options).map(as_hermes_gateway_runtime)
                         } else {
                             Some(acp_launcher.clone())
                         };
@@ -403,9 +407,9 @@ impl AgentEngineScanner {
                                     fallback_primary,
                                     fallback_version,
                                     fallback_acp,
-                                    detail
-                                        .as_deref()
-                                        .unwrap_or("Mia stable ACP fallback self-check passed"),
+                                    detail.as_deref().unwrap_or_else(|| {
+                                        default_probe_success_detail(definition)
+                                    }),
                                 );
                             }
                         }
@@ -647,6 +651,12 @@ impl ResolvedAcpRuntime {
     }
 }
 
+fn as_hermes_gateway_runtime(mut runtime: ResolvedAcpRuntime) -> ResolvedAcpRuntime {
+    runtime.args = crate::hermes_gateway_args(&runtime.args);
+    runtime.protocol = "tui-gateway".into();
+    runtime
+}
+
 #[async_trait]
 trait AgentCommandResolver: Send + Sync {
     async fn resolve(
@@ -742,6 +752,38 @@ struct RealAcpCommandProber;
 impl AcpCommandProber for RealAcpCommandProber {
     async fn probe(&self, request: AcpProbeRequest) -> AcpProbeOutcome {
         let started = Instant::now();
+        if request.engine_id == "hermes" {
+            return match probe_hermes_gateway_command(
+                request.command,
+                request.env,
+                request.workspace_dir,
+                request.timeout,
+            )
+            .await
+            {
+                Ok(snapshot) => AcpProbeOutcome::Ready {
+                    detail: Some("Hermes Gateway ready + session.create ok".into()),
+                    latency_ms: elapsed_ms(started),
+                    controls: snapshot.controls,
+                },
+                Err(error) => {
+                    let detail = compact_one_line(error.to_string());
+                    let lower = detail.to_lowercase();
+                    let error_code = if lower.contains("timed out") {
+                        "gateway_timeout"
+                    } else if lower.contains("auth") || lower.contains("api key") {
+                        "auth_required"
+                    } else {
+                        "gateway_probe_failed"
+                    };
+                    AcpProbeOutcome::Failed {
+                        error_code: error_code.into(),
+                        detail,
+                        latency_ms: elapsed_ms(started),
+                    }
+                }
+            };
+        }
         match probe_native_acp_command(
             request.command,
             request.env,
@@ -804,9 +846,14 @@ fn ready_status(
     acp: ResolvedAcpRuntime,
     detail: &str,
 ) -> AgentEngineStatus {
+    let integration = if definition.id == "hermes" {
+        "Gateway"
+    } else {
+        "ACP"
+    };
     let readiness = readiness(
         "ready",
-        &format!("{} ACP 自检通过", definition.label),
+        &format!("{} {integration} 自检通过", definition.label),
         detail,
         "",
         None,
@@ -823,6 +870,14 @@ fn ready_status(
         String::new(),
         readiness,
     )
+}
+
+fn default_probe_success_detail(definition: AgentEngineDefinition) -> &'static str {
+    if definition.id == "hermes" {
+        "Hermes Gateway ready + session.create ok"
+    } else {
+        "ACP initialize + session/new ok"
+    }
 }
 
 fn blocked_status(
@@ -3386,7 +3441,19 @@ mod tests {
         assert_eq!(hermes.source, "mia-managed");
         assert_eq!(hermes.version, "2026.7.7.2");
         assert_eq!(hermes.path, path_to_string(&python));
-        assert_eq!(hermes.runtime.args, ["-m", "hermes_cli.main", "acp"]);
+        assert_eq!(
+            hermes.runtime.args,
+            [
+                "-m",
+                "hermes_cli.main",
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0"
+            ]
+        );
+        assert_eq!(hermes.runtime.protocol, "tui-gateway");
         assert!(hermes.runtime.managed);
     }
 

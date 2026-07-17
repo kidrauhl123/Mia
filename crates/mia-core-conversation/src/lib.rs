@@ -58,9 +58,9 @@ fn effective_runtime_memory_mode(engine: Option<&str>, requested: MemoryMode) ->
         .map(|engine| engine.eq_ignore_ascii_case("hermes"))
         .unwrap_or(false);
     if requested == MemoryMode::Mia && is_hermes {
-        // Hermes ACP has no supported flag to suppress its native memory. Passing an
-        // invented CLI switch makes the session fail before its first reply, so Hermes
-        // always owns memory until upstream exposes a stable ACP-compatible control.
+        // Hermes Gateway has no supported flag to suppress Hermes' native memory.
+        // Passing an invented CLI switch makes the session fail before its first reply,
+        // so Hermes always owns memory until upstream exposes a stable control.
         MemoryMode::Native
     } else {
         requested
@@ -156,6 +156,7 @@ pub struct CurrentSkillService {
 pub struct AcceptedConversationTurn {
     pub response: SendConversationMessageResponse,
     pub runtime_plan: RuntimeTurnPlan,
+    pub runtime_config: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1666,8 +1667,8 @@ impl ConversationService {
         )
         .await?;
 
-        let turn_plan = self
-            .build_runtime_turn_plan(
+        let planned_turn = self
+            .build_planned_runtime_turn(
                 &conversation,
                 &message_id,
                 &request.body,
@@ -1675,6 +1676,7 @@ impl ConversationService {
                 &request.selected_skill_ids,
             )
             .await?;
+        let turn_plan = planned_turn.runtime_plan;
         let turn_id = turn_plan.turn_id.clone();
         let assistant_message_id = if let Some(mock_response) = turn_plan.mock_response.as_deref() {
             let assistant_message_id = format!("msg_{}", Uuid::now_v7().simple());
@@ -1714,6 +1716,7 @@ impl ConversationService {
         Ok(AcceptedConversationTurn {
             response,
             runtime_plan: turn_plan,
+            runtime_config: planned_turn.runtime_config,
         })
     }
 
@@ -1866,6 +1869,16 @@ impl ConversationService {
         &self,
         request: RunConversationUtilityTurnRequest,
     ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        Ok(self
+            .plan_utility_turn_with_config(request)
+            .await?
+            .runtime_plan)
+    }
+
+    pub async fn plan_utility_turn_with_config(
+        &self,
+        request: RunConversationUtilityTurnRequest,
+    ) -> Result<PlannedRuntimeTurn, sqlx::Error> {
         let bot_id = request
             .bot_id
             .as_deref()
@@ -1894,7 +1907,7 @@ impl ConversationService {
             MemoryMode::Native,
         )
         .await?;
-        Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
+        let runtime_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: utility_conversation_id,
             message_id,
             bot_id,
@@ -1907,17 +1920,32 @@ impl ConversationService {
             attachments: json!([]),
             selected_skill_ids: request.selected_skill_ids,
             body: utility_prompt_body(&request.system_prompt, &request.user_prompt),
-        }))
+        });
+        Ok(PlannedRuntimeTurn {
+            runtime_plan,
+            runtime_config,
+        })
     }
 
     pub async fn plan_runtime_session(
         &self,
         conversation_id: &str,
     ) -> Result<RuntimeTurnPlan, sqlx::Error> {
+        Ok(self
+            .plan_runtime_session_with_config(conversation_id)
+            .await?
+            .runtime_plan)
+    }
+
+    pub async fn plan_runtime_session_with_config(
+        &self,
+        conversation_id: &str,
+    ) -> Result<PlannedRuntimeTurn, sqlx::Error> {
         let conversation = self.get_conversation(conversation_id).await?.conversation;
-        let runtime_config = runtime_config_for_turn(&self.pool, &conversation).await?;
+        let mut runtime_config = runtime_config_for_turn(&self.pool, &conversation).await?;
         let engine = runtime_engine_from_config(&runtime_config)
             .or_else(|| runtime_engine_from_metadata(&conversation.metadata));
+        apply_native_skill_runtime_context(&mut runtime_config, engine.as_deref());
         let provider = runtime_provider_with_controls(
             provider_for_runtime_config(&self.pool, &runtime_config, engine.as_deref()).await?,
             &runtime_config,
@@ -1936,7 +1964,7 @@ impl ConversationService {
             memory_mode,
         )
         .await?;
-        Ok(self.runtime.build_turn_plan(RuntimeTurnInput {
+        let runtime_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
             conversation_id: conversation_id.to_string(),
             message_id: format!("runtime_prepare_{}", Uuid::now_v7().simple()),
             bot_id: conversation.bot_id,
@@ -1952,7 +1980,11 @@ impl ConversationService {
             attachments: json!([]),
             selected_skill_ids: Vec::new(),
             body: String::new(),
-        }))
+        });
+        Ok(PlannedRuntimeTurn {
+            runtime_plan,
+            runtime_config,
+        })
     }
 
     pub async fn complete_runtime_turn(

@@ -18,7 +18,7 @@ use mia_core_runtime::{
     preflight_memory_isolation,
 };
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use sqlx::Error;
 
 use crate::memory_autowrite::{apply_explicit_memory_autowrite, prepend_memory_autowrite_notice};
@@ -76,17 +76,30 @@ pub async fn prepare_conversation_runtime_controls(
     State(states): State<ModuleStates>,
     Path(conversation_id): Path<String>,
 ) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
-    let plan = states
+    let mut planned = states
         .conversation
-        .plan_runtime_session(&conversation_id)
+        .plan_runtime_session_with_config(&conversation_id)
         .await
         .map_err(map_sqlx_status)?;
+    states
+        .mia_runtime_proxies
+        .prepare_plan(
+            &states.cloud,
+            &planned.runtime_config,
+            &mut planned.runtime_plan,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(conversation_id, error = %error, "prepare conversation runtime proxy failed");
+            StatusCode::BAD_GATEWAY
+        })?;
+    let plan = planned.runtime_plan;
     preflight_memory_isolation(&plan).await.map_err(|error| {
         tracing::warn!(
             conversation_id,
             engine = %plan.engine,
             error = %error,
-            "prepare native ACP runtime memory isolation preflight failed"
+            "prepare interactive runtime memory isolation preflight failed"
         );
         StatusCode::BAD_GATEWAY
     })?;
@@ -99,7 +112,7 @@ pub async fn prepare_conversation_runtime_controls(
             tracing::warn!(
                 conversation_id,
                 error = %error,
-                "prepare native ACP runtime controls failed"
+                "prepare interactive runtime controls failed"
             );
             StatusCode::BAD_GATEWAY
         })
@@ -110,33 +123,73 @@ pub async fn set_conversation_runtime_control(
     Path(conversation_id): Path<String>,
     Json(request): Json<SetAcpRuntimeControlRequest>,
 ) -> Result<Json<AcpRuntimeControlSnapshot>, StatusCode> {
-    let plan = states
+    let mut planned = states
         .conversation
-        .plan_runtime_session(&conversation_id)
+        .plan_runtime_session_with_config(&conversation_id)
         .await
         .map_err(map_sqlx_status)?;
+    let control_id = request.control_id.trim().to_string();
+    let value = request.value.trim().to_string();
+    apply_runtime_control_override(&mut planned.runtime_config, &control_id, &value);
+    states
+        .mia_runtime_proxies
+        .prepare_plan(
+            &states.cloud,
+            &planned.runtime_config,
+            &mut planned.runtime_plan,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(conversation_id, error = %error, "prepare conversation runtime proxy for control update failed");
+            StatusCode::BAD_GATEWAY
+        })?;
+    let plan = planned.runtime_plan;
     preflight_memory_isolation(&plan).await.map_err(|error| {
         tracing::warn!(
             conversation_id,
             engine = %plan.engine,
             error = %error,
-            "set native ACP runtime memory isolation preflight failed"
+            "set interactive runtime memory isolation preflight failed"
         );
         StatusCode::BAD_GATEWAY
     })?;
-    states
-        .runtime_sessions
-        .set_control(plan, request.control_id, request.value)
-        .await
-        .map(Json)
-        .map_err(|error| {
-            tracing::warn!(
-                conversation_id,
-                error = %error,
-                "set native ACP runtime control failed"
-            );
-            StatusCode::BAD_REQUEST
-        })
+    let restarts_platform_session = control_id == "model"
+        && plan
+            .environment
+            .get("MIA_PLATFORM_PROVIDER")
+            .is_some_and(|provider| provider == "mia");
+    let result = if restarts_platform_session {
+        states.runtime_sessions.prepare_session(plan).await
+    } else {
+        states
+            .runtime_sessions
+            .set_control(plan, control_id, value)
+            .await
+    };
+    result.map(Json).map_err(|error| {
+        tracing::warn!(
+            conversation_id,
+            error = %error,
+            "set interactive runtime control failed"
+        );
+        StatusCode::BAD_REQUEST
+    })
+}
+
+fn apply_runtime_control_override(runtime_config: &mut Value, control_id: &str, value: &str) {
+    let Some(config) = runtime_config.as_object_mut() else {
+        return;
+    };
+    match control_id {
+        "model" => {
+            config.insert("model".into(), Value::String(value.into()));
+            config.insert("platformModel".into(), Value::String(value.into()));
+        }
+        "reasoning_effort" => {
+            config.insert("effortLevel".into(), Value::String(value.into()));
+        }
+        _ => {}
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -241,6 +294,19 @@ pub async fn send_conversation_message(
             );
         }
     }
+    if let Err(error) = states
+        .mia_runtime_proxies
+        .prepare_plan(&states.cloud, &turn.runtime_config, &mut turn.runtime_plan)
+        .await
+    {
+        runtime_claim.release();
+        tracing::warn!(
+            conversation_id,
+            error = %error,
+            "prepare conversation runtime proxy failed"
+        );
+        return Err(StatusCode::BAD_GATEWAY);
+    }
     let response = turn.response.clone();
     runtime_claim.set_turn_id(response.turn_id.clone());
     states.realtime.emit(
@@ -254,7 +320,10 @@ pub async fn send_conversation_message(
         }),
     );
     if turn.runtime_plan.command.is_some()
-        || turn.runtime_plan.protocol == RuntimeProtocol::NativeAcp
+        || matches!(
+            turn.runtime_plan.protocol,
+            RuntimeProtocol::NativeAcp | RuntimeProtocol::HermesGateway
+        )
     {
         spawn_runtime_turn(states, turn.runtime_plan, runtime_claim);
     } else {
@@ -297,11 +366,24 @@ pub async fn run_conversation_utility_turn(
     State(states): State<ModuleStates>,
     Json(request): Json<RunConversationUtilityTurnRequest>,
 ) -> Result<Json<RunConversationUtilityTurnResponse>, StatusCode> {
-    let runtime_plan = states
+    let mut planned = states
         .conversation
-        .plan_utility_turn(request)
+        .plan_utility_turn_with_config(request)
         .await
         .map_err(map_sqlx_status)?;
+    states
+        .mia_runtime_proxies
+        .prepare_plan(
+            &states.cloud,
+            &planned.runtime_config,
+            &mut planned.runtime_plan,
+        )
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, "prepare conversation utility runtime proxy failed");
+            StatusCode::BAD_GATEWAY
+        })?;
+    let runtime_plan = planned.runtime_plan;
     let event_realtime = states.realtime.clone();
     let sink = RuntimeEventSink::new(move |event| {
         event_realtime.emit(event.name, event.data);

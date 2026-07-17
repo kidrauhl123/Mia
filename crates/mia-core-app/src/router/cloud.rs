@@ -218,8 +218,7 @@ pub async fn set_cloud_bridge_runtime_control(
         .prepare_plan(&states.cloud, &runtime_config, &mut plan)
         .await
         .map_err(map_cloud_status)?;
-    let restarts_platform_session = matches!(control_id.as_str(), "model" | "reasoning_effort")
-        && (control_id == "model" || matches!(plan.engine.as_str(), "codex" | "hermes"))
+    let restarts_platform_session = control_id == "model"
         && plan
             .environment
             .get("MIA_PLATFORM_PROVIDER")

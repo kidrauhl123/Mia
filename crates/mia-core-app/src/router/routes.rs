@@ -269,9 +269,9 @@ mod tests {
     use mia_core_realtime::RealtimeEvent;
     use mia_core_runtime::{
         EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDOUT,
-        NativeAcpBackend, NativeAcpSessionManager, RuntimeBuilder, RuntimeCancellation,
-        RuntimeCommand, RuntimeEventSink, RuntimeExecutionResult, RuntimeSessionManager,
-        RuntimeTurnPlan,
+        HermesGatewayBackend, HermesGatewaySessionManager, NativeAcpBackend,
+        NativeAcpSessionManager, RuntimeBuilder, RuntimeCancellation, RuntimeCommand,
+        RuntimeEventSink, RuntimeExecutionResult, RuntimeSessionManager, RuntimeTurnPlan,
     };
     use mia_core_tasks::{
         EVENT_TASK_CREATED, EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED,
@@ -3223,14 +3223,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scheduler_runs_mia_managed_due_task_through_conversation_and_realtime() {
+    async fn mia_managed_hermes_turns_prepare_proxy_for_scheduler_and_chat() {
         struct ScheduledBackend {
             calls: Arc<AtomicUsize>,
             plans: Arc<Mutex<Vec<RuntimeTurnPlan>>>,
         }
 
         #[async_trait::async_trait]
-        impl NativeAcpBackend for ScheduledBackend {
+        impl HermesGatewayBackend for ScheduledBackend {
             async fn send_message(
                 &self,
                 plan: RuntimeTurnPlan,
@@ -3255,8 +3255,9 @@ mod tests {
         let mut services = AppServices::from_config(&config).await.unwrap();
         let runtime_calls = Arc::new(AtomicUsize::new(0));
         let runtime_plans = Arc::new(Mutex::new(Vec::new()));
-        services.runtime_sessions = RuntimeSessionManager::new(
-            NativeAcpSessionManager::with_backend_for_tests(Arc::new(ScheduledBackend {
+        services.runtime_sessions = RuntimeSessionManager::with_interactive_backends(
+            NativeAcpSessionManager::unavailable(),
+            HermesGatewaySessionManager::with_backend_for_tests(Arc::new(ScheduledBackend {
                 calls: runtime_calls.clone(),
                 plans: runtime_plans.clone(),
             })),
@@ -3432,6 +3433,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(message_roles, vec!["assistant"]);
+        assert_direct_chat_uses_mia_hermes_proxy(
+            &app,
+            conversation_id,
+            &runtime_calls,
+            &runtime_plans,
+            temp.path(),
+        )
+        .await;
         let assistant_body: String = sqlx::query_scalar(
             "SELECT body FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
         )
@@ -3440,6 +3449,54 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(assistant_body, "定时任务已完成");
+    }
+
+    async fn assert_direct_chat_uses_mia_hermes_proxy(
+        app: &Router,
+        conversation_id: &str,
+        runtime_calls: &Arc<AtomicUsize>,
+        runtime_plans: &Arc<Mutex<Vec<RuntimeTurnPlan>>>,
+        data_dir: &Path,
+    ) {
+        let expected_calls = runtime_calls.load(Ordering::SeqCst) + 1;
+        let chat_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/conversations/{conversation_id}/messages"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"body":"direct chat smoke","attachments":[],"selectedSkillIds":[]}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(chat_response.status(), StatusCode::OK);
+        for _ in 0..50 {
+            if runtime_calls.load(Ordering::SeqCst) == expected_calls {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(runtime_calls.load(Ordering::SeqCst), expected_calls);
+        let plans = runtime_plans.lock().unwrap();
+        let chat_plan = plans.last().unwrap();
+        assert_eq!(
+            chat_plan.protocol,
+            mia_core_runtime::RuntimeProtocol::HermesGateway
+        );
+        assert_eq!(
+            chat_plan
+                .environment
+                .get("MIA_PLATFORM_PROVIDER")
+                .map(String::as_str),
+            Some("mia")
+        );
+        assert!(chat_plan.environment.contains_key("CUSTOM_BASE_URL"));
+        assert!(chat_plan.environment.contains_key("OPENAI_API_KEY"));
+        assert!(Path::new(chat_plan.environment.get("HERMES_HOME").unwrap()).starts_with(data_dir));
     }
 
     async fn next_event(
