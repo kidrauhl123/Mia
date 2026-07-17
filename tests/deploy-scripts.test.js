@@ -231,6 +231,9 @@ test("release builder includes operator README with safe install verification", 
   const source = readScript("scripts/build-cloud-release.js");
   assert.match(source, /function writeReleaseReadme\(\)/);
   assert.match(source, /function writeNginxConfigs\(\)/);
+  assert.match(source, /location = \/downloads\/mia-mobile-update\.json \{/);
+  assert.match(source, /add_header Cache-Control "no-store, no-cache, must-revalidate" always;/);
+  assert.match(source, /add_header Pragma "no-cache" always;/);
   assert.match(source, /copyDir\("src\/cloud-agent", path\.join\(apiDir, "src", "cloud-agent"\)\)/);
   assert.doesNotMatch(source, /"api\/src\/cloud-agent\/default-bot\.js"/);
   assert.doesNotMatch(source, /default-fellow\.js/);

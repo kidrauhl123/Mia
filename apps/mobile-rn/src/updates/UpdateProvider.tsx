@@ -12,6 +12,7 @@ import {
 } from "./androidInstaller";
 import { sha256File } from "./checksum";
 import { parseMobileUpdateManifest } from "./manifest";
+import { createMobileUpdateManifestRequest } from "./manifestRequest";
 import { checkForOtaUpdate, fetchOtaUpdate, reloadIntoOtaUpdate } from "./otaUpdates";
 import { getAppVariant, getApplicationId, getInstalledAppInfo, getUpdateChannel, type InstalledRuntimeInfo } from "./runtimeInfo";
 import { shouldDisableProductionUpdateChecks } from "./updateEnvironment";
@@ -29,12 +30,9 @@ interface UpdateContextValue {
 
 const Ctx = createContext<UpdateContextValue>(null as any);
 
-function manifestUrl(apiBase: string): string {
-  return `${String(apiBase || "").replace(/\/+$/, "")}/downloads/mia-mobile-update.json`;
-}
-
 async function fetchManifest(apiBase: string) {
-  const response = await fetch(manifestUrl(apiBase), { headers: { Accept: "application/json" } });
+  const request = createMobileUpdateManifestRequest(apiBase);
+  const response = await fetch(request.url, { headers: request.headers });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return parseMobileUpdateManifest(await response.json());
 }

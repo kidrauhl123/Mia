@@ -405,6 +405,13 @@ server {
         add_header Cache-Control "no-cache";
     }
 
+    location = /downloads/mia-mobile-update.json {
+        try_files $uri =404;
+        default_type application/json;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+    }
+
     location = /updates/latest-mac.yml {
         alias /var/www/mia-updates/latest-mac.yml;
         default_type application/x-yaml;
@@ -747,6 +754,11 @@ function verifyRelease() {
   }
   if (!/location\s+=\s+\/mobile-scan\s+\{[\s\S]*try_files\s+\/mobile-scan\.html\s+=404;[\s\S]*add_header\s+Cache-Control\s+"no-cache";/.test(nginxSite)) {
     throw new Error("Release nginx site must serve /mobile-scan as the phone authorization page.");
+  }
+  if (
+    !/location\s+=\s+\/downloads\/mia-mobile-update\.json\s+\{[^}]*add_header\s+Cache-Control\s+"no-store, no-cache, must-revalidate"\s+always;[^}]*add_header\s+Pragma\s+"no-cache"\s+always;[^}]*\}/.test(nginxSite)
+  ) {
+    throw new Error("Release nginx site must prevent caching the mobile update manifest.");
   }
   const webAppHtml = fs.readFileSync(assertFile("web/app/index.html"), "utf8");
   if (!webAppHtml.includes(`../app.js?v=${assetVersionForRelease()}`)) {
