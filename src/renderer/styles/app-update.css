@@ -13,9 +13,8 @@
 
 .app-update-panel {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 12px;
   width: min(420px, 100%);
   padding: 16px;
   border: 1px solid var(--line);
@@ -34,25 +33,6 @@
 
 .app-update-panel button {
   cursor: default;
-}
-
-.app-update-mark {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: rgb(var(--accent-rgb) / 0.1);
-  color: var(--accent);
-}
-
-.app-update-mark span {
-  width: 20px;
-  height: 20px;
-  border: 2px solid rgb(var(--accent-rgb) / 0.2);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: appUpdateSpin 820ms linear infinite;
 }
 
 .app-update-copy {
@@ -181,8 +161,4 @@
   align-self: center;
   justify-self: end;
   font-variant-numeric: tabular-nums;
-}
-
-@keyframes appUpdateSpin {
-  to { transform: rotate(360deg); }
 }
