@@ -18,7 +18,7 @@ function createMiaCoreHttpClient(deps = {}) {
 
   async function request(method, pathname, body) {
     const path = String(pathname || "/");
-    const headers = { accept: "application/json", connection: "close" };
+    const headers = { accept: "application/json" };
     const options = { method, headers };
     if (body !== undefined) {
       headers["content-type"] = "application/json";
@@ -54,4 +54,22 @@ function createMiaCoreHttpClient(deps = {}) {
   };
 }
 
-module.exports = { createMiaCoreHttpClient };
+function createMiaCoreHttpClientCache(deps = {}) {
+  const fetchImpl = deps.fetch || globalThis.fetch;
+  let currentBaseUrl = "";
+  let currentClient = null;
+
+  function get(baseUrl) {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (!normalized) throw new Error("baseUrl dependency is required.");
+    if (!currentClient || currentBaseUrl !== normalized) {
+      currentBaseUrl = normalized;
+      currentClient = createMiaCoreHttpClient({ baseUrl: normalized, fetch: fetchImpl });
+    }
+    return currentClient;
+  }
+
+  return { get };
+}
+
+module.exports = { createMiaCoreHttpClient, createMiaCoreHttpClientCache };

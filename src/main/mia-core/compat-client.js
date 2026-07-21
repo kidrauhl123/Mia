@@ -1,6 +1,6 @@
 "use strict";
 
-const { createMiaCoreHttpClient } = require("./http-client.js");
+const { createMiaCoreHttpClientCache } = require("./http-client.js");
 
 function parseBody(body) {
   if (body == null || body === "") return undefined;
@@ -48,6 +48,8 @@ function createMiaCoreCompatibilityClient({
   getCoreStatus,
   fetchImpl = fetch
 }) {
+  const clients = createMiaCoreHttpClientCache({ fetch: fetchImpl });
+
   function baseUrl() {
     const settings = getCoreSettings();
     const status = getCoreStatus();
@@ -58,7 +60,7 @@ function createMiaCoreCompatibilityClient({
     const body = parseBody(opts.body);
     const mapped = mapLegacyRequest(pathSegment, opts.method || "GET", body);
     if (mapped.immediate) return mapped.immediate;
-    const client = createMiaCoreHttpClient({ baseUrl: baseUrl(), fetch: fetchImpl });
+    const client = clients.get(baseUrl());
     const response = await client.request(mapped.method, mapped.path, mapped.body);
     return mapped.adapt(response || {});
   }

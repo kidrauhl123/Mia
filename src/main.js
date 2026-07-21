@@ -74,7 +74,7 @@ const {
   coreNeedsReplacement,
   shouldReuseCore
 } = require("./main/mia-core/control-server.js");
-const { createMiaCoreHttpClient } = require("./main/mia-core/http-client.js");
+const { createMiaCoreHttpClientCache } = require("./main/mia-core/http-client.js");
 const { createMiaCoreCompatibilityClient } = require("./main/mia-core/compat-client.js");
 const { createMiaCoreLocalEventsClient } = require("./main/mia-core/event-client.js");
 const { createMiaCoreProcessLauncher } = require("./main/mia-core/process-launcher.js");
@@ -280,6 +280,12 @@ function currentMiaCoreBaseUrl() {
   return `http://${host}:${fallbackPort}`;
 }
 
+const miaCoreHttpClients = createMiaCoreHttpClientCache({ fetch });
+
+function currentMiaCoreHttpClient() {
+  return miaCoreHttpClients.get(currentMiaCoreBaseUrl());
+}
+
 function currentMiaCoreMcpStatus() {
   const port = Number(miaCoreStartupState.port || 0);
   return port > 0 ? { baseUrl: currentMiaCoreBaseUrl() } : {};
@@ -301,7 +307,7 @@ async function forwardMiaCoreHttpRequest(payload = {}) {
   if (coreRequestShouldWaitForStreamingEvents({ method, route })) {
     await waitForDaemonRuntimeEventsConnection();
   }
-  const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
+  const client = currentMiaCoreHttpClient();
   const result = await client.request(method, route, payload.body);
   if (shouldInvalidateRuntimeStatusCoreSnapshot(method, route)) {
     runtimeStatusCoreSnapshot?.invalidate?.();
@@ -688,8 +694,7 @@ const skillsLoader = createSkillsLoader({
   appendEngineLog,
   isChildPath,
   materializeSkillsWithCore: async (request) => {
-    const client = createMiaCoreHttpClient({ baseUrl: currentMiaCoreBaseUrl(), fetch });
-    return client.post("/api/conversations/skill-materialization", request);
+    return currentMiaCoreHttpClient().post("/api/conversations/skill-materialization", request);
   },
 });
 // Local agents default to a Mia-owned workspace, never `/` (Finder-launched app)

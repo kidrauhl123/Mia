@@ -3,7 +3,10 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 
-const { createMiaCoreHttpClient } = require("../src/main/mia-core/http-client.js");
+const {
+  createMiaCoreHttpClient,
+  createMiaCoreHttpClientCache
+} = require("../src/main/mia-core/http-client.js");
 
 test("Mia Core HTTP client builds typed loopback requests", async () => {
   const calls = [];
@@ -23,7 +26,15 @@ test("Mia Core HTTP client builds typed loopback requests", async () => {
   assert.deepEqual(await client.health(), { ok: true, dataDir: "/tmp/mia" });
   assert.equal(calls[0].url, "http://127.0.0.1:51234/health");
   assert.equal(calls[0].options.method, "GET");
-  assert.equal(calls[0].options.headers.connection, "close");
+  assert.equal("connection" in calls[0].options.headers, false);
+});
+
+test("Mia Core HTTP client cache reuses a client until the Core address changes", () => {
+  const clients = createMiaCoreHttpClientCache({ fetch: async () => null });
+  const first = clients.get("http://127.0.0.1:51234/");
+
+  assert.equal(clients.get("http://127.0.0.1:51234"), first);
+  assert.notEqual(clients.get("http://127.0.0.1:51235"), first);
 });
 
 test("Mia Core HTTP client throws parsed response errors", async () => {

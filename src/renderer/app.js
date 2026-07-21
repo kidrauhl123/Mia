@@ -21,6 +21,17 @@ const botRuntimeControlInFlight = new Set();
 const botRuntimeControlOptionsCache = new Map();
 const botRuntimeControlOptionsInFlight = new Set();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
+const runtimeRequestBackoff = window.miaRequestBackoff?.createRequestBackoff?.({
+  baseDelayMs: 1_000,
+  maxDelayMs: 30_000
+}) || {
+  canRun: () => true,
+  fail: () => ({ delayMs: 0, retryAt: 0 }),
+  reset: () => {},
+  resetAll: () => {},
+  succeed: () => {}
+};
+const PLATFORM_MODEL_CATALOG_REQUEST_KEY = "platform-model-catalog";
 let socialBootstrapInFlight = null;
 let starterEngineBotsInFlight = null;
 let personaSearchTimer = 0;
@@ -4659,23 +4670,39 @@ function normalizePlatformModelEntry(entry = {}) {
 }
 
 async function loadPlatformModelCatalog() {
-  if (platformModelCatalog.loaded || platformModelCatalog.loading) return platformModelCatalog.entries;
-  if (!state.runtime?.cloud?.enabled || typeof window.mia?.social?.listPlatformModels !== "function") return platformModelCatalog.entries;
+  if (platformModelCatalog.loaded) {
+    return { entries: platformModelCatalog.entries, loaded: true, changed: false };
+  }
+  if (platformModelCatalog.loading || !runtimeRequestBackoff.canRun(PLATFORM_MODEL_CATALOG_REQUEST_KEY)) {
+    return { entries: platformModelCatalog.entries, loaded: false, changed: false };
+  }
+  if (!state.runtime?.cloud?.enabled || typeof window.mia?.social?.listPlatformModels !== "function") {
+    return { entries: platformModelCatalog.entries, loaded: false, changed: false };
+  }
   platformModelCatalog.loading = true;
   try {
     const response = await window.mia.social.listPlatformModels();
+    if (response && response.ok === false) {
+      throw new Error(response.error || response.message || "Platform model catalog failed");
+    }
     const models = response?.ok ? response.data?.models : response?.models;
-    platformModelCatalog.entries = (Array.isArray(models) ? models : [])
+    const entries = (Array.isArray(models) ? models : [])
       .map(normalizePlatformModelEntry)
       .filter(Boolean);
-    state.platformModels = platformModelCatalog.entries;
+    const changed = !platformModelCatalog.loaded
+      || JSON.stringify(entries) !== JSON.stringify(platformModelCatalog.entries);
+    platformModelCatalog.entries = entries;
+    state.platformModels = entries;
     platformModelCatalog.loaded = true;
+    runtimeRequestBackoff.succeed(PLATFORM_MODEL_CATALOG_REQUEST_KEY);
+    return { entries, loaded: true, changed };
   } catch (error) {
+    runtimeRequestBackoff.fail(PLATFORM_MODEL_CATALOG_REQUEST_KEY);
     console.warn("[renderer] platform model catalog load failed:", error?.message || error);
+    return { entries: platformModelCatalog.entries, loaded: false, changed: false, error };
   } finally {
     platformModelCatalog.loading = false;
   }
-  return platformModelCatalog.entries;
 }
 
 function setComposerSelectOptions(select, entries, selectedValue, options = {}) {
@@ -4944,6 +4971,11 @@ function runtimeControlOptionsCacheKey(context = activeBotRuntimeControlContext(
   return context?.botKey ? botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code") : "";
 }
 
+function runtimeControlOptionsBackoffKey(context = activeBotRuntimeControlContext()) {
+  const key = runtimeControlOptionsCacheKey(context);
+  return key ? `runtime-options:${key}` : "";
+}
+
 function runtimeControlArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -5154,6 +5186,8 @@ function nativeConversationRuntimeControlInput(context = {}) {
 function invalidateRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
   if (key) botRuntimeControlOptionsCache.delete(key);
+  const backoffKey = runtimeControlOptionsBackoffKey(context);
+  if (backoffKey) runtimeRequestBackoff.reset(backoffKey);
 }
 
 const RUNTIME_CONTROL_REQUEST_TIMEOUT_MS = 65_000;
@@ -5176,7 +5210,8 @@ function runtimeControlRequestWithTimeout(pending, timeoutMs = RUNTIME_CONTROL_R
 
 function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
-  if (!key || botRuntimeControlOptionsInFlight.has(key)) return;
+  const backoffKey = runtimeControlOptionsBackoffKey(context);
+  if (!key || botRuntimeControlOptionsInFlight.has(key) || !runtimeRequestBackoff.canRun(backoffKey)) return;
   const nativeControls = usesNativeConversationRuntimeControls(context);
   const api = nativeControls
     ? window.mia?.social?.prepareConversationRuntimeControls
@@ -5198,11 +5233,14 @@ function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()
       const options = nativeControls
         ? runtimeControlOptionsFromSnapshot(payload, context.runtimeKind)
         : payload;
-      if (options && typeof options === "object") botRuntimeControlOptionsCache.set(key, options);
+      if (!options || typeof options !== "object") throw new Error("Runtime control options response was empty");
+      botRuntimeControlOptionsCache.set(key, options);
+      runtimeRequestBackoff.succeed(backoffKey);
       const latest = activeConversationBotContext();
       if (latest?.conversationId === context?.conversationId) render();
     })
     .catch((error) => {
+      runtimeRequestBackoff.fail(backoffKey);
       setRuntimeControlDisabled(true);
       setModelSwitchStatusText("运行配置读取失败");
       console.warn("[renderer] bot runtime control options failed:", error?.message || error);
@@ -5326,7 +5364,8 @@ function syncConversationBotRuntimeControls() {
   if (els.permissionMode) els.permissionMode.disabled = !permissionEntries.length;
   setModelSwitchStatusText(options?.statusText || "运行配置读取中...");
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
-    loadPlatformModelCatalog().then(() => {
+    loadPlatformModelCatalog().then((result) => {
+      if (!result?.changed) return;
       const latest = activeConversationBotContext();
       if (latest?.conversationId === context.conversationId) {
         invalidateRuntimeControlOptions(controlContext);
@@ -5335,11 +5374,14 @@ function syncConversationBotRuntimeControls() {
     });
   }
   const runtimeCacheKey = botRuntimeCacheKey(context.botKey, context.runtimeKind);
+  const runtimeBindingBackoffKey = `runtime-binding:${runtimeCacheKey}`;
   if (!botRuntimeControlCache.has(runtimeCacheKey)
-    && !botRuntimeControlInFlight.has(runtimeCacheKey)) {
+    && !botRuntimeControlInFlight.has(runtimeCacheKey)
+    && runtimeRequestBackoff.canRun(runtimeBindingBackoffKey)) {
     botRuntimeControlInFlight.add(runtimeCacheKey);
     ensureBotRuntimeBinding(context.botKey, context.runtimeKind)
       .then(() => {
+        runtimeRequestBackoff.succeed(runtimeBindingBackoffKey);
         const latest = activeConversationBotContext();
         if (latest?.conversationId === context.conversationId) {
           invalidateRuntimeControlOptions(controlContext);
@@ -5347,6 +5389,7 @@ function syncConversationBotRuntimeControls() {
         }
       })
       .catch((error) => {
+        runtimeRequestBackoff.fail(runtimeBindingBackoffKey);
         setModelSwitchStatusText("运行配置读取失败");
         console.warn("[renderer] bot runtime load failed:", error?.message || error);
       })
@@ -5662,6 +5705,7 @@ async function performRefreshRuntime() {
   const nextRuntimeControlInventory = runtimeControlInventorySignature(runtime);
   if (nextRuntimeControlInventory !== previousRuntimeControlInventory) {
     botRuntimeControlOptionsCache.clear();
+    runtimeRequestBackoff.resetAll();
   }
   if (state.coreStartup?.active && runtime?.daemon?.running) {
     completeCoreStartupProgress(true);

@@ -241,7 +241,7 @@ test("runtime refresh invalidates bot runtime control options when local engine 
   assert.match(appSource, /function runtimeControlInventorySignature\(runtime = state\.runtime\)/);
   assert.match(refreshRuntime, /const previousRuntimeControlInventory = runtimeControlInventorySignature\(state\.runtime\);/);
   assert.match(refreshRuntime, /const nextRuntimeControlInventory = runtimeControlInventorySignature\(runtime\);/);
-  assert.match(refreshRuntime, /if \(nextRuntimeControlInventory !== previousRuntimeControlInventory\) \{\s*botRuntimeControlOptionsCache\.clear\(\);\s*\}/);
+  assert.match(refreshRuntime, /if \(nextRuntimeControlInventory !== previousRuntimeControlInventory\) \{\s*botRuntimeControlOptionsCache\.clear\(\);\s*runtimeRequestBackoff\.resetAll\(\);\s*\}/);
 });
 
 test("bot composer shows Mia Core startup progress through the right-side status slot", () => {

@@ -10,6 +10,15 @@
   let runtimeOptionsCacheKey = "";
   let runtimeOptionsCache = null;
   const runtimeOptionsInFlight = new Set();
+  const runtimeOptionsBackoff = window.miaRequestBackoff?.createRequestBackoff?.({
+    baseDelayMs: 1_000,
+    maxDelayMs: 30_000
+  }) || {
+    canRun: () => true,
+    fail: () => {},
+    succeed: () => {}
+  };
+  const RUNTIME_OPTIONS_REQUEST_KEY = "settings-runtime-options";
 
   function initModelSettings(deps) {
     state = deps.state;
@@ -51,7 +60,7 @@
     const request = runtimeControlOptionsRequest(runtime);
     const key = runtimeControlOptionsKey(request);
     if (runtimeOptionsCacheKey === key && runtimeOptionsCache) return;
-    if (runtimeOptionsInFlight.has(key)) return;
+    if (runtimeOptionsInFlight.has(key) || !runtimeOptionsBackoff.canRun(RUNTIME_OPTIONS_REQUEST_KEY)) return;
     runtimeOptionsInFlight.add(key);
     api(request)
       .then((result) => {
@@ -60,10 +69,14 @@
         if (options && typeof options === "object") {
           runtimeOptionsCacheKey = key;
           runtimeOptionsCache = options;
+        } else {
+          throw new Error("Settings runtime options response was empty");
         }
+        runtimeOptionsBackoff.succeed(RUNTIME_OPTIONS_REQUEST_KEY);
         if (typeof render === "function") render();
       })
       .catch((error) => {
+        runtimeOptionsBackoff.fail(RUNTIME_OPTIONS_REQUEST_KEY);
         console.warn("[renderer] settings runtime options failed:", error?.message || error);
       })
       .finally(() => {
