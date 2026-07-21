@@ -341,6 +341,51 @@ test("Mia Core local events client subscribes to Rust Core /ws and reports conne
   assert.deepEqual(states, [true, false]);
 });
 
+test("Mia Core local events client closes errored sockets and ignores stale socket events", () => {
+  FakeSocket.instances = [];
+  const envelopes = [];
+  const states = [];
+  const timers = [];
+  const client = createMiaCoreLocalEventsClient({
+    baseUrl: () => "http://127.0.0.1:27862",
+    enabled: () => true,
+    WebSocketImpl: FakeSocket,
+    onEnvelope: (envelope) => envelopes.push(envelope),
+    onStateChange: (connected) => states.push(connected),
+    setTimeoutFn: (fn, delayMs) => {
+      timers.push({ fn, delayMs });
+      return timers.length;
+    },
+    clearTimeoutFn: () => {}
+  });
+
+  client.start();
+  const first = FakeSocket.instances[0];
+  first.emit("open");
+  first.emit("error");
+
+  assert.equal(first.closed, true);
+  assert.deepEqual(states, [true, false]);
+  assert.equal(timers.length, 1);
+
+  timers.shift().fn();
+  const second = FakeSocket.instances[1];
+  second.emit("open");
+
+  first.emit("close");
+  first.emit("message", {
+    data: JSON.stringify({ name: "events_ready", data: { serverSeq: 99 } })
+  });
+
+  assert.equal(client.status().connected, true);
+  assert.equal(timers.length, 0);
+  assert.equal(second.closed, undefined);
+  assert.deepEqual(envelopes, []);
+
+  client.stop();
+  assert.equal(second.closed, true);
+});
+
 test("Mia Core local events client reads ws MessageEvent data from the prototype", () => {
   FakeSocket.instances = [];
   const envelopes = [];

@@ -394,15 +394,35 @@ function createMiaCoreLocalEventsClient({
     timer = null;
   }
 
+  function disposeSocket(current, immediate = false) {
+    try {
+      if (immediate && typeof current?.terminate === "function") {
+        current.terminate();
+        return;
+      }
+      current?.close?.();
+    } catch {
+      // Ignore teardown failures from sockets that already closed themselves.
+    }
+  }
+
   function scheduleReconnect() {
     setConnected(false);
-    socket = null;
     if (stopped || timer) return;
     timer = setTimeoutFn(() => {
       timer = null;
       connect();
     }, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_DELAY_MS);
+  }
+
+  function disconnectSocket(current, { immediate = false } = {}) {
+    // A delayed close/error from a retired socket must never clear the active
+    // replacement or schedule another reconnect behind its back.
+    if (!current || socket !== current) return;
+    socket = null;
+    if (immediate) disposeSocket(current, true);
+    scheduleReconnect();
   }
 
   function handleMessage(event) {
@@ -443,20 +463,32 @@ function createMiaCoreLocalEventsClient({
     socket = nextSocket;
     if (typeof nextSocket.addEventListener === "function") {
       nextSocket.addEventListener("open", () => {
+        if (socket !== nextSocket) {
+          disposeSocket(nextSocket, true);
+          return;
+        }
         reconnectDelay = initialReconnectDelayMs;
         setConnected(true);
       });
-      nextSocket.addEventListener("message", handleMessage);
-      nextSocket.addEventListener("close", scheduleReconnect);
-      nextSocket.addEventListener("error", scheduleReconnect);
+      nextSocket.addEventListener("message", (event) => {
+        if (socket === nextSocket) handleMessage(event);
+      });
+      nextSocket.addEventListener("close", () => disconnectSocket(nextSocket));
+      nextSocket.addEventListener("error", () => disconnectSocket(nextSocket, { immediate: true }));
     } else if (typeof nextSocket.on === "function") {
       nextSocket.on("open", () => {
+        if (socket !== nextSocket) {
+          disposeSocket(nextSocket, true);
+          return;
+        }
         reconnectDelay = initialReconnectDelayMs;
         setConnected(true);
       });
-      nextSocket.on("message", (data) => handleMessage(data));
-      nextSocket.on("close", scheduleReconnect);
-      nextSocket.on("error", scheduleReconnect);
+      nextSocket.on("message", (data) => {
+        if (socket === nextSocket) handleMessage(data);
+      });
+      nextSocket.on("close", () => disconnectSocket(nextSocket));
+      nextSocket.on("error", () => disconnectSocket(nextSocket, { immediate: true }));
     }
   }
 
@@ -472,11 +504,7 @@ function createMiaCoreLocalEventsClient({
     clearReconnectTimer();
     const current = socket;
     socket = null;
-    try {
-      current?.close?.();
-    } catch {
-      // Ignore teardown failures from already-closed sockets.
-    }
+    disposeSocket(current);
     setConnected(false);
     return status();
   }
