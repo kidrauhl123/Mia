@@ -1489,6 +1489,7 @@ function conversationRowsFromMessageSearch(results, query) {
         : conversationId.startsWith("g_") || conversationId.startsWith("g-") ? "group"
         : "dm");
     const tags = social?.conversationTagsFor?.(conversationId) || [];
+    const lastMessageAt = new Date(message.created_at || message.createdAt || 0).getTime() || 0;
     const row = {
       type: conversationType === "group" ? "group-conversation" : "private-conversation",
       key: `search:${conversationId}:${message.id || message.seq || ""}`,
@@ -1498,7 +1499,9 @@ function conversationRowsFromMessageSearch(results, query) {
       searchMessage: message,
       pinned: false,
       pinnedAt: "",
-      updatedAt: new Date(message.created_at || message.createdAt || 0).getTime() || 0,
+      lastMessageAt,
+      // Search rows are already anchored to the matched visible message.
+      updatedAt: lastMessageAt,
       conversation: {
         ...conversation,
         id: conversationId,
@@ -2286,7 +2289,7 @@ function conversationCardSpecFromRow(row, personas) {
       preview: conversation.lastMessagePreview || "暂无对话",
       typing: Boolean(typingRun),
       typingLabel: searchResult ? "" : typingLabelForConversationRun(social, conversation, typingRun),
-      time: formatConversationTime(row.updatedAt),
+      time: formatConversationTime(row.lastMessageAt),
       unread: searchResult ? 0 : unread,
       tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
       tagEditor: searchResult ? null : (social?.conversationTagEditorFor?.(conversation.id) || null),
@@ -2366,7 +2369,7 @@ function conversationCardSpecFromRow(row, personas) {
       preview: conversation.lastMessagePreview || "暂无消息",
       typing: Boolean(typingRun),
       typingLabel: searchResult ? "" : typingLabelForConversationRun(social, conversation, typingRun),
-      time: formatConversationTime(row.updatedAt),
+      time: formatConversationTime(row.lastMessageAt),
       unread: searchResult ? 0 : cgUnread,
       tags: searchResult ? [] : (conversation.tags || social?.conversationTagsFor?.(conversation.id) || []),
       tagEditor: searchResult ? null : (social?.conversationTagEditorFor?.(conversation.id) || null),

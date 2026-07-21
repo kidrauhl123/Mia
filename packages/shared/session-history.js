@@ -56,36 +56,49 @@
     );
   }
 
-  function authoritativeConversationActivityAt(conversation) {
+  function timestampMs(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value > 0 ? value : 0;
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    if (/^\d+(\.\d+)?$/.test(raw)) {
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+      return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function listedConversationLastMessageAt(conversation) {
     return String(
-      conversation?.last_activity_at
-      || conversation?.lastActivityAt
-      || conversation?.last_message_created_at
+      conversation?.last_message_created_at
       || conversation?.lastMessageCreatedAt
       || ""
     ).trim();
   }
 
-  function cachedConversationActivityAt(conversation, messageCache) {
+  function cachedConversationLastMessageAt(conversation, messageCache) {
     const cache = messageCache?.get?.(conversation?.id);
     const last = cache?.messages?.[cache.messages.length - 1];
     return String(last?.created_at || last?.createdAt || "").trim();
   }
 
-  function conversationSortTime(conversation, messageCache) {
-    return new Date(
-      authoritativeConversationActivityAt(conversation)
-      || cachedConversationActivityAt(conversation, messageCache)
-      || conversation?.updated_at
-      || conversation?.updatedAt
-      || conversation?.created_at
-      || conversation?.createdAt
-      || 0
-    ).getTime() || 0;
+  // The sidebar time is a property of the last message the user can see.
+  // Conversation updated/activity timestamps also change for metadata-only
+  // writes, so they must never participate in this value.
+  function conversationLastMessageTime(conversation, messageCache) {
+    return Math.max(
+      timestampMs(listedConversationLastMessageAt(conversation)),
+      timestampMs(cachedConversationLastMessageAt(conversation, messageCache))
+    );
   }
 
-  function hasAuthoritativeConversationActivity(conversation) {
-    return Boolean(authoritativeConversationActivityAt(conversation));
+  function conversationSortTime(conversation, messageCache) {
+    return conversationLastMessageTime(conversation, messageCache);
+  }
+
+  function hasListedConversationLastMessage(conversation) {
+    return Boolean(timestampMs(listedConversationLastMessageAt(conversation)));
   }
 
   function hasCachedMessages(conversation, messageCache) {
@@ -94,7 +107,7 @@
   }
 
   function compareConversationActivity(a, b, messageCache) {
-    if (!hasAuthoritativeConversationActivity(a) && !hasAuthoritativeConversationActivity(b)) {
+    if (!hasListedConversationLastMessage(a) && !hasListedConversationLastMessage(b)) {
       const aHasMessages = hasCachedMessages(a, messageCache);
       const bHasMessages = hasCachedMessages(b, messageCache);
       if (aHasMessages !== bHasMessages) return bHasMessages ? 1 : -1;
@@ -143,7 +156,7 @@
 
   function conversationHasContent(conversation, messageCache) {
     if (hasCachedMessages(conversation, messageCache)) return true;
-    if (conversation?.last_activity_at || conversation?.lastActivityAt) return true;
+    if (conversation?.last_message_created_at || conversation?.lastMessageCreatedAt) return true;
     const created = String(conversation?.created_at || conversation?.createdAt || "").trim();
     const updated = String(conversation?.updated_at || conversation?.updatedAt || "").trim();
     if (!created && !updated) return true;
@@ -232,6 +245,7 @@
     botId,
     normalizeRuntimeKind,
     runtimeKind,
+    conversationLastMessageTime,
     conversationSortTime,
     sessionTitle,
     sessionConversationsForConversation,

@@ -1618,10 +1618,11 @@ test("renderSidebarRows uses the last rendered message time instead of metadata-
   const rows = s.renderSidebarRows();
 
   assert.equal(rows[0].conversation.lastMessagePreview, "visible");
+  assert.equal(rows[0].lastMessageAt, new Date("2026-05-21T20:01:00.000Z").getTime());
   assert.equal(rows[0].updatedAt, new Date("2026-05-21T20:01:00.000Z").getTime());
 });
 
-test("renderSidebarRows keeps cloud activity time stable after cached messages load", () => {
+test("renderSidebarRows uses the listed last message when it is newer than a stale cache", () => {
   const s = loadSocial();
   s.moduleState.myUserId = "u_alice";
   s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
@@ -1629,6 +1630,8 @@ test("renderSidebarRows keeps cloud activity time stable after cached messages l
     id: "dm:u_alice:u_bob",
     type: "dm",
     name: null,
+    last_message_created_at: "2026-05-21T20:10:00.000Z",
+    last_message_text: "newer listed message",
     last_activity_at: "2026-05-21T20:10:00.000Z",
     updatedAt: "2026-05-21T20:23:00.000Z"
   }];
@@ -1639,8 +1642,51 @@ test("renderSidebarRows keeps cloud activity time stable after cached messages l
 
   const rows = s.renderSidebarRows();
 
-  assert.equal(rows[0].conversation.lastMessagePreview, "older local cache");
+  assert.equal(rows[0].conversation.lastMessagePreview, "newer listed message");
+  assert.equal(rows[0].lastMessageAt, new Date("2026-05-21T20:10:00.000Z").getTime());
   assert.equal(rows[0].updatedAt, new Date("2026-05-21T20:10:00.000Z").getTime());
+});
+
+test("renderSidebarRows follows the cached visible message when cloud activity metadata is stale", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_alice";
+  s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
+  s.moduleState.conversations = [{
+    id: "dm:u_alice:u_bob",
+    type: "dm",
+    name: null,
+    last_message_created_at: "2026-05-21T20:01:00.000Z",
+    last_activity_at: "2026-05-21T20:10:00.000Z",
+    updatedAt: "2026-05-21T20:23:00.000Z"
+  }];
+  s.moduleState.messageCache.set("dm:u_alice:u_bob", {
+    messages: [{ id: "m1", seq: 1, body_md: "visible locally", created_at: "2026-05-21T20:33:00.000Z" }],
+    maxSeq: 1,
+  });
+
+  const rows = s.renderSidebarRows();
+
+  assert.equal(rows[0].conversation.lastMessagePreview, "visible locally");
+  assert.equal(rows[0].lastMessageAt, new Date("2026-05-21T20:33:00.000Z").getTime());
+  assert.equal(rows[0].updatedAt, rows[0].lastMessageAt);
+});
+
+test("renderSidebarRows does not display conversation metadata as a message time", () => {
+  const s = loadSocial();
+  s.moduleState.myUserId = "u_alice";
+  s.moduleState.friends = [{ id: "u_bob", username: "bob", account: "bob" }];
+  s.moduleState.conversations = [{
+    id: "dm:u_alice:u_bob",
+    type: "dm",
+    name: null,
+    last_activity_at: "2026-05-21T20:10:00.000Z",
+    updatedAt: "2026-05-21T20:23:00.000Z"
+  }];
+
+  const rows = s.renderSidebarRows();
+
+  assert.equal(rows[0].lastMessageAt, 0);
+  assert.equal(rows[0].updatedAt, 0);
 });
 
 test("manual unread survives settings responses that omit local override bags", async () => {
@@ -3484,6 +3530,34 @@ test("renderConversationChat marks failed outgoing cloud messages", async () => 
   assert.match(chat.children[0].innerHTML, /title="network down"/);
 });
 
+test("renderConversationChat inserts a centered date divider when the message day changes", () => {
+  const s = loadSocial();
+  s.moduleState.activeConversationId = "dm:u_alice:u_bob";
+  s.moduleState.conversations = [{ id: "dm:u_alice:u_bob", type: "dm", name: "Bob" }];
+  s.moduleState.messageCache.set("dm:u_alice:u_bob", {
+    maxSeq: 3,
+    messages: [
+        { id: "m1", seq: 1, sender_kind: "bot", body_md: "第一天第一条", created_at: "2026-07-18T10:00:00.000Z" },
+        { id: "m2", seq: 2, sender_kind: "bot", body_md: "第一天第二条", created_at: "2026-07-18T11:00:00.000Z" },
+        { id: "m3", seq: 3, sender_kind: "bot", body_md: "第二天第一条", created_at: "2026-07-19T10:00:00.000Z" }
+    ]
+  });
+  const chat = makeTestEl();
+  chat.dataset = {};
+  chat.scrollTop = 0;
+  chat.scrollHeight = 0;
+  chat.clientHeight = 0;
+
+  s.renderConversationChat(chat);
+
+  assert.equal(chat.children.length, 3);
+  assert.match(chat.children[0].innerHTML, /message-date-divider/);
+  assert.match(chat.children[0].innerHTML, /2026年7月18日/);
+  assert.doesNotMatch(chat.children[1].innerHTML, /message-date-divider/);
+  assert.match(chat.children[2].innerHTML, /message-date-divider/);
+  assert.match(chat.children[2].innerHTML, /2026年7月19日/);
+});
+
 test("appendMessageToActiveChat animates new tail messages only when the chat is near bottom", () => {
   const chat = {
     children: [],
@@ -4641,12 +4715,19 @@ test("handleCloudEvent conversation.message_deleted removes the cached message",
   const s = loadSocial();
   let renders = 0;
   s.initSocialModule({ getState: () => ({}), render: () => { renders += 1; }, els: {}, appendTransientChat: () => {} });
+  s.moduleState.conversations = [{
+    id: "dm:u_a:u_b",
+    type: "dm",
+    last_message_created_at: "2026-05-21T20:02:00.000Z",
+    last_message_text: "delete me",
+    updatedAt: "2026-05-21T20:23:00.000Z"
+  }];
   s.moduleState.activeConversationId = "dm:other";
   s.moduleState.messageCache.set("dm:u_a:u_b", {
     maxSeq: 2,
     messages: [
-      { id: "m1", seq: 1, body_md: "keep" },
-      { id: "m2", seq: 2, body_md: "delete me" }
+      { id: "m1", seq: 1, body_md: "keep", created_at: "2026-05-21T20:01:00.000Z" },
+      { id: "m2", seq: 2, body_md: "delete me", created_at: "2026-05-21T20:02:00.000Z" }
     ]
   });
 
@@ -4658,6 +4739,8 @@ test("handleCloudEvent conversation.message_deleted removes the cached message",
   const entry = s.moduleState.messageCache.get("dm:u_a:u_b");
   assert.deepEqual(entry.messages.map((message) => message.id), ["m1"]);
   assert.equal(entry.maxSeq, 2);
+  assert.equal(s.moduleState.conversations[0].last_message_created_at, "2026-05-21T20:01:00.000Z");
+  assert.equal(s.moduleState.conversations[0].last_message_text, "keep");
   assert.equal(renders, 1);
 });
 

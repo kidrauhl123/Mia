@@ -7,6 +7,8 @@ export interface ConversationLike {
   title?: string;
   botId?: string;
   bot_id?: string;
+  last_message_created_at?: string | number;
+  lastMessageCreatedAt?: string | number;
   last_activity_at?: string;
   lastActivityAt?: string;
   updated_at?: string;
@@ -45,6 +47,7 @@ export interface SessionHistoryOptions {
 export function conversationType<T extends ConversationLike>(conversation?: T, conversationId?: string): ConversationType;
 export function botId<T extends ConversationLike>(conversation?: T): string;
 export function runtimeKind<T extends ConversationLike>(conversation?: T, fallback?: string): string;
+export function conversationLastMessageTime<T extends ConversationLike>(conversation?: T, messageCache?: SessionHistoryOptions["messageCache"]): number;
 export function conversationSortTime<T extends ConversationLike>(conversation?: T, messageCache?: SessionHistoryOptions["messageCache"]): number;
 export function sessionTitle<T extends ConversationLike>(conversation?: T, options?: SessionHistoryOptions): string;
 export function sessionConversationsForConversation<T extends ConversationLike>(conversation?: T, conversations?: T[], options?: SessionHistoryOptions): T[];

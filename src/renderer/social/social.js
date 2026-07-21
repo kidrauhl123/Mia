@@ -131,6 +131,26 @@
   function sessionHistoryShared() {
     if (global.miaSessionHistory) return global.miaSessionHistory;
     if (typeof require !== "undefined") return require("../../shared/session-history");
+    const fallbackTimestampMs = (value) => {
+      if (typeof value === "number" && Number.isFinite(value)) return value > 0 ? value : 0;
+      const raw = String(value || "").trim();
+      if (!raw) return 0;
+      if (/^\d+(\.\d+)?$/.test(raw)) {
+        const numeric = Number(raw);
+        if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+        return numeric < 1e12 ? numeric * 1000 : numeric;
+      }
+      const parsed = Date.parse(raw);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const fallbackConversationLastMessageTime = (conversation, messageCache) => {
+      const cache = messageCache?.get?.(conversation?.id);
+      const last = cache?.messages?.[cache.messages.length - 1];
+      return Math.max(
+        fallbackTimestampMs(conversation?.last_message_created_at || conversation?.lastMessageCreatedAt),
+        fallbackTimestampMs(last?.created_at || last?.createdAt)
+      );
+    };
     return {
       conversationType: (conversation, conversationId = "") => {
         const id = conversation?.id || conversationId || "";
@@ -145,7 +165,9 @@
         if (decorated) return String(decorated);
         return "";
       },
-      sidebarConversations: (conversations) => conversations
+      sidebarConversations: (conversations) => conversations,
+      conversationLastMessageTime: fallbackConversationLastMessageTime,
+      conversationSortTime: fallbackConversationLastMessageTime
     };
   }
 
@@ -3787,6 +3809,7 @@
       if (entry) {
         entry.messages = entry.messages.filter((m) => m.id !== messageId);
       }
+      syncConversationLastMessageMetadataFromCache(conversationId);
       if (locallyDeleting) return;
       if (conversationId === moduleState.activeConversationId) {
         rememberRenderedConversationMessages(conversationId, entry?.messages || []);
@@ -3813,17 +3836,37 @@
     return messages.length ? messages[messages.length - 1] : null;
   }
 
-  function conversationActivityAt(conversation) {
-    return firstText(
-      conversation?.last_activity_at,
-      conversation?.lastActivityAt,
-      conversation?.last_message_created_at,
-      conversation?.lastMessageCreatedAt
-    );
+  function syncConversationLastMessageMetadataFromCache(conversationId) {
+    const conversation = moduleState.conversations.find((item) => item?.id === conversationId);
+    if (!conversation) return;
+    const last = lastSidebarMessage(moduleState.messageCache.get(conversationId));
+    const createdAt = firstText(last?.created_at, last?.createdAt);
+    const body = last ? String(last.body_md || "") : "";
+    const seq = last ? Number(last.seq) || 0 : 0;
+    conversation.last_message_created_at = createdAt;
+    conversation.lastMessageCreatedAt = createdAt;
+    conversation.last_message_text = body;
+    conversation.lastMessageText = body;
+    conversation.last_message_seq = seq;
+    conversation.lastMessageSeq = seq;
+  }
+
+  function sidebarMessageTimestamp(value) {
+    if (typeof value === "number" && Number.isFinite(value)) return value > 0 ? value : 0;
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    if (/^\d+(\.\d+)?$/.test(raw)) {
+      const numeric = Number(raw);
+      if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+      return numeric < 1e12 ? numeric * 1000 : numeric;
+    }
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
   }
 
   function renderSidebarRows() {
-    const sidebarConversations = sessionHistoryShared().sidebarConversations(visibleSocialConversations(moduleState.conversations, {
+    const sessionHistory = sessionHistoryShared();
+    const sidebarConversations = sessionHistory.sidebarConversations(visibleSocialConversations(moduleState.conversations, {
       activeConversationId: moduleState.activeConversationId,
       preferredConversationIdByBotKey: moduleState.lastBotConversationByKey
     }), {
@@ -3834,21 +3877,24 @@
     return sidebarConversations.map((conversation) => {
       const cacheEntry = moduleState.messageCache.get(conversation.id);
       const lastMsg = lastSidebarMessage(cacheEntry);
-      const lastMessagePreview = lastMsg
+      const cachedLastMessageAt = sidebarMessageTimestamp(lastMsg?.created_at || lastMsg?.createdAt);
+      const listedLastMessageAt = sidebarMessageTimestamp(
+        conversation.last_message_created_at || conversation.lastMessageCreatedAt
+      );
+      const cachedMessageIsLatest = Boolean(lastMsg) && cachedLastMessageAt >= listedLastMessageAt;
+      const lastMessagePreview = cachedMessageIsLatest
         ? String(lastMsg.body_md || "")
         : firstText(conversation.last_message_text, conversation.lastMessageText);
 
-      // Cloud/Core last_activity_at is the stable sidebar authority. Local cache
-      // hydration while switching conversations must not move rows; cached
-      // message time is only a fallback for legacy rows without activity data.
-      const updatedAt = new Date(
-        conversationActivityAt(conversation)
-        || (lastMsg ? firstText(lastMsg.created_at, lastMsg.createdAt) : "")
-        || firstText(conversation.updatedAt, conversation.updated_at)
-        || 0
-      ).getTime() || 0;
+      // The card time must follow the same last visible message as the chat.
+      // Never fall back to conversation updated/activity metadata: those fields
+      // also change when no new message was shown to the user.
+      const lastMessageAt = sessionHistory.conversationLastMessageTime(
+        conversation,
+        moduleState.messageCache
+      );
       const pinned = isConversationPinned(conversation.id);
-      const pinnedAt = pinned ? (_ensureCloudSettings().updatedAt || conversation.updatedAt || updatedAt || "") : "";
+      const pinnedAt = pinned ? (_ensureCloudSettings().updatedAt || conversation.updatedAt || lastMessageAt || "") : "";
       const tags = conversationTagsFor(conversation.id);
 
       // Route on conversations.type (schema truth). Two card shapes only:
@@ -3869,7 +3915,10 @@
           key: conversation.id,
           pinned,
           pinnedAt,
-          updatedAt,
+          lastMessageAt,
+          // Keep the old field for callers outside the renderer; it is now
+          // derived from the last message and is no longer conversation.updatedAt.
+          updatedAt: lastMessageAt,
           conversation: { ...conversation, type: "group", lastMessagePreview, memberCount, tags }
         };
       }
@@ -3883,10 +3932,48 @@
         key: conversation.id,
         pinned,
         pinnedAt,
-        updatedAt,
+        lastMessageAt,
+        // Backward-compatible alias; consumers should use lastMessageAt.
+        updatedAt: lastMessageAt,
         conversation: { ...conversation, type: conversationType || "dm", otherUser, lastMessagePreview, tags }
       };
     });
+  }
+
+  function messageDateInfo(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return null;
+    const key = `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+    const today = new Date();
+    let label = `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+    if (date.toDateString() === today.toDateString()) {
+      label = "今天";
+    } else {
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      if (date.toDateString() === yesterday.toDateString()) label = "昨天";
+    }
+    return { date, key, label, raw };
+  }
+
+  function addMessageDateDivider(article, message, previousMessage = null) {
+    if (!article || !message) return "";
+    const current = messageDateInfo(message.created_at || message.createdAt);
+    if (!current) return messageDateInfo(previousMessage?.created_at || previousMessage?.createdAt)?.key || "";
+    const previous = messageDateInfo(previousMessage?.created_at || previousMessage?.createdAt);
+    if (previous?.key === current.key) return current.key;
+    addElementClass(article, "has-date-divider");
+    article.innerHTML = `
+      <div class="message-date-divider" role="separator" aria-label="${escapeHtml(current.label)}">
+        <span class="message-date-divider-line" aria-hidden="true"></span>
+        <time class="message-date-divider-label" datetime="${escapeHtml(current.raw)}">${escapeHtml(current.label)}</time>
+        <span class="message-date-divider-line" aria-hidden="true"></span>
+      </div>
+      ${article.innerHTML || ""}
+    `;
+    return current.key;
   }
 
   // ── renderConversationChat ─────────────────────────────────────────────────────────
@@ -3984,11 +4071,14 @@
 
     if (conversation && conversationType === "group") {
       const members = _conversationMembersCache.get(conversationId) || [];
+      let previousMessage = null;
       for (const msg of messages) {
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) {
+          addMessageDateDivider(article, msg, previousMessage);
           containerEl.appendChild(article);
           if (shouldAnimateMessage(msg)) animateMessageTailEnter(article);
+          previousMessage = msg;
         }
       }
       const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members, { groupMessage: true });
@@ -4010,11 +4100,14 @@
     if (conversationType === "bot" && !_conversationMembersCache.has(conversationId)) {
       _fetchAndCacheConversationMembers(conversationId);
     }
+    let previousMessage = null;
     for (const msg of messages) {
       const article = _buildMessageArticle(msg, color, members);
       if (article) {
+        addMessageDateDivider(article, msg, previousMessage);
         containerEl.appendChild(article);
         if (shouldAnimateMessage(msg)) animateMessageTailEnter(article);
+        previousMessage = msg;
       }
     }
     const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members);
@@ -4389,6 +4482,7 @@
       activeChatDomRemoved = await _animateRemoveMessageFromActiveChat(messageId);
     }
     if (entry) entry.messages = entry.messages.filter((m) => m.id !== messageId);
+    syncConversationLastMessageMetadataFromCache(conversationId);
     if (activeChatDomRemoved && conversationId === moduleState.activeConversationId) {
       rememberRenderedConversationMessages(conversationId, entry?.messages || []);
       markChatRenderFresh(document.getElementById("chat"), conversationId);
@@ -4403,6 +4497,7 @@
       // Restore the message and re-render so the user doesn't silently lose it.
       entry.messages.push(removed);
       entry.messages.sort((a, b) => a.seq - b.seq);
+      syncConversationLastMessageMetadataFromCache(conversationId);
       if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       if (deps && typeof deps.render === "function") deps.render();
     }
@@ -4447,10 +4542,19 @@
     const members = _conversationMembersCache.get(moduleState.activeConversationId) || [];
     const shouldFollow = stick || nearBottom;
     const shouldAnimateTail = nearBottom && !prefersReducedMotion();
+    const entry = moduleState.messageCache.get(moduleState.activeConversationId);
+    const cachedMessages = Array.isArray(entry?.messages) ? entry.messages : [];
+    const messageIndex = cachedMessages.findIndex((message) => message?.id === msg?.id);
+    const previousMessage = messageIndex > 0
+      ? cachedMessages[messageIndex - 1]
+      : messageIndex < 0 && cachedMessages.length
+        ? cachedMessages[cachedMessages.length - 1]
+        : null;
     const article = conversationType === "group"
       ? _buildGroupMessageArticle(msg, color, _conversationMembersCache.get(moduleState.activeConversationId) || [])
       : _buildMessageArticle(msg, color, conversationType === "bot" ? members : []);
     if (article) {
+      addMessageDateDivider(article, msg, previousMessage);
       chatEl.appendChild(article);
       if (shouldAnimateTail) animateMessageTailEnter(article);
       window.miaAvatar?.hydrateAvatarVideos?.(article);
@@ -4465,7 +4569,6 @@
         }
       }
       animateMessageLayoutShift(chatEl, previousMessageLayout);
-      const entry = moduleState.messageCache.get(moduleState.activeConversationId);
       rememberRenderedConversationMessages(moduleState.activeConversationId, entry?.messages || []);
     }
   }

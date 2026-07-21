@@ -68,7 +68,7 @@ test("session-history prefers message-bearing bot sessions over newer metadata-o
   assert.deepEqual(sidebar.map((conversation) => conversation.id), ["botc_with-message"]);
 });
 
-test("session-history keeps cloud activity timestamps authoritative over stale local cache", () => {
+test("session-history uses only the last message time, not activity or update metadata", () => {
   const messages = new Map([
     ["botc_cached-old", { messages: [{ created_at: "2026-01-01T08:00:00.000Z" }] }]
   ]);
@@ -77,6 +77,7 @@ test("session-history keeps cloud activity timestamps authoritative over stale l
       id: "botc_cached-old",
       type: "bot",
       decorations: { botId: "bot_mia" },
+      last_message_created_at: "2026-01-01T08:00:00.000Z",
       last_activity_at: "2026-01-01T10:00:00.000Z",
       updated_at: "2026-01-01T12:00:00.000Z"
     },
@@ -84,6 +85,7 @@ test("session-history keeps cloud activity timestamps authoritative over stale l
       id: "botc_uncached-newer",
       type: "bot",
       decorations: { botId: "bot_mia" },
+      last_message_created_at: "2026-01-01T11:00:00.000Z",
       last_activity_at: "2026-01-01T11:00:00.000Z",
       updated_at: "2026-01-01T11:30:00.000Z"
     }
@@ -91,7 +93,7 @@ test("session-history keeps cloud activity timestamps authoritative over stale l
 
   assert.equal(
     sessionHistory.conversationSortTime(conversations[0], messages),
-    Date.parse("2026-01-01T10:00:00.000Z")
+    Date.parse("2026-01-01T08:00:00.000Z")
   );
   assert.deepEqual(
     sessionHistory.sessionConversationsForConversation(conversations[0], conversations, { messageCache: messages })
@@ -102,6 +104,24 @@ test("session-history keeps cloud activity timestamps authoritative over stale l
     sessionHistory.sidebarConversations(conversations, { messageCache: messages })
       .map((conversation) => conversation.id),
     ["botc_uncached-newer"]
+  );
+});
+
+test("session-history follows a newer cached visible message when cloud metadata is stale", () => {
+  const conversation = {
+    id: "botc_local",
+    type: "bot",
+    last_message_created_at: "2026-01-01T08:00:00.000Z",
+    last_activity_at: "2026-01-01T08:00:00.000Z",
+    updated_at: "2026-01-01T12:00:00.000Z"
+  };
+  const messages = new Map([
+    [conversation.id, { messages: [{ created_at: "2026-01-01T12:30:00.000Z" }] }]
+  ]);
+
+  assert.equal(
+    sessionHistory.conversationLastMessageTime(conversation, messages),
+    Date.parse("2026-01-01T12:30:00.000Z")
   );
 });
 

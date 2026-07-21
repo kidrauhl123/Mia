@@ -52,6 +52,38 @@
   padding: 3px 2px;
 }
 
+.message.has-date-divider {
+  position: relative;
+  margin-top: 22px;
+}
+
+.message-date-divider {
+  position: absolute;
+  top: -17px;
+  right: 2px;
+  left: 2px;
+  display: grid;
+  grid-template-columns: minmax(20px, 1fr) auto minmax(20px, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--floor-faint);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 16px;
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.message-date-divider-line {
+  height: 1px;
+  background: color-mix(in srgb, var(--floor-faint) 34%, transparent);
+}
+
+.message-date-divider-label {
+  white-space: nowrap;
+}
+
 .message.assistant {
   justify-self: stretch;
 }

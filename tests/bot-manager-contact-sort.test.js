@@ -127,6 +127,16 @@ function loadBotManager(options = {}) {
   return { manager: mockWindow.miaBotManager, window: mockWindow, timers };
 }
 
+test("sidebar conversation sorting uses lastMessageAt instead of metadata updatedAt", () => {
+  const { manager } = loadBotManager();
+  const rows = manager.sortMessageCardsForSidebar([
+    { key: "old-message", lastMessageAt: Date.parse("2026-01-01T10:00:00.000Z"), updatedAt: Date.parse("2026-01-01T12:00:00.000Z") },
+    { key: "new-message", lastMessageAt: Date.parse("2026-01-01T11:00:00.000Z"), updatedAt: Date.parse("2026-01-01T09:00:00.000Z") }
+  ]);
+
+  assert.deepEqual(rows.map((row) => row.key), ["new-message", "old-message"]);
+});
+
 test("renderContacts groups bot contacts by alphabetical initial", () => {
   const { manager, window } = loadBotManager();
   const contactList = mockEl();

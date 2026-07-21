@@ -291,8 +291,8 @@
           const timeDiff = sortableConversationTime(b.row.pinnedAt) - sortableConversationTime(a.row.pinnedAt);
           if (timeDiff) return timeDiff;
         }
-        const updatedDiff = sortableConversationTime(b.row.updatedAt) - sortableConversationTime(a.row.updatedAt);
-        if (updatedDiff) return updatedDiff;
+        const lastMessageDiff = sortableConversationTime(b.row.lastMessageAt) - sortableConversationTime(a.row.lastMessageAt);
+        if (lastMessageDiff) return lastMessageDiff;
         return a.index - b.index;
       })
       .map((item) => item.row);
