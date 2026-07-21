@@ -32,7 +32,9 @@ use crate::{
 };
 
 const HERMES_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+const HERMES_COMMAND_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 const HERMES_GATEWAY_READY_TIMEOUT: Duration = Duration::from_secs(20);
+const HERMES_GATEWAY_CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_AGENT_READY_TIMEOUT: Duration = Duration::from_secs(120);
 const HERMES_RPC_TIMEOUT: Duration = Duration::from_secs(120);
 const HERMES_STDERR_TAIL_LIMIT: usize = 16 * 1024;
@@ -1174,10 +1176,17 @@ impl HermesGatewayProcess {
             .await
             .with_context(|| format!("create Hermes workspace {}", workspace.display()))?;
         let token = format!("mia_{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
+        let effective_args = effective_hermes_gateway_args(
+            &command.program,
+            &command.args,
+            &plan.environment,
+            &workspace,
+        )
+        .await;
         let mut child_command = Command::new(&command.program);
         configure_background_command(child_command.as_std_mut());
         child_command
-            .args(&command.args)
+            .args(&effective_args)
             .env_clear()
             .envs(plan.environment.iter())
             .env("HERMES_DASHBOARD_SESSION_TOKEN", &token)
@@ -1191,7 +1200,7 @@ impl HermesGatewayProcess {
         let mut child = child_command.spawn().with_context(|| {
             format!(
                 "spawn Hermes Gateway command `{}` with args {:?}",
-                command.program, command.args
+                command.program, effective_args
             )
         })?;
         let stdout = child
@@ -1237,7 +1246,7 @@ impl HermesGatewayProcess {
         let url = format!("ws://127.0.0.1:{port}/api/ws?token={token}");
         let rpc = GatewayRpcClient::connect(&url)
             .await
-            .with_context(|| format!("connect to Hermes Gateway on 127.0.0.1:{port}"))?;
+            .map_err(|error| anyhow!("connect to Hermes Gateway on 127.0.0.1:{port}: {error:#}"))?;
         Ok(Self {
             _child: Arc::new(Mutex::new(child)),
             rpc,
@@ -1250,6 +1259,77 @@ impl HermesGatewayProcess {
         }
         self._child.lock().await.try_wait().ok().flatten().is_none()
     }
+}
+
+async fn effective_hermes_gateway_args(
+    program: &str,
+    args: &[String],
+    environment: &BTreeMap<String, String>,
+    workspace: &Path,
+) -> Vec<String> {
+    let Some(serve_index) = args.iter().position(|arg| arg == "serve") else {
+        return args.to_vec();
+    };
+
+    // Hermes 0.16 shipped the dashboard server but not the later headless
+    // `serve` subcommand. Probe the same executable before starting the
+    // long-lived process so both generations can use the gateway protocol.
+    let mut probe_args = args[..serve_index].to_vec();
+    probe_args.extend(["serve".into(), "--help".into()]);
+    let mut probe = Command::new(program);
+    configure_background_command(probe.as_std_mut());
+    probe
+        .args(&probe_args)
+        .env_clear()
+        .envs(environment.iter())
+        .current_dir(workspace)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    let supports_serve = matches!(
+        tokio::time::timeout(HERMES_COMMAND_PROBE_TIMEOUT, probe.status()).await,
+        Ok(Ok(status)) if status.success()
+    );
+    if supports_serve {
+        args.to_vec()
+    } else {
+        let fallback = hermes_dashboard_fallback_connectable_args(args);
+        tracing::debug!(
+            program = %program,
+            args = ?fallback,
+            "Hermes CLI does not support `serve`; using dashboard server fallback"
+        );
+        fallback
+    }
+}
+
+fn hermes_dashboard_fallback_args(args: &[String]) -> Vec<String> {
+    let Some(serve_index) = args.iter().position(|arg| arg == "serve") else {
+        return args.to_vec();
+    };
+    let mut fallback = args[..serve_index].to_vec();
+    fallback.extend(["dashboard".into(), "--no-open".into()]);
+    fallback.extend(args[serve_index + 1..].iter().cloned());
+    fallback
+}
+
+fn hermes_dashboard_fallback_connectable_args(args: &[String]) -> Vec<String> {
+    let mut args = hermes_dashboard_fallback_args(args);
+    let Some(port_index) = args.iter().position(|arg| arg == "--port") else {
+        return args;
+    };
+    if args.get(port_index + 1).map(String::as_str) != Some("0") {
+        return args;
+    }
+    let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", 0)) else {
+        return args;
+    };
+    let Ok(address) = listener.local_addr() else {
+        return args;
+    };
+    args[port_index + 1] = address.port().to_string();
+    args
 }
 
 type GatewayWriter =
@@ -1279,7 +1359,16 @@ struct GatewayEvent {
 
 impl GatewayRpcClient {
     async fn connect(url: &str) -> Result<Self> {
-        let (socket, _) = connect_async(url).await?;
+        let started = std::time::Instant::now();
+        let (socket, _) = loop {
+            match connect_async(url).await {
+                Ok(result) => break result,
+                Err(_) if started.elapsed() < HERMES_GATEWAY_CONNECT_RETRY_TIMEOUT => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
         let (writer, mut reader) = socket.split();
         let (events, _) = broadcast::channel(2048);
         let inner = Arc::new(GatewayRpcInner {
@@ -1617,13 +1706,17 @@ where
 
 fn hermes_ready_port(line: &str) -> Option<u16> {
     let line = line.trim();
-    if !(line.starts_with("HERMES_BACKEND_READY") || line.starts_with("HERMES_DASHBOARD_READY")) {
-        return None;
+    if line.starts_with("HERMES_BACKEND_READY") || line.starts_with("HERMES_DASHBOARD_READY") {
+        return line
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix("port="))
+            .and_then(|port| port.parse().ok())
+            .filter(|port| *port != 0);
     }
     line.split_whitespace()
-        .find_map(|part| part.strip_prefix("port="))?
-        .parse()
-        .ok()
+        .find_map(|part| part.strip_prefix("http://127.0.0.1:"))
+        .and_then(|port| port.trim_end_matches('/').parse().ok())
+        .filter(|port| *port != 0)
 }
 
 fn stderr_suffix(stderr: &str) -> String {
@@ -2066,7 +2159,68 @@ mod tests {
             hermes_ready_port("HERMES_DASHBOARD_READY port=41234"),
             Some(41234)
         );
+        assert_eq!(
+            hermes_ready_port("Hermes Web UI → http://127.0.0.1:18761"),
+            Some(18761)
+        );
+        assert_eq!(
+            hermes_ready_port("Hermes Web UI → http://127.0.0.1:0"),
+            None
+        );
         assert_eq!(hermes_ready_port("starting"), None);
+    }
+
+    #[test]
+    fn legacy_hermes_fallback_preserves_launcher_prefix_and_server_flags() {
+        let args = vec![
+            "-m".into(),
+            "hermes_cli.main".into(),
+            "serve".into(),
+            "--host".into(),
+            "127.0.0.1".into(),
+            "--port".into(),
+            "0".into(),
+        ];
+
+        assert_eq!(
+            hermes_dashboard_fallback_args(&args),
+            vec![
+                "-m",
+                "hermes_cli.main",
+                "dashboard",
+                "--no-open",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "0"
+            ]
+        );
+    }
+
+    #[test]
+    fn hermes_fallback_is_a_noop_without_serve() {
+        let args = vec!["dashboard".into(), "--no-open".into()];
+        assert_eq!(hermes_dashboard_fallback_args(&args), args);
+    }
+
+    #[test]
+    fn legacy_hermes_fallback_replaces_ephemeral_port() {
+        let args = vec![
+            "serve".into(),
+            "--host".into(),
+            "127.0.0.1".into(),
+            "--port".into(),
+            "0".into(),
+        ];
+        let fallback = hermes_dashboard_fallback_connectable_args(&args);
+        let port = fallback
+            .windows(2)
+            .find(|pair| pair[0] == "--port")
+            .and_then(|pair| pair[1].parse::<u16>().ok())
+            .expect("fallback port");
+        assert_ne!(port, 0);
+        assert_eq!(fallback[0], "dashboard");
+        assert_eq!(fallback[1], "--no-open");
     }
 
     #[test]

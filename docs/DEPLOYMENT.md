@@ -117,9 +117,9 @@ npm run dist:win
 release/
 ```
 
-桌面包不携带 Claude Code、Codex ACP/CLI 或 Hermes Python runtime。用户点击“启用 Mia 稳定版”时，客户端才从 Mia 备份源下载所选引擎的目标平台资源，校验固定版本和 SHA-256 后写入 Mia 私有目录。
+桌面包携带 Claude Code、Codex 的固定 ACP bridge，但不携带用户 CLI、登录态或 Hermes Python runtime。ACP bridge 由 Rust Core 在启动时自动校验和准备；用户点击“启用 Mia 稳定版”时，客户端才从 Mia 备份源下载缺失的主 CLI 兜底资源，校验固定版本和 SHA-256 后写入 Mia 私有目录。
 
-三引擎备份与桌面包分开构建、分开发布。在对应目标平台先准备 Hermes runtime 和 managed ACP 资源，再运行：
+三引擎备份与桌面包分开构建、分开发布。备份归档仍需在对应目标平台先准备 Hermes runtime 和 managed ACP 资源，再运行：
 
 ```bash
 npm run engine-backups:build -- win32-x64
@@ -129,7 +129,7 @@ npm run engine-backups:build -- darwin-x64
 
 产物位于 `dist/engine-backups/v1/`，包含每个引擎的 zip 和 `manifest.json`。把整个目录同步到 `/var/www/mia-web/downloads/engine-backups/v1/`，对外地址必须是 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json`。发布时先上传 zip，最后原子替换 manifest，避免客户端读到尚未上传完整的资源。不要把该目录加入 electron-builder 的 `extraResources`。
 
-`dist:mac` 和 `dist:mac:intel` 现在内置了 packaged-Core gate：打包前会运行 `scripts/prepare-mia-core-rs.js`，把 release Rust Core 放进 `resources/bundled-mia-core/<platform>-<arch>/mia-core`；打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接启动产物里的 Rust Core 并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
+`dist:mac`、`dist:mac:intel` 和 Windows release 现在内置了 packaged-Core gate：打包前会运行 `scripts/prepare-mia-core-rs.js`，把 release Rust Core 和目标平台的 ACP bridge 放进 `resources/bundled-mia-core/<platform>-<arch>/`；打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接启动产物里的 Rust Core 并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
 
 - `beforePack` 没有生成对应平台/架构的 Rust Core
 - Core 二进制缺失、不可执行或启动即崩

@@ -1109,6 +1109,9 @@ fn apply_primary_cli_environment(
     if !env.contains_key(key) {
         env.insert(key.into(), primary_path);
     }
+    if let Some(path) = env.get(key).cloned() {
+        prepend_executable_parent_to_path(env, &path);
+    }
 }
 
 fn primary_cli_environment_key(definition: AgentEngineDefinition) -> Option<&'static str> {
@@ -1264,6 +1267,16 @@ async fn prepare_managed_acp_runtime(
         .join(tool_id)
         .join(package_version)
         .join(&runtime_key);
+
+    // A packaged Mia Core may already see the read-only ACP resources shipped
+    // beside the binary. Do not download a second copy into the user's data
+    // directory just because startup preparation was requested.
+    if resolve_managed_acp_runtime(definition, options)
+        .runtime
+        .is_some()
+    {
+        return ManagedAcpPrepareResult::default();
+    }
 
     let lock = MANAGED_ACP_PREPARE_LOCK.get_or_init(|| tokio::sync::Mutex::new(()));
     let _guard = lock.lock().await;
@@ -2503,6 +2516,15 @@ fn prepend_path_entries(env: &mut BTreeMap<String, String>, entries: Vec<String>
     env.insert(path_key.into(), dedupe_non_empty(next).join(delimiter));
 }
 
+pub(crate) fn prepend_executable_parent_to_path(
+    env: &mut BTreeMap<String, String>,
+    executable: &str,
+) {
+    if let Some(parent) = Path::new(executable).parent() {
+        prepend_path_entries(env, vec![path_to_string(parent)]);
+    }
+}
+
 fn build_inventory(agents: Vec<AgentEngineStatus>, generated_at: u64) -> AgentEngineInventory {
     let installed_count = agents.iter().filter(|agent| agent.installed).count();
     let usable_count = agents.iter().filter(|agent| agent.usable_in_mia).count();
@@ -2688,6 +2710,8 @@ fn default_user_path_segments(home: &Path, env: &BTreeMap<String, String>) -> Ve
             dirs.push(value.clone());
         }
     }
+    dirs.push(path_to_string(home.join(".nvm/current/bin")));
+    dirs.extend(nvm_version_bin_segments(home));
     if let Some(value) = env.get("BUN_INSTALL") {
         dirs.push(path_to_string(Path::new(value).join("bin")));
     }
@@ -2762,6 +2786,20 @@ fn default_user_path_segments(home: &Path, env: &BTreeMap<String, String>) -> Ve
     dirs.push(path_to_string(home.join(".local/share/mise/shims")));
     dirs.push(path_to_string(home.join(".local/share/rtx/shims")));
     dirs
+}
+
+fn nvm_version_bin_segments(home: &Path) -> Vec<String> {
+    let versions_dir = home.join(".nvm").join("versions").join("node");
+    let Ok(entries) = std::fs::read_dir(versions_dir) else {
+        return Vec::new();
+    };
+    let mut bins = entries
+        .flatten()
+        .map(|entry| entry.path().join("bin"))
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    bins.sort_by(|left, right| right.cmp(left));
+    bins.into_iter().map(path_to_string).collect()
 }
 
 fn default_system_path_segments() -> Vec<String> {
@@ -3175,6 +3213,47 @@ mod tests {
             dirs.iter()
                 .any(|item| item.ends_with(r".codex\packages\standalone\current\bin"))
         );
+    }
+
+    #[test]
+    fn resolves_cli_from_nvm_version_bin_without_shell_path() {
+        let root = managed_fixture_root("nvm-version-bin");
+        let home = root.join("home");
+        let older_bin = home
+            .join(".nvm")
+            .join("versions")
+            .join("node")
+            .join("v22.22.0")
+            .join("bin");
+        let newer_bin = home
+            .join(".nvm")
+            .join("versions")
+            .join("node")
+            .join("v24.15.0")
+            .join("bin");
+        let command_name = if cfg!(windows) { "codex.exe" } else { "codex" };
+        let older_codex = older_bin.join(command_name);
+        let newer_codex = newer_bin.join(command_name);
+        write_test_executable(&older_codex);
+        write_test_executable(&newer_codex);
+
+        let env = BTreeMap::from([
+            ("HOME".into(), path_to_string(&home)),
+            (
+                "PATH".into(),
+                if cfg!(windows) {
+                    r"C:\Windows\System32".into()
+                } else {
+                    "/usr/bin:/bin".into()
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            resolve_agent_command_path("codex", &env).as_deref(),
+            Some(newer_codex.to_string_lossy().as_ref())
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

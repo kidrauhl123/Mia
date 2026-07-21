@@ -8,6 +8,10 @@ const path = require("node:path");
 
 const root = path.join(__dirname, "..");
 const DEFAULT_TIMEOUT_MS = Number(process.env.MIA_PACKAGED_CORE_VERIFY_TIMEOUT_MS || 10000);
+const MANAGED_ACP_RESOURCE_SPECS = [
+  { toolId: "claude-agent-acp", version: "0.59.0" },
+  { toolId: "codex-acp", version: "1.1.4" }
+];
 
 function normalizeArch(arch = "") {
   const value = String(arch || "").trim().toLowerCase();
@@ -119,6 +123,27 @@ function resourcesForApp(appPath, platform = process.platform) {
   return path.join(appPath, "Contents", "Resources");
 }
 
+function managedResourceManifestPaths(resourcesPath, platform, arch) {
+  const runtimeKey = `${normalizePlatform(platform) || platform}-${normalizeArch(arch)}`;
+  const managedResourcesPath = path.join(
+    resourcesPath,
+    "bundled-mia-core",
+    runtimeKey,
+    "managed-resources"
+  );
+  return {
+    managedResourcesPath,
+    manifestPaths: MANAGED_ACP_RESOURCE_SPECS.map(({ toolId, version }) => path.join(
+      managedResourcesPath,
+      "acp",
+      toolId,
+      version,
+      runtimeKey,
+      "manifest.json"
+    ))
+  };
+}
+
 function collectRequiredPaths(appPath, { platform = process.platform, arch = "" } = {}) {
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch) || defaultTargetArch();
@@ -130,10 +155,13 @@ function collectRequiredPaths(appPath, { platform = process.platform, arch = "" 
     `${targetPlatform}-${targetArch}`,
     rustCoreBinaryName(targetPlatform)
   );
+  const managed = managedResourceManifestPaths(resourcesPath, targetPlatform, targetArch);
   return {
     resourcesPath,
     packageJsonPath,
     corePath,
+    managedResourcesPath: managed.managedResourcesPath,
+    requiredManagedResourcePaths: managed.manifestPaths,
     forbiddenEnginePaths: [
       path.join(resourcesPath, "hermes-runtime"),
       path.join(resourcesPath, "managed-resources")
@@ -159,7 +187,15 @@ async function stopChild(child, timeoutMs = 2000) {
 async function waitForHealth(baseUrl, { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImpl = fetch, child = null } = {}) {
   const startedAt = Date.now();
   let lastError = "";
+  let childError = "";
+  const onChildError = (error) => {
+    childError = error?.message || String(error);
+  };
+  child?.once("error", onChildError);
   while ((Date.now() - startedAt) < timeoutMs) {
+    if (childError) {
+      return { ok: false, error: `packaged Mia Rust Core failed to start: ${childError}` };
+    }
     if (child && child.exitCode !== null) {
       return {
         ok: false,
@@ -176,7 +212,16 @@ async function waitForHealth(baseUrl, { timeoutMs = DEFAULT_TIMEOUT_MS, fetchImp
     } catch (error) {
       lastError = error?.message || String(error);
     }
+    if (child && child.exitCode !== null) {
+      return {
+        ok: false,
+        error: `packaged Mia Rust Core exited before /health responded (code ${child.exitCode})`
+      };
+    }
     await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  if (childError) {
+    return { ok: false, error: `packaged Mia Rust Core failed to start: ${childError}` };
   }
   return {
     ok: false,
@@ -208,7 +253,9 @@ async function verifyPackagedMiaCore({
   const required = [
     paths.resourcesPath,
     paths.corePath,
-    paths.packageJsonPath
+    paths.packageJsonPath,
+    paths.managedResourcesPath,
+    ...paths.requiredManagedResourcePaths
   ].filter(Boolean);
   const missing = required.filter((candidate) => !fs.existsSync(candidate));
   if (missing.length) {
@@ -219,7 +266,7 @@ async function verifyPackagedMiaCore({
       corePath: paths.corePath,
       error: missingCore
         ? `Packaged Mia Core is incomplete: missing bundled Rust Core binary at ${paths.corePath}`
-        : `Packaged Mia application is incomplete: missing ${missing.join(", ")}`
+        : `Packaged Mia application is incomplete: missing bundled managed ACP resources or other required files: ${missing.join(", ")}`
     };
   }
 
@@ -229,7 +276,7 @@ async function verifyPackagedMiaCore({
       ok: false,
       appPath: resolvedAppPath,
       corePath: paths.corePath,
-      error: `Packaged Mia must not embed engine backups: remove ${embeddedEngines.join(", ")}`
+      error: `Packaged Mia must not embed legacy top-level engine backups: remove ${embeddedEngines.join(", ")}`
     };
   }
 
@@ -347,6 +394,7 @@ async function main(argv = process.argv.slice(2)) {
 module.exports = {
   canRunTargetArch,
   collectRequiredPaths,
+  managedResourceManifestPaths,
   normalizeArch,
   normalizePlatform,
   resolvePackagedAppPath,

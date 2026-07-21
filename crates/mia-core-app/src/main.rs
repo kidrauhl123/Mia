@@ -105,6 +105,7 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
 
     let services = AppServices::from_config(&config).await?;
     emit_listening_event(addr, &config)?;
+    spawn_managed_resource_preparation(&config);
     let _task_scheduler = TaskScheduler::new(services.clone()).start();
     let router = create_router(&services);
     serve(listener, router)
@@ -134,6 +135,13 @@ async fn run_prepare_managed_resources(args: PrepareManagedResourcesArgs) -> any
             "MIA_LOCAL_MANAGED_AGENT_RESOURCES".into(),
             path_to_env_string(resource_dir.as_path()),
         );
+        options.env.insert(
+            "MIA_MANAGED_AGENT_RESOURCES".into(),
+            path_to_env_string(resource_dir.as_path()),
+        );
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_RESOURCES_ONLY".into(), "1".into());
     }
 
     let report = prepare_managed_agent_resources(options).await;
@@ -150,6 +158,30 @@ async fn run_prepare_managed_resources(args: PrepareManagedResourcesArgs) -> any
         anyhow::bail!("managed ACP resources not ready for {}", blocked.join(", "));
     }
     Ok(())
+}
+
+fn spawn_managed_resource_preparation(config: &AppConfig) {
+    let workspace_dir = config.workspace_dir.clone();
+    let data_dir = config.data_dir.clone();
+    tokio::spawn(async move {
+        let mut options = AgentEngineScanOptions::current(workspace_dir);
+        options.env.insert(
+            "MIA_CORE_HOME".into(),
+            path_to_env_string(data_dir.as_path()),
+        );
+        let report = prepare_managed_agent_resources(options).await;
+        let failed = report
+            .resources
+            .iter()
+            .filter(|resource| !resource.ready)
+            .map(|resource| resource.label.as_str())
+            .collect::<Vec<_>>();
+        if failed.is_empty() {
+            tracing::info!("managed ACP resources are ready");
+        } else {
+            tracing::warn!(resources = ?failed, "managed ACP resources are not ready yet");
+        }
+    });
 }
 
 fn absolute_path(path: PathBuf) -> anyhow::Result<PathBuf> {

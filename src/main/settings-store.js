@@ -401,12 +401,15 @@ function createSettingsStore(deps = {}) {
     const p = runtimePaths();
     const settingsPath = p.coreSettings || p.daemonSettings;
     const saved = readJson(settingsPath, {});
+    const defaults = defaultCoreSettings();
+    const envHost = String(env.MIA_CORE_HOST || "").trim();
+    const envPort = String(env.MIA_CORE_PORT || "").trim();
     return {
-      ...defaultCoreSettings(),
+      ...defaults,
       ...saved,
       enabled: true,
-      host: normalizeCoreHost(saved.host || defaultCoreSettings().host),
-      port: normalizeCorePort(saved.port || defaultCoreSettings().port)
+      host: normalizeCoreHost(envHost || saved.host || defaults.host),
+      port: normalizeCorePort(envPort || saved.port || defaults.port)
     };
   }
 
