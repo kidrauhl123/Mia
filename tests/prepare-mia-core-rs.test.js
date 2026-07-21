@@ -96,13 +96,14 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
   }
 });
 
-test("prepareMiaCoreRs leaves managed ACP resources to the separate backup release", async () => {
+test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core", async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-managed-"));
   try {
     const source = path.join(rootDir, "target", "release", process.platform === "win32" ? "mia-core.exe" : "mia-core");
     fs.mkdirSync(path.dirname(source), { recursive: true });
     fs.writeFileSync(source, "fake rust core\n", { mode: 0o755 });
     const calls = [];
+    const runtimeKey = `${process.platform}-${os.arch()}`;
 
     const result = await prepareMiaCoreRs(
       { arch: os.arch() === "arm64" ? 3 : 1, electronPlatformName: process.platform },
@@ -111,14 +112,44 @@ test("prepareMiaCoreRs leaves managed ACP resources to the separate backup relea
         env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
         hostPlatform: process.platform,
         hostArch: os.arch(),
-        execFileSync: (command, args, options) => calls.push({ command, args, options })
+        execFileSync: (command, args, options) => {
+          calls.push({ command, args, options });
+          if (args[0] !== "prepare-managed-resources") return;
+          const resourceDir = args[args.indexOf("--resource-dir") + 1];
+          for (const [toolId, version] of [["claude-agent-acp", "0.59.0"], ["codex-acp", "1.1.4"]]) {
+            const manifestDir = path.join(resourceDir, "acp", toolId, version, runtimeKey);
+            fs.mkdirSync(manifestDir, { recursive: true });
+            fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ version }));
+          }
+        }
       }
     );
 
-    assert.equal(calls.some((call) => call.args?.[0] === "prepare-managed-resources"), false);
+    assert.equal(calls.some((call) => call.args?.[0] === "prepare-managed-resources"), true);
+    assert.equal(calls[0].options.env.MIA_MANAGED_AGENT_RESOURCES_ONLY, "1");
+    assert.equal(result.managedResources.skipped, false);
+    assert.equal(
+      result.managedResources.resourceDir,
+      path.join(rootDir, "resources", "bundled-mia-core", runtimeKey, "managed-resources")
+    );
     assert.equal(fs.existsSync(path.join(rootDir, "resources", "managed-resources")), false);
-    assert.equal(result.managedResources.skipped, true);
-    assert.match(result.managedResources.reason, /built and published separately/);
+    assert.equal(
+      fs.existsSync(path.join(
+        rootDir,
+        "resources",
+        "bundled-mia-core",
+        runtimeKey,
+        "managed-resources",
+        "acp",
+        "claude-agent-acp",
+        "0.59.0",
+        runtimeKey,
+        "manifest.json"
+      )),
+      true
+    );
+    const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(result.dest), "manifest.json"), "utf8"));
+    assert.deepEqual(manifest.files, [path.basename(result.dest), "managed-resources/"]);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }

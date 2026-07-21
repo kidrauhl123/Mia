@@ -249,7 +249,7 @@ assert.doesNotMatch(packageJson.scripts["dist:mac:intel"], /hermes:runtime/);
 assert.match(packageJson.scripts["dist:mac:x64"], /dist:mac:intel/);
 assert.equal(packageJson.scripts["dist:win"], "node scripts/build-win.js");
 assert.doesNotMatch(JSON.stringify(packageJson.build.mac || {}), /vendor\/hermes-runtime/);
-assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime|managed-resources/);
+assert.doesNotMatch(JSON.stringify(packageJson.build.win || {}), /vendor\/hermes-runtime/);
 assert.doesNotMatch(
   fs.readFileSync(path.join(rootDir, "electron-builder.mac-arm64.js"), "utf8"),
   /vendor\/hermes-runtime|managed-resources/
@@ -263,8 +263,13 @@ assert.doesNotMatch(
   /build-hermes-runtime\.sh|resolveGitBash/
 );
 assert.equal(
-  (packageJson.build.extraResources || []).some((entry) => /hermes-runtime|managed-resources/.test(String(entry.from || ""))),
-  false
+  (packageJson.build.extraResources || []).some((entry) => entry.from === "resources/managed-resources"),
+  false,
+  "managed ACP resources must be staged under bundled-mia-core, not as a top-level extra resource"
+);
+assert.ok(
+  (packageJson.build.extraResources || []).some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"),
+  "desktop packaging must include the Rust Core bundle directory"
 );
 assert.match(packageJson.engineBackups?.manifestUrl || "", /^https:\/\//);
 assert.equal(packageJson.build.win?.icon, "src/renderer/assets/mia-logo.png");

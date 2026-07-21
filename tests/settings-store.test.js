@@ -387,6 +387,20 @@ test("Core settings default host and port use Core configuration names", (t) => 
   });
 });
 
+test("explicit Core environment settings override persisted values for isolated development", (t) => {
+  const { runtime, store } = setup(t, {
+    env: { MIA_CORE_HOST: "localhost", MIA_CORE_PORT: "27963" }
+  });
+  fs.mkdirSync(path.dirname(runtime.coreSettings), { recursive: true });
+  fs.writeFileSync(runtime.coreSettings, JSON.stringify({ host: "127.0.0.1", port: 27861 }));
+
+  assert.deepEqual(store.coreSettings(), {
+    enabled: true,
+    host: "localhost",
+    port: 27963
+  });
+});
+
 test("cursor-only writeCloudSettings cannot wipe credentials after a failed read", (t) => {
   const { runtime, store } = setup(t);
   // Signed-in state on disk.

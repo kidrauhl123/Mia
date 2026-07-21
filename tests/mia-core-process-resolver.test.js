@@ -286,9 +286,10 @@ test("core env overlay stamps rust-core target identity without daemon aliases",
   assert.equal(env.MIA_CORE_APP_VERSION, "0.1.39");
   assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join(repoRoot, "skills", "_builtin"));
   assert.equal(env.MIA_MANAGED_AGENT_RESOURCES, [
-    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources"),
-    path.join(repoRoot, "resources", "managed-resources")
+    path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources")
   ].join(path.delimiter));
+  assert.equal(env.MIA_MANAGED_AGENT_RESOURCES_ONLY, "1");
+  assert.equal(env.MIA_MANAGED_AGENT_PREPARE, "1");
   assert.equal(env.MIA_MANAGED_AGENT_NODE, "/opt/node/bin/node");
   assert.equal(env.MIA_MANAGED_AGENT_NODE_ELECTRON, "0");
   assert.equal(env.MIA_CORE_RESOURCES_PATH, "");
@@ -322,6 +323,23 @@ test("core settings override Core host and port in args and env overlay", () => 
   assert.equal(env.MIA_CORE_PORT, "27991");
 });
 
+test("explicit MIA_CORE_PORT overrides a stored Core port for isolated development", () => {
+  const repoRoot = path.resolve("/repo");
+  const debug = devRustCorePath(repoRoot, "debug", "darwin");
+  const resolver = setup({
+    env: { HERMES_LANGUAGE: "en", MIA_CORE_PORT: "27963" },
+    existsSync: (candidate) => candidate === debug,
+    coreSettings: () => ({ host: "127.0.0.1", port: 27861 })
+  });
+  const r = resolver.resolve();
+  const env = resolver.coreEnvOverlay();
+
+  assert.deepEqual(r.args.slice(r.args.indexOf("serve"), r.args.indexOf("serve") + 5), [
+    "serve", "--host", "127.0.0.1", "--port", "27963"
+  ]);
+  assert.equal(env.MIA_CORE_PORT, "27963");
+});
+
 test("core env overlay points packaged Rust Core at extraResource official skills", () => {
   const res = "/Applications/Mia.app/Contents/Resources";
   const bundled = packagedRustCorePath(res, "darwin", "arm64");
@@ -338,6 +356,7 @@ test("core env overlay points packaged Rust Core at extraResource official skill
     path.join(res, "bundled-mia-core", "darwin-arm64", "managed-resources"),
     path.join(path.resolve("/repo"), "resources", "managed-resources")
   ].join(path.delimiter));
+  assert.equal(env.MIA_MANAGED_AGENT_RESOURCES_ONLY, undefined);
   assert.equal(env.MIA_MANAGED_AGENT_NODE, "/Applications/Mia.app/Contents/MacOS/Mia");
   assert.equal(env.MIA_MANAGED_AGENT_NODE_ELECTRON, "1");
   assert.equal(env.MIA_CORE_RESOURCES_PATH, res);

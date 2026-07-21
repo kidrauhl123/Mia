@@ -211,13 +211,13 @@ function createMiaCoreResolver(deps = {}) {
 
   function configuredHost() {
     const settings = typeof coreSettings === "function" ? coreSettings() : {};
-    const value = String(settings.host || env.MIA_CORE_HOST || "127.0.0.1").trim();
+    const value = String(env.MIA_CORE_HOST || settings.host || "127.0.0.1").trim();
     return value || "127.0.0.1";
   }
 
   function configuredPort() {
     const settings = typeof coreSettings === "function" ? coreSettings() : {};
-    const raw = Number(settings.port || env.MIA_CORE_PORT || 27861);
+    const raw = Number(env.MIA_CORE_PORT || settings.port || 27861);
     return Number.isInteger(raw) && raw > 0 && raw < 65536 ? raw : 27861;
   }
 
@@ -303,6 +303,9 @@ function createMiaCoreResolver(deps = {}) {
     const defaultAppValue = defaultApp();
     const repo = repoRoot();
     const resources = resourcesPath();
+    const managedResources = defaultAppValue
+      ? path.join(p.home, "managed-resources")
+      : managedResourceRootsEnv(resources, repo, platform, arch, env.MIA_MANAGED_AGENT_RESOURCES, p.home, env.HOME || env.USERPROFILE);
     const managedNode = managedAgentNodeRuntime(pathLookup, execPath, platform, defaultAppValue, env);
     const selectedEnginePython = String(enginePython() || "").trim();
     const overlay = {
@@ -314,7 +317,9 @@ function createMiaCoreResolver(deps = {}) {
       MIA_CORE_WORKSPACE_DIR: workspaceDir(),
       MIA_HOME: p.home,
       MIA_OFFICIAL_SKILLS_DIR: officialSkillsDir(resources, repo, defaultAppValue, env.MIA_OFFICIAL_SKILLS_DIR),
-      MIA_MANAGED_AGENT_RESOURCES: managedResourceRootsEnv(resources, repo, platform, arch, env.MIA_MANAGED_AGENT_RESOURCES, p.home, env.HOME || env.USERPROFILE),
+      MIA_MANAGED_AGENT_RESOURCES: managedResources,
+      ...(defaultAppValue ? { MIA_MANAGED_AGENT_RESOURCES_ONLY: "1" } : {}),
+      MIA_MANAGED_AGENT_PREPARE: String(env.MIA_MANAGED_AGENT_PREPARE || "1"),
       ...(managedNode.command ? { MIA_MANAGED_AGENT_NODE: managedNode.command } : {}),
       MIA_MANAGED_AGENT_NODE_ELECTRON: managedNode.electron ? "1" : "0",
       MIA_CORE_RESOURCES_PATH: String(resources || ""),

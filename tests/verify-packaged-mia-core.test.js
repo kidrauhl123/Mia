@@ -12,10 +12,10 @@ const {
 } = require("../scripts/verify-packaged-mia-core.js");
 
 const LEGACY_NODE_RESOURCE = `mia-${"node"}`;
-
-function rustCoreScript(source) {
-  return `#!/usr/bin/env node\n${source}`;
-}
+const MANAGED_ACP_RESOURCES = [
+  ["claude-agent-acp", "0.59.0"],
+  ["codex-acp", "1.1.4"]
+];
 
 function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", platform = "darwin", includeLegacyNode = false } = {}) {
   const appPath = platform === "win32"
@@ -27,6 +27,7 @@ function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", platform = "
   const unpackedPath = path.join(resourcesPath, "app.asar.unpacked");
   const coreDir = path.join(resourcesPath, "bundled-mia-core", `${platform}-${arch}`);
   const corePath = path.join(coreDir, platform === "win32" ? "mia-core.exe" : "mia-core");
+  const managedResourcesDir = path.join(coreDir, "managed-resources");
 
   fs.mkdirSync(coreDir, { recursive: true });
   fs.mkdirSync(unpackedPath, { recursive: true });
@@ -39,15 +40,18 @@ function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", platform = "
       wheelSha256: "8f02155cfc84b28bd98551cd18dffec0efa9ec070dd08f90f1a850f1c779492f"
     }
   }));
-  if (platform === "win32") {
-    fs.copyFileSync(process.execPath, corePath);
-    fs.writeFileSync(path.join(coreDir, "serve"), coreSource);
-  } else {
-    fs.writeFileSync(corePath, rustCoreScript(coreSource), { mode: 0o755 });
-    fs.chmodSync(corePath, 0o755);
-  }
+  // Use Node itself as the fake executable. A symlink is important on macOS:
+  // copying the Node binary loses the runtime-relative resources it expects.
+  if (platform === "win32") fs.copyFileSync(process.execPath, corePath);
+  else fs.symlinkSync(process.execPath, corePath);
+  fs.writeFileSync(path.join(coreDir, "serve"), coreSource);
   if (includeLegacyNode) {
     fs.writeFileSync(path.join(resourcesPath, LEGACY_NODE_RESOURCE), "legacy node core must not be used");
+  }
+  for (const [toolId, version] of MANAGED_ACP_RESOURCES) {
+    const manifestDir = path.join(managedResourcesDir, "acp", toolId, version, `${platform}-${arch}`);
+    fs.mkdirSync(manifestDir, { recursive: true });
+    fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ toolId, version }));
   }
 
   return appPath;
@@ -85,6 +89,11 @@ test("collectRequiredPaths points at bundled Rust Core, never the legacy Node re
     path.join(appPath, "Contents", "Resources", "bundled-mia-core", "darwin-arm64", "mia-core")
   );
   assert.equal(Object.values(paths).some((value) => String(value).includes(LEGACY_NODE_RESOURCE)), false);
+  assert.equal(
+    paths.managedResourcesPath,
+    path.join(appPath, "Contents", "Resources", "bundled-mia-core", "darwin-arm64", "managed-resources")
+  );
+  assert.equal(paths.requiredManagedResourcePaths.length, 2);
   assert.deepEqual(paths.forbiddenEnginePaths, [
     path.join(appPath, "Contents", "Resources", "hermes-runtime"),
     path.join(appPath, "Contents", "Resources", "managed-resources")
@@ -130,15 +139,15 @@ server.listen(port, host, () => {
 });
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 process.on("SIGINT", () => server.close(() => process.exit(0)));
-`, { arch: "x64", platform: "win32", includeLegacyNode: true });
+`, { arch: "x64", platform: "darwin", includeLegacyNode: true });
 
     const result = await verifyPackagedMiaCore({
       appPath,
       arch: "x64",
-      platform: "win32",
+      platform: "darwin",
       hostArch: "x64",
-      hostPlatform: "win32",
-      timeoutMs: 5000
+      hostPlatform: "darwin",
+      timeoutMs: 10000
     });
     assert.equal(result.ok, true, result.error || result.stderr || "expected packaged Core verification to pass");
     assert.match(result.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
@@ -168,7 +177,7 @@ test("verifyPackagedMiaCore rejects a package that only contains the old JavaScr
   }
 });
 
-test("verifyPackagedMiaCore rejects a package that accidentally embeds engine backups", async () => {
+test("verifyPackagedMiaCore rejects a package that accidentally embeds legacy top-level engine backups", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-engine-embedded-"));
   try {
     const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n");
@@ -177,8 +186,24 @@ test("verifyPackagedMiaCore rejects a package that accidentally embeds engine ba
 
     const result = await verifyPackagedMiaCore({ appPath, arch: "arm64", platform: "darwin", timeoutMs: 100 });
     assert.equal(result.ok, false);
-    assert.match(result.error || "", /must not embed engine backups/);
+    assert.match(result.error || "", /must not embed legacy top-level engine backups/);
     assert.match(result.error || "", /managed-resources/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("verifyPackagedMiaCore rejects a package without bundled ACP manifests", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-managed-missing-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", { arch: "arm64", platform: "darwin" });
+    const paths = collectRequiredPaths(appPath, { platform: "darwin", arch: "arm64" });
+    fs.rmSync(paths.requiredManagedResourcePaths[0]);
+
+    const result = await verifyPackagedMiaCore({ appPath, arch: "arm64", platform: "darwin", timeoutMs: 100 });
+    assert.equal(result.ok, false);
+    assert.match(result.error || "", /bundled managed ACP resources/);
+    assert.match(result.error || "", /claude-agent-acp/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -235,7 +260,7 @@ require("missing-packaged-rust-core-dependency");
       timeoutMs: 2500
     });
     assert.equal(result.ok, false);
-    assert.match(`${result.error || ""}\n${result.stderr || ""}`, /missing-packaged-rust-core-dependency|exited before/);
+    assert.match(`${result.error || ""}\n${result.stderr || ""}`, /missing-packaged-rust-core-dependency|exited before|fetch failed/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

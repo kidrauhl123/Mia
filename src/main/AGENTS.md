@@ -38,7 +38,7 @@ Handler 返回值要是可序列化对象。不要把 `BrowserWindow`、Node str
 
 ## Agent 引擎和 CLI
 
-- Claude Code、Codex、Hermes 先从用户系统探测；缺失或不可用时，仅在用户明确点击后从 Mia 备份源下载固定版本到 Mia 私有目录。下载必须校验版本和 SHA-256，失败不得写启用标记；私有版本不写全局 PATH、不覆盖系统 CLI，也不进入桌面安装包。
+- Claude Code、Codex、Hermes 先从用户系统探测。Claude/Codex 的 ACP bridge 由桌面包随 Rust Core 携带固定版本，并在 Core 启动时自动校验/准备；不得要求用户手动配置 ACP。缺少本机 CLI 时，仍按现有引擎策略提示或启用 Mia 私有稳定版。Hermes 继续仅在用户明确点击后从 Mia 备份源下载固定版本。任何私有资源都不得写全局 PATH 或覆盖系统 CLI，Hermes 不进入桌面安装包。
 - 探测路径走已有 `shellCommandPath` / 本地引擎服务；不要在业务代码里手写多个 `which`。
 - 起进程时传入受控 env；如果用户选定了某个 CLI 绝对路径，PATH 要优先包含该可执行文件目录，避免拿错 node/runtime。
 - 每个 adapter 只负责把 Mia 消息、工具、权限、取消信号映射到该引擎。共享状态放 registry 或 shared contract。

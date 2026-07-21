@@ -777,11 +777,16 @@ where
     V: Into<String>,
 {
     let mut env = clean_cli_environment(vars);
-    if engine == "codex"
-        && !env.contains_key("CODEX_PATH")
-        && let Some(path) = agent_engines::resolve_agent_command_path("codex", &env)
-    {
-        env.insert("CODEX_PATH".into(), path);
+    if engine == "codex" {
+        let path = env
+            .get("CODEX_PATH")
+            .filter(|path| !path.trim().is_empty())
+            .cloned()
+            .or_else(|| agent_engines::resolve_agent_command_path("codex", &env));
+        if let Some(path) = path {
+            env.insert("CODEX_PATH".into(), path.clone());
+            agent_engines::prepend_executable_parent_to_path(&mut env, &path);
+        }
     }
     env
 }
@@ -1048,6 +1053,7 @@ mod tests {
         );
 
         assert_path_env_eq(env.get("CODEX_PATH"), &codex_path);
+        assert_path_env_eq(env.get("PATH"), &bin);
 
         let _ = std::fs::remove_dir_all(temp);
     }

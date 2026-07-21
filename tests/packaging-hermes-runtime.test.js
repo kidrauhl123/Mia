@@ -12,7 +12,7 @@ function packageJson() {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 }
 
-test("desktop release packages do not build or embed engine backups", () => {
+test("desktop release packages prepare bundled ACP resources without building Hermes backups", () => {
   const pkg = packageJson();
 
   assert.doesNotMatch(pkg.scripts.prepack || "", /hermes:runtime/);
@@ -23,12 +23,13 @@ test("desktop release packages do not build or embed engine backups", () => {
   assert.equal(pkg.scripts["dist:win"], "node scripts/build-win.js");
 });
 
-test("electron-builder resources exclude all three engine backups", () => {
+test("electron-builder keeps ACP resources inside the bundled Rust Core directory", () => {
   const pkg = packageJson();
   const arm64 = fs.readFileSync(path.join(root, "electron-builder.mac-arm64.js"), "utf8");
   const intel = fs.readFileSync(path.join(root, "electron-builder.mac-intel.js"), "utf8");
 
-  for (const source of [JSON.stringify(pkg.build || {}), arm64, intel]) {
+  assert.match(JSON.stringify(pkg.build || {}), /resources\/bundled-mia-core/);
+  for (const source of [arm64, intel]) {
     assert.doesNotMatch(source, /vendor\/hermes-runtime|resources\/managed-resources|to:\s*["']hermes-runtime|to:\s*["']managed-resources/);
   }
 });
@@ -71,7 +72,7 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
 
   assert.equal(pkg.build.beforePack, "./scripts/prepare-mia-core-rs.js");
   assert.ok(extraResources.some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"));
-  assert.equal(extraResources.some((entry) => /managed-resources|hermes-runtime/.test(String(entry.from || ""))), false);
+  assert.equal(extraResources.some((entry) => entry.from === "resources/managed-resources"), false);
   assert.ok(extraResources.some((entry) => entry.from === "skills" && entry.to === "skills"));
   assert.equal(JSON.stringify(extraResources).includes(LEGACY_NODE_RESOURCE), false);
   assert.doesNotMatch(source, /"build", "--release", "-p", "mia-core-app", "--bin", "mia-core"/);
@@ -79,7 +80,8 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   assert.match(source, /miaCoreDownloadUrl/);
   assert.match(source, /MIA_CORE_RS_BIN/);
   assert.match(source, /"resources",\s+"bundled-mia-core"/);
-  assert.match(source, /engine backups are built and published separately/);
+  assert.match(source, /prepareManagedAgentResources/);
+  assert.match(source, /bundledManagedResourcesPath/);
 });
 
 test("desktop package keeps AgentSession ACP SDK as a production dependency", () => {

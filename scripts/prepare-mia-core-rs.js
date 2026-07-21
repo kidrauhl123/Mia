@@ -130,6 +130,10 @@ function bundledRustCorePath(rootDir, platform, arch) {
   );
 }
 
+function bundledManagedResourcesPath(rootDir, platform, arch) {
+  return path.join(path.dirname(bundledRustCorePath(rootDir, platform, arch)), "managed-resources");
+}
+
 function assertReadableFile(filePath, label) {
   let stat;
   try {
@@ -216,6 +220,14 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function includeManagedResourcesInManifest(dest, platform) {
+  const manifestPath = path.join(path.dirname(dest), "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const binaryName = rustCoreBinaryName(platform);
+  manifest.files = [...new Set([binaryName, "managed-resources/"])];
+  writeJson(manifestPath, manifest);
+}
+
 function prepareManagedAgentResources({
   rootDir,
   corePath,
@@ -224,7 +236,8 @@ function prepareManagedAgentResources({
   env = process.env,
   execFileSync = childProcess.execFileSync,
   hostPlatform = process.platform,
-  hostArch = os.arch()
+  hostArch = os.arch(),
+  resourceDir = path.join(rootDir, "resources", "managed-resources")
 }) {
   const mode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim();
   const forced = mode === "1" || mode.toLowerCase() === "true";
@@ -238,12 +251,17 @@ function prepareManagedAgentResources({
       resourceDir: ""
     };
   }
-  const resourceDir = path.join(rootDir, "resources", "managed-resources");
   const stagingDir = path.join(resourceDir, ".staging");
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-managed-resources-"));
   ensureDirectory(resourceDir);
   removeDirectorySafe(stagingDir);
   try {
+    const prepareEnv = {
+      ...env,
+      MIA_LOCAL_MANAGED_AGENT_RESOURCES: resourceDir,
+      MIA_MANAGED_AGENT_RESOURCES: resourceDir,
+      MIA_MANAGED_AGENT_RESOURCES_ONLY: "1"
+    };
     execFileSync(corePath, [
       "prepare-managed-resources",
       "--data-dir",
@@ -252,7 +270,7 @@ function prepareManagedAgentResources({
       resourceDir
     ], {
       cwd: rootDir,
-      env,
+      env: prepareEnv,
       stdio: "inherit",
       timeout: Number(env.MIA_MANAGED_RESOURCES_PREPARE_TIMEOUT_MS || 1800000)
     });
@@ -383,17 +401,37 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   }
 
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
-  result.managedResources = {
-    skipped: true,
-    reason: "engine backups are built and published separately",
-    resourceDir: ""
-  };
+  const bundledResources = bundledManagedResourcesPath(rootDir, platform, arch);
+  const managedResources = prepareManagedAgentResources({
+    rootDir,
+    corePath: result.dest,
+    platform,
+    arch,
+    env,
+    execFileSync,
+    hostPlatform: options.hostPlatform || process.platform,
+    hostArch: options.hostArch || os.arch(),
+    resourceDir: bundledResources
+  });
+  if (!managedResources.skipped) {
+    includeManagedResourcesInManifest(result.dest, platform);
+    result.managedResources = {
+      ...managedResources,
+      bundledResourceDir: bundledResources
+    };
+  } else {
+    result.managedResources = managedResources;
+  }
+  console.log(managedResources.skipped
+    ? `[prepare-mia-core-rs] managed ACP resources skipped: ${managedResources.reason}`
+    : `[prepare-mia-core-rs] managed ACP resources bundled at ${managedResources.resourceDir}`);
   return result;
 }
 
 module.exports = prepareMiaCoreRs;
 Object.assign(module.exports, {
   bundledRustCorePath,
+  bundledManagedResourcesPath,
   canPrepareManagedResourcesForTarget,
   assertNotHtmlDownload,
   downloadFile,
