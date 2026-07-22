@@ -402,9 +402,10 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
 
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
   const bundledResources = bundledManagedResourcesPath(rootDir, platform, arch);
+  const managedResourcesCore = String(env.MIA_MANAGED_RESOURCES_CORE_BIN || "").trim();
   const managedResources = prepareManagedAgentResources({
     rootDir,
-    corePath: result.dest,
+    corePath: managedResourcesCore ? path.resolve(managedResourcesCore) : result.dest,
     platform,
     arch,
     env,

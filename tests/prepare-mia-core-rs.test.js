@@ -109,7 +109,11 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
       { arch: os.arch() === "arm64" ? 3 : 1, electronPlatformName: process.platform },
       {
         rootDir,
-        env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
+        env: {
+          MIA_CORE_RS_BIN: source,
+          MIA_CORE_VERSION: "v1.2.3",
+          MIA_MANAGED_RESOURCES_CORE_BIN: "/tmp/host-mia-core"
+        },
         hostPlatform: process.platform,
         hostArch: os.arch(),
         execFileSync: (command, args, options) => {
@@ -126,6 +130,7 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
     );
 
     assert.equal(calls.some((call) => call.args?.[0] === "prepare-managed-resources"), true);
+    assert.equal(calls[0].command, "/tmp/host-mia-core");
     assert.equal(calls[0].options.env.MIA_MANAGED_AGENT_RESOURCES_ONLY, "1");
     assert.equal(result.managedResources.skipped, false);
     assert.equal(
