@@ -362,7 +362,7 @@ body.admin-model-body * {
 }
 
 .admin-advanced-fields summary {
-  cursor: default;
+  cursor: pointer;
   color: var(--muted);
   font-size: 12px;
   font-weight: 750;

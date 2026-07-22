@@ -19,6 +19,7 @@ test("web root is a promo landing page with desktop download entry points", () =
   const html = read("src/web/index.html");
   const css = read("src/web/assets/mia.css");
   const gradientCss = read("src/web/assets/mia-gradient.css");
+  const ctaCss = read("src/web/assets/mia-cta.css");
   const scrollCss = read("src/web/assets/mia-scroll.css");
   const js = read("src/web/assets/mia.js");
   const scrollJs = read("src/web/assets/mia-scroll.js");
@@ -27,12 +28,12 @@ test("web root is a promo landing page with desktop download entry points", () =
   assert.match(html, /<title>Mia — 每个人的 Agent 之家<\/title>/);
   assert.match(html, /每个人的 Agent 之家/);
   assert.match(html, /学习、创作、求职和日程推进下去/);
-  assert.match(html, /href="assets\/mia\.css\?v=20260630-squad-stack-24"/);
-  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260630-squad-stack-24"/);
+  assert.match(html, /href="assets\/mia\.css\?v=20260722-pointer"/);
+  assert.match(html, /href="assets\/mia-gradient\.css\?v=20260722-pointer"/);
   assert.match(html, /href="assets\/mia-scroll\.css\?v=20260630-squad-stack-24"/);
   assert.match(html, /href="assets\/mia-feature\.css\?v=20260630-squad-stack-24"/);
   assert.match(html, /href="assets\/mia-mobile\.css\?v=20260630-squad-stack-24"/);
-  assert.match(html, /href="assets\/mia-cta\.css\?v=20260630-squad-stack-24"/);
+  assert.match(html, /href="assets\/mia-cta\.css\?v=20260722-pointer"/);
   assert.match(html, /src="assets\/vendor\/gsap\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/CustomEase\.min\.js\?v=20260630-squad-stack-24"/);
   assert.match(html, /src="assets\/vendor\/ScrollTrigger\.min\.js\?v=20260630-squad-stack-24"/);
@@ -54,6 +55,8 @@ test("web root is a promo landing page with desktop download entry points", () =
   assert.doesNotMatch(html, /\bavatar-(boy|cat|girl)\b/);
   assert.doesNotMatch(css, /\bavatar-(boy|cat|girl)\b/);
   assert.match(css, /@media \(max-width: 940px\)/);
+  assert.match(css, /button,[\s\S]*\[role="button"\],[\s\S]*cursor:\s*pointer/);
+  assert.doesNotMatch(`${css}\n${gradientCss}\n${ctaCss}`, /cursor:\s*default/);
   assert.match(css, /prefers-reduced-motion/);
   assert.match(css, /\.mw-body\s*\{[\s\S]*overflow-y:\s*auto/);
   assert.match(css, /\.mw-msg\s*\{[^}]*flex:\s*0 0 auto/);
@@ -128,6 +131,9 @@ test("web root is a promo landing page with desktop download entry points", () =
 
 test("web app shell lives under /app and keeps parent-relative assets", () => {
   const html = read("src/web/app/index.html");
+  const css = read("src/web/styles.css");
+  const adminHtml = read("src/web/admin-model.html");
+  const adminCss = read("src/web/admin-model.css");
 
   assert.match(html, /data-auth="loading"/);
   assert.match(html, /id="loginForm"/);
@@ -138,6 +144,13 @@ test("web app shell lives under /app and keeps parent-relative assets", () => {
   assert.match(html, /src="\.\.\/app\.js/);
   assert.doesNotMatch(html, /href="\.\/styles\.css"/);
   assert.doesNotMatch(html, /src="\.\/app\.js/);
+  assert.match(css, /button,[\s\S]*\[role="button"\],[\s\S]*cursor:\s*pointer/);
+  assert.match(css, /\.settings-switch-wrap\s*\{[\s\S]*cursor:\s*pointer/);
+  assert.match(css, /\.message-code-copy\s*\{[\s\S]*cursor:\s*pointer/);
+  assert.match(css, /\.trace-row > summary\s*\{[\s\S]*cursor:\s*pointer/);
+  assert.match(adminHtml, /href="\/styles\.css\?v=20260722-pointer"/);
+  assert.match(adminHtml, /href="\/admin-model\.css\?v=20260722-pointer"/);
+  assert.match(adminCss, /\.admin-advanced-fields summary\s*\{[\s\S]*cursor:\s*pointer/);
 });
 
 test("web root includes the site verification txt file", () => {

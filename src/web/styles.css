@@ -50,14 +50,14 @@
   align-items: center;
   width: 30px;
   height: 18px;
-  cursor: default;
+  cursor: pointer;
 }
 .settings-switch-wrap input {
   position: absolute;
   inset: 0;
   margin: 0;
   opacity: 0;
-  cursor: default;
+  cursor: pointer;
 }
 .settings-switch-text {
   position: relative;
@@ -140,10 +140,13 @@ a,
 label,
 summary,
 [role="button"],
+select,
 input[type="button"],
 input[type="color"],
-input[type="submit"] {
-  cursor: default;
+input[type="submit"],
+input[type="checkbox"],
+input[type="radio"] {
+  cursor: pointer;
 }
 
 button {
@@ -1028,7 +1031,7 @@ p {
   border-radius: 50%;
   background: transparent;
   color: var(--muted);
-  cursor: default;
+  cursor: pointer;
 }
 
 .identity-badge-trigger.empty {
@@ -1117,7 +1120,7 @@ p {
   color: var(--text);
   font: inherit;
   text-align: center;
-  cursor: default;
+  cursor: pointer;
 }
 
 .identity-badge-choices button:hover {
@@ -1763,7 +1766,7 @@ p {
   opacity: 0.72;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: default;
+  cursor: pointer;
 }
 
 .message-code-copy:hover {
@@ -3804,7 +3807,7 @@ p {
   border: 1px solid transparent;
   border-radius: 6px;
   background: var(--field);
-  cursor: default;
+  cursor: pointer;
 }
 
 .settings-row select {
@@ -3953,7 +3956,7 @@ p {
   background: var(--surface, #fff);
   color: var(--text, #1f2328);
   font-size: 13px;
-  cursor: default;
+  cursor: pointer;
 }
 
 .permission-banner .permission-actions button:hover {
@@ -4014,7 +4017,7 @@ p {
   border-radius: 4px;
   white-space: nowrap;
   overflow: hidden;
-  cursor: default;
+  cursor: pointer;
 }
 
 .trace-row > summary::-webkit-details-marker { display: none; }

@@ -85,7 +85,7 @@ summary,
 input[type="button"],
 input[type="color"],
 input[type="submit"] {
-  cursor: default;
+  cursor: pointer;
 }
 img { display: block; max-width: 100%; }
 
@@ -198,7 +198,7 @@ img { display: block; max-width: 100%; }
   font-size: 17px;
   font-weight: 500;
   border: 0;
-  cursor: default;
+  cursor: pointer;
   font-family: inherit;
   transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), background 0.2s, box-shadow 0.25s, color 0.2s;
 }
@@ -631,7 +631,7 @@ h1.hero-title {
   gap: 9px; align-items: center;
   min-height: 54px;
   padding: 7px 9px; border-radius: 12px;
-  cursor: default;
+  cursor: pointer;
 }
 .mw-row.on { background: rgb(var(--accent-rgb) / 0.16); }
 .mw-row:hover:not(.on) { background: rgba(0,0,0,0.04); }
@@ -1197,7 +1197,7 @@ h2.h2 {
 }
 .faq-q {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 24px 4px; cursor: default;
+  gap: 16px; padding: 24px 4px; cursor: pointer;
   font-size: 19px; font-weight: 550; letter-spacing: -0.02em;
   list-style: none;
 }
@@ -1256,7 +1256,7 @@ h2.h2 {
 .gsap-large-wrap{position:relative;color:var(--mia-gsap-ink, #0e100f);isolation:isolate}
 .gsap-large-button{
   align-items:center;background:linear-gradient(var(--mia-gsap-stage, #ffe9fe),var(--mia-gsap-stage, #ffe9fe)) padding-box,var(--mia-gsap-ink, #0e100f) border-box;border:2px solid transparent;
-  border-radius:100px;color:var(--mia-gsap-ink, #0e100f);cursor:default;display:inline-flex;font-family:var(--font);font-size:22px;font-weight:650;
+  border-radius:100px;color:var(--mia-gsap-ink, #0e100f);cursor:pointer;display:inline-flex;font-family:var(--font);font-size:22px;font-weight:650;
   gap:.32em;justify-content:center;letter-spacing:-.01em;line-height:1.05;min-width:220px;overflow:hidden;padding:15px 24px;
   position:relative;z-index:1;text-decoration:none;
 }

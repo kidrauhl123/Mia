@@ -59,7 +59,7 @@
   border-radius: 100px;
   box-shadow: inset 0 0 0 2px var(--mia-gsap-ink);
   color: var(--mia-gsap-ink);
-  cursor: default;
+  cursor: pointer;
   display: inline-flex;
   font-family: var(--font);
   font-size: 22px;
