@@ -353,6 +353,38 @@ test("creating a bot renders Core-provided Mia Cloud and local engine options", 
   assert.equal(options.some((option) => option.deviceId === "mac-remote"), false);
 });
 
+test("bot dialog repairs an old Core 本机 option with the desktop runtime name", async () => {
+  const { context, select } = createBotDialogContext({
+    runtime: {
+      cloud: { enabled: false, devices: [] },
+      localDevice: { id: "mac-air-8", name: "jungdeMacBook-Air-8" },
+      agentEngines: { codex: { available: true } },
+      preferredAgentEngine: "codex"
+    },
+    runtimeTargetOptions: {
+      groups: [{
+        label: "本机",
+        statusLabel: "本机",
+        runtimeKind: "desktop-local",
+        options: [{
+          runtimeKind: "desktop-local",
+          deviceId: "mac-air-8",
+          deviceName: "本机",
+          agentEngine: "codex",
+          label: "Codex",
+          selected: true
+        }]
+      }]
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
+
+  assert.equal(decodedRuntimeOptions(select)[0].deviceName, "jungdeMacBook-Air-8");
+  assert.equal(context.window.miaBotDialog.readSelectedRuntimeTarget().targetDeviceName, "jungdeMacBook-Air-8");
+});
+
 test("creating a bot renders Core local runtime options before device ids load", async () => {
   const { context, select } = createBotDialogContext({
     runtime: {

@@ -3970,7 +3970,7 @@ fn active_runtime_target(
         .or_else(|| nested_string(runtime, &["localDevice"], &["id"]))
         .or_else(|| nested_string(runtime, &["cloud"], &["deviceId", "device_id"]))
         .unwrap_or_else(|| "current-device".to_string());
-    let device_name = first_map_string(&target_intent, &["deviceName", "device_name"])
+    let mut device_name = first_map_string(&target_intent, &["deviceName", "device_name"])
         .or_else(|| {
             first_map_string(
                 bot,
@@ -3994,6 +3994,12 @@ fn active_runtime_target(
         .map(|value| compact_device_name(&value))
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "当前设备".to_string());
+    let current_device_id = current_runtime_device_id(runtime);
+    if (device_id == current_device_id || device_id == "current-device")
+        && is_placeholder_device_name(&device_name)
+    {
+        device_name = local_device_display_name(runtime);
+    }
     let agent_engine = supported_agent_engine(
         &first_map_string(&target_intent, &["agentEngine", "agent_engine", "engine"])
             .or_else(|| first_map_string(bot, &["agentEngine", "agent_engine", "engine"]))
@@ -4068,10 +4074,36 @@ fn local_device_target(
     }
     DeviceTarget {
         id,
-        display_name: "本机".to_string(),
+        display_name: local_device_display_name(runtime),
         status_label: "本机".to_string(),
         engines,
     }
+}
+
+fn local_device_display_name(runtime: &Map<String, Value>) -> String {
+    first_nested_object(runtime, &["localDevice", "local_device"])
+        .and_then(|device| {
+            first_map_string(device, &["name", "deviceName", "device_name", "hostname"])
+        })
+        .map(|value| compact_device_name(&value))
+        .filter(|value| !is_placeholder_device_name(value))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "本机".to_string())
+}
+
+fn is_placeholder_device_name(value: &str) -> bool {
+    matches!(
+        compact_device_name(value).to_ascii_lowercase().as_str(),
+        "本机"
+            | "本机 agent"
+            | "当前设备"
+            | "current device"
+            | "current-device"
+            | "设备"
+            | "目标设备"
+            | "mia desktop"
+            | "mia bridge"
+    )
 }
 
 fn local_runtime_engine_ids(

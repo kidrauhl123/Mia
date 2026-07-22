@@ -561,6 +561,7 @@ function verifyRelease() {
     "api/src/shared/cloud-events.js",
     "api/src/shared/assistant-content-blocks.js",
     "api/src/shared/engine-contracts.js",
+    "api/src/shared/device-identity.js",
     "api/src/shared/ids.js",
     "api/src/shared/member-color.js",
     "api/src/shared/runtime-binding-intents.js",
@@ -673,6 +674,7 @@ function verifyRelease() {
     "api/src/shared/cloud-events.js",
     "api/src/shared/assistant-content-blocks.js",
     "api/src/shared/engine-contracts.js",
+    "api/src/shared/device-identity.js",
     "api/src/shared/member-color.js",
     "api/src/shared/avatar-media.js",
     "api/src/shared/avatar-resolve.js",
@@ -895,6 +897,7 @@ function main() {
   copyFile("src/shared/cloud-events.js", path.join(apiDir, "src", "shared", "cloud-events.js"));
   copyFile("src/shared/assistant-content-blocks.js", path.join(apiDir, "src", "shared", "assistant-content-blocks.js"));
   copyFile("src/shared/engine-contracts.js", path.join(apiDir, "src", "shared", "engine-contracts.js"));
+  copyFile("src/shared/device-identity.js", path.join(apiDir, "src", "shared", "device-identity.js"));
   copyFile("src/shared/cloud-runtime.js", path.join(apiDir, "src", "shared", "cloud-runtime.js"));
   copyFile("src/shared/ids.js", path.join(apiDir, "src", "shared", "ids.js"));
   copyFile("src/shared/member-color.js", path.join(apiDir, "src", "shared", "member-color.js"));

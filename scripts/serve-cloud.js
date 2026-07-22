@@ -49,6 +49,12 @@ try {
 } catch {
   runtimeBindingIntents = require("./src/shared/runtime-binding-intents.js");
 }
+let deviceIdentity = null;
+try {
+  deviceIdentity = require("../src/shared/device-identity.js");
+} catch {
+  deviceIdentity = require("./src/shared/device-identity.js");
+}
 let pushNotifications = null;
 try {
   pushNotifications = require("../src/cloud/push-notifications.js");
@@ -1692,12 +1698,7 @@ function sanitizeRuntimeConfig(inputConfig = {}, options = {}) {
 }
 
 function compactRuntimeDeviceName(value = "") {
-  return String(value || "")
-    .trim()
-    .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)\s*$/i, "")
-    .replace(/\.local(?=\s|$)/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return deviceIdentity.compactDeviceName(value);
 }
 
 function runtimeBindingSummary(binding, devices = [], options = {}) {
@@ -2715,7 +2716,7 @@ function bridgeDeviceFingerprint(capabilities = {}) {
   ).trim().slice(0, 160);
 }
 
-function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, capabilities, cloudStore, eventHub }) {
+function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, capabilities, cloudStore, eventHub, runtimeBindingsStore }) {
   const stableDeviceId = normalizeBridgeDeviceId(deviceId, id("bridge"));
   if (!hub.devicesByUser.has(userId)) hub.devicesByUser.set(userId, new Map());
   const userDevices = hub.devicesByUser.get(userId);
@@ -2740,7 +2741,7 @@ function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, cap
   const device = {
     id: stableDeviceId,
     userId,
-    deviceName: String(deviceName || "").trim().slice(0, 80) || "本机 Agent",
+    deviceName: deviceIdentity.canonicalDeviceName(deviceName, capabilities).slice(0, 80),
     engine: bridgeDeviceEngine(engine, capabilities),
     capabilities: capabilities || {},
     cloudStore,
@@ -2755,6 +2756,7 @@ function attachBridgeDevice(hub, ws, { userId, deviceId, deviceName, engine, cap
     engine: device.engine,
     capabilities: device.capabilities
   });
+  runtimeBindingsStore?.syncDeviceName?.(userId, device.id, device.deviceName);
   if (previousDevice && previousDevice !== device && previousDevice.ws.readyState === WebSocket.OPEN) {
     try { previousDevice.ws.close(1000, "device reconnected"); } catch { /* ignore stale socket close */ }
   }
@@ -4864,7 +4866,8 @@ function handleBridgeUpgrade(req, socket, head, context, wss) {
       engine: url.searchParams.get("engine"),
       capabilities: parseJson(url.searchParams.get("capabilities"), {}),
       cloudStore,
-      eventHub: context.eventHub
+      eventHub: context.eventHub,
+      runtimeBindingsStore: context.runtimeBindingsStore
     });
     broadcastTransientEvent(context.eventHub, auth.user.id, { type: "device_updated", devices: bridgeDevices(context.bridgeHub, auth.user.id) });
   });

@@ -58,6 +58,16 @@ function createRuntimeBindingsStore(db) {
     WHERE user_id = ? AND bot_id = ?
     ORDER BY enabled DESC, updated_at DESC
   `);
+  const listDesktopForDeviceStmt = db.prepare(`
+    SELECT user_id, bot_id, runtime_kind, enabled, config_json, created_at, updated_at
+    FROM bot_runtime_bindings
+    WHERE user_id = ? AND runtime_kind = 'desktop-local'
+  `);
+  const updateConfigStmt = db.prepare(`
+    UPDATE bot_runtime_bindings
+    SET config_json = ?, updated_at = ?
+    WHERE user_id = ? AND bot_id = ? AND runtime_kind = 'desktop-local'
+  `);
   const disableOtherKindsStmt = db.prepare(`
     UPDATE bot_runtime_bindings
     SET enabled = 0, updated_at = ?
@@ -116,7 +126,41 @@ function createRuntimeBindingsStore(db) {
     return listStmt.all(String(userId), String(botId)).map(rowToBinding);
   }
 
-  return { upsertBinding, getBinding, getEnabledBinding, getActiveBinding, listBindings };
+  function syncDeviceName(userId, deviceId, deviceName) {
+    const ownerId = String(userId || "").trim();
+    const targetDeviceId = String(deviceId || "").trim();
+    const targetDeviceName = String(deviceName || "").trim();
+    if (!ownerId || !targetDeviceId || !targetDeviceName) return [];
+    const updated = [];
+    for (const row of listDesktopForDeviceStmt.all(ownerId)) {
+      const config = parseJsonOr(row.config_json, {});
+      const configuredDeviceId = String(
+        config.deviceId
+        || config.device_id
+        || config.targetDeviceId
+        || config.target_device_id
+        || ""
+      ).trim();
+      if (configuredDeviceId !== targetDeviceId) continue;
+      const currentDeviceName = String(config.deviceName || config.device_name || "").trim();
+      if (currentDeviceName === targetDeviceName && !config.device_name) continue;
+      const nextConfig = {
+        ...config,
+        deviceName: targetDeviceName
+      };
+      delete nextConfig.device_name;
+      updateConfigStmt.run(
+        JSON.stringify(nextConfig),
+        nowIso(),
+        ownerId,
+        row.bot_id
+      );
+      updated.push(rowToBinding(selectStmt.get(ownerId, row.bot_id, "desktop-local")));
+    }
+    return updated;
+  }
+
+  return { upsertBinding, getBinding, getEnabledBinding, getActiveBinding, listBindings, syncDeviceName };
 }
 
 module.exports = { createRuntimeBindingsStore };

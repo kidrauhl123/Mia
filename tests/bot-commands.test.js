@@ -1001,6 +1001,30 @@ test("syncDesktopLocalBotRuntimeBinding sends only target intent to Rust Core", 
   assert.equal(Object.hasOwn(calls[0][2].syncIntent, "apiMode"), false);
 });
 
+test("syncDesktopLocalBotRuntimeBinding repairs a legacy 本机 target with the real local device name", async () => {
+  const calls = [];
+  const api = {
+    async saveBotRuntime(botId, body) {
+      calls.push([botId, body]);
+      return { ok: true, data: { binding: { botId, ...body } } };
+    }
+  };
+
+  await commands.syncDesktopLocalBotRuntimeBinding({
+    api,
+    state: { runtime: { localDevice: { id: "mac-air-8", name: "jungdeMacBook-Air-8" } } },
+    bot: {
+      key: "legacy-codex",
+      agentEngine: "codex",
+      targetDeviceId: "mac-air-8",
+      targetDeviceName: "本机"
+    }
+  });
+
+  assert.equal(calls[0][1].syncIntent.deviceId, "mac-air-8");
+  assert.equal(calls[0][1].syncIntent.deviceName, "jungdeMacBook-Air-8");
+});
+
 test("syncDesktopLocalBotRuntimeBinding preserves Codex as a desktop target", async () => {
   const calls = [];
   const api = {

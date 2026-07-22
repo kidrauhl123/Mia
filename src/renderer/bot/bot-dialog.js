@@ -602,10 +602,20 @@
     const agentEngine = runtimeKind === "cloud-claude-code"
       ? strictAgentEngine(option.agentEngine || option.agent_engine || cloudAgentRuntime().agentEngine)
       : String(option.agentEngine || option.agent_engine || "hermes").trim();
+    const deviceId = runtimeKind === "cloud-claude-code" ? "" : String(option.deviceId || option.device_id || "").trim();
+    const localDevice = state?.runtime?.localDevice || {};
+    const isCurrentDevice = runtimeKind === "desktop-local"
+      && deviceId
+      && deviceId === String(localDevice.id || "").trim();
+    const deviceName = runtimeKind === "cloud-claude-code"
+      ? "Mia Cloud"
+      : (isCurrentDevice
+        ? String(localDevice.name || localDevice.deviceName || localDevice.device_name || option.deviceName || option.device_name || "").trim()
+        : String(option.deviceName || option.device_name || "").trim());
     return {
       runtimeKind,
-      deviceId: runtimeKind === "cloud-claude-code" ? "" : String(option.deviceId || option.device_id || "").trim(),
-      deviceName: runtimeKind === "cloud-claude-code" ? "Mia Cloud" : String(option.deviceName || option.device_name || "").trim(),
+      deviceId,
+      deviceName,
       agentEngine,
       label: String(option.label || option.engineLabel || option.engine_label || engineLabel(agentEngine) || "Agent").trim(),
       selected: Boolean(option.selected),
@@ -615,12 +625,16 @@
   }
 
   function normalizeCoreRuntimeGroup(group = {}) {
-    const label = String(group.label || "运行目标").trim();
+    const options = Array.isArray(group.options) ? group.options.map(normalizeCoreRuntimeOption) : [];
+    const localDevice = state?.runtime?.localDevice || {};
+    const localDeviceId = String(localDevice.id || "").trim();
+    const localOption = options.find((option) => option.runtimeKind === "desktop-local" && option.deviceId === localDeviceId);
+    const label = String(localOption?.deviceName || group.label || "运行目标").trim();
     const status = String(group.statusLabel || group.status_label || "").trim();
     const groupLabel = status && status !== label ? `${label} · ${status}` : label;
     return {
       label: groupLabel,
-      options: Array.isArray(group.options) ? group.options.map(normalizeCoreRuntimeOption) : []
+      options
     };
   }
 

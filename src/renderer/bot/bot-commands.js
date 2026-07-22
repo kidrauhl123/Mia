@@ -527,22 +527,33 @@
   } = {}) {
     const runtime = state.runtime || {};
     const engine = normalizeAgentEngine(bot?.agentEngine || bot?.agent_engine || "hermes", engineContracts);
-    const deviceId = String(
+    const requestedDeviceId = String(
       bot?.targetDeviceId
       || bot?.target_device_id
       || bot?.deviceId
       || bot?.device_id
-      || runtime.localDevice?.id
-      || runtime.cloud?.deviceId
       || ""
     ).trim();
+    const localDeviceId = String(runtime.localDevice?.id || runtime.cloud?.deviceId || "").trim();
+    const deviceId = requestedDeviceId && requestedDeviceId !== "current-device"
+      ? requestedDeviceId
+      : localDeviceId;
+    const targetsCurrentDevice = !requestedDeviceId
+      || requestedDeviceId === "current-device"
+      || (localDeviceId && requestedDeviceId === localDeviceId);
     const deviceName = compactDeviceName(
-      bot?.targetDeviceName
-      || bot?.target_device_name
-      || bot?.deviceName
-      || bot?.device_name
-      || runtime.localDevice?.name
-      || ""
+      targetsCurrentDevice
+        ? (runtime.localDevice?.name
+          || bot?.targetDeviceName
+          || bot?.target_device_name
+          || bot?.deviceName
+          || bot?.device_name
+          || "")
+        : (bot?.targetDeviceName
+          || bot?.target_device_name
+          || bot?.deviceName
+          || bot?.device_name
+          || "")
     );
     const intent = {
       agentEngine: engine,

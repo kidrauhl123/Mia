@@ -5,6 +5,7 @@ const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
 const { normalizeStatusBadge } = require("../shared/identity.js");
 const { generatePrincipalId, publicIdFromConversationId } = require("../shared/ids.js");
+const { canonicalDeviceName } = require("../shared/device-identity.js");
 const { sanitizeCssColor } = require("./css-color.js");
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
@@ -231,11 +232,12 @@ function typeForStoredFile(mimeType, name = "") {
 
 function rowToDevice(row) {
   if (!row) return null;
+  const capabilities = parseJson(row.capabilities_json, {});
   return {
     id: row.id,
-    deviceName: row.device_name,
+    deviceName: canonicalDeviceName(row.device_name, capabilities),
     engine: row.engine,
-    capabilities: parseJson(row.capabilities_json, {}),
+    capabilities,
     connectedAt: row.connected_at,
     lastSeenAt: row.last_seen_at,
     status: row.status
@@ -583,6 +585,9 @@ function createCloudStore(options = {}) {
     if (!getUserById(userId)) throw new Error("用户不存在。");
     const deviceId = String(input.id || id("bridge"));
     const timestamp = now();
+    const capabilities = input.capabilities && typeof input.capabilities === "object"
+      ? input.capabilities
+      : {};
     db.prepare(`
       INSERT INTO bridge_devices (id, user_id, device_name, engine, capabilities_json, connected_at, last_seen_at, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'online')
@@ -595,9 +600,9 @@ function createCloudStore(options = {}) {
     `).run(
       deviceId,
       userId,
-      String(input.deviceName || "").trim().slice(0, 80) || "本机 Agent",
+      canonicalDeviceName(input.deviceName, capabilities).slice(0, 80),
       bridgeDeviceEngine(input),
-      JSON.stringify(input.capabilities || {}),
+      JSON.stringify(capabilities),
       timestamp,
       timestamp
     );

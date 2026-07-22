@@ -253,6 +253,25 @@ test("sqlite store records bridge devices and run lifecycle", () => {
   }
 });
 
+test("sqlite store uses the bridge hostname instead of a placeholder device name", () => {
+  const paths = tempStore();
+  const store = createCloudStore(paths);
+  try {
+    const user = createCloudUser(store, "bridge-hostname");
+    const device = store.upsertBridgeDevice(user.id, {
+      id: "bridge_hostname",
+      deviceName: "本机",
+      engine: "codex",
+      capabilities: { hostname: "jungdeMacBook-Air-8", engines: ["codex"] }
+    });
+    assert.equal(device.deviceName, "jungdeMacBook-Air-8");
+    assert.equal(store.listBridgeDevices(user.id, { includeOffline: true })[0].deviceName, "jungdeMacBook-Air-8");
+  } finally {
+    store.close();
+    cleanup(paths.dataDir);
+  }
+});
+
 test("sqlite store clears volatile bridge state after reopening", () => {
   const paths = tempStore();
   let userId = "";

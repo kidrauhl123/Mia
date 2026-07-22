@@ -1220,6 +1220,78 @@ test("cloud bridge preserves stable device ids and can list offline history expl
   }
 });
 
+test("cloud bridge replaces a legacy 本机 name with the reported hostname", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let bridgeWs = null;
+  try {
+    const account = createAccount(server, "canonical-device-name");
+    const headers = { Authorization: `Bearer ${account.token}` };
+    bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceId: "device_air_8",
+      deviceName: "本机",
+      engine: "codex",
+      capabilities: JSON.stringify({ hostname: "jungdeMacBook-Air-8", engines: ["codex"] })
+    }), wsTokenProtocol(account.token));
+    await waitForMessage(bridgeWs, (message) => message.type === "bridge_ready");
+
+    const online = await jsonFetch(baseUrl, "/api/bridge/devices", { headers });
+    assert.equal(online.devices[0].deviceName, "jungdeMacBook-Air-8");
+
+    bridgeWs.close();
+    await waitForWsClose(bridgeWs);
+    const offline = await jsonFetch(baseUrl, "/api/bridge/devices?include=all", { headers });
+    assert.equal(offline.devices[0].deviceName, "jungdeMacBook-Air-8");
+  } finally {
+    closeWs(bridgeWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("cloud bridge repairs legacy bot runtime bindings when the device reconnects", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  let bridgeWs = null;
+  try {
+    const account = createAccount(server, "repair-binding-device-name");
+    const headers = { Authorization: `Bearer ${account.token}` };
+    await jsonFetch(baseUrl, "/api/me/bots/codex", {
+      method: "PUT",
+      headers,
+      body: { displayName: "Codex", capabilities: ["chat"] }
+    });
+    await jsonFetch(baseUrl, "/api/me/bots/codex/runtime", {
+      method: "PUT",
+      headers,
+      body: {
+        runtimeKind: "desktop-local",
+        enabled: true,
+        config: { agentEngine: "codex", deviceId: "device_air_8", deviceName: "本机" }
+      }
+    });
+
+    bridgeWs = new WebSocket(bridgeWsUrl(baseUrl, {
+      deviceId: "device_air_8",
+      deviceName: "本机",
+      engine: "codex",
+      capabilities: JSON.stringify({ hostname: "jungdeMacBook-Air-8", engines: ["codex"] })
+    }), wsTokenProtocol(account.token));
+    await waitForMessage(bridgeWs, (message) => message.type === "bridge_ready");
+
+    const runtime = await jsonFetch(baseUrl, "/api/me/bots/codex/runtime?kind=desktop-local", { headers });
+    assert.equal(runtime.binding.config.deviceName, "jungdeMacBook-Air-8");
+    const bots = await jsonFetch(baseUrl, "/api/me/bots?compact=1", { headers });
+    assert.equal(bots.bots.find((bot) => bot.id === "codex").deviceName, "jungdeMacBook-Air-8");
+  } finally {
+    closeWs(bridgeWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test("cloud bridge stable device reconnect keeps the replacement online", async () => {
   const dataDir = tempDataDir();
   const server = createMiaCloudServer({ dataDir });

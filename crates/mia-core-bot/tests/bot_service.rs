@@ -1179,7 +1179,8 @@ async fn bot_service_owns_runtime_target_option_normalization() {
     assert_eq!(options.groups[0].id, "cloud-claude-code");
     assert_eq!(options.groups[0].options[0].agent_engine, "claude-code");
     assert!(!options.groups[0].options[0].disabled);
-    assert_eq!(options.groups[1].label, "本机");
+    assert_eq!(options.groups[1].label, "Studio Mac");
+    assert_eq!(options.groups[1].options[2].device_name, "Studio Mac");
     assert_eq!(
         options.groups[1]
             .options
@@ -1191,6 +1192,7 @@ async fn bot_service_owns_runtime_target_option_normalization() {
     assert!(options.groups[1].options[2].selected);
     assert_eq!(options.active_target.agent_engine, "codex");
     assert_eq!(options.active_target.device_id, "mac-local");
+    assert_eq!(options.active_target.device_name, "Studio Mac");
     assert_eq!(options.runtime_label, "本机运行");
     assert!(!options.runs_on_other_device);
 
