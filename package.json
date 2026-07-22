@@ -1,6 +1,6 @@
 {
   "name": "mia",
-  "version": "0.1.51",
+  "version": "0.1.52",
   "private": true,
   "workspaces": [
     "apps/mobile-rn",
@@ -204,7 +204,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh"
     }
   }
 }
