@@ -42,6 +42,10 @@ function newestReleaseArtifact(sourcePatterns) {
 }
 
 function copyDesktopDownloadArtifacts() {
+  if (process.env.MIA_CLOUD_RELEASE_SKIP_DESKTOP_DOWNLOADS === "1") {
+    console.log("Skipping desktop download artifacts for a web/API-only release.");
+    return [];
+  }
   const downloadsDir = path.join(webDir, "downloads");
   fs.mkdirSync(downloadsDir, { recursive: true });
   const targets = [
