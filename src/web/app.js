@@ -2,6 +2,9 @@
 // Conversation list = cloud DM, group conversations, and cloud-mirrored bot conversations.
 
 const STORAGE_KEY = "mia.web.session";
+const WEB_CONVERSATION_DEVICE_GROUP_SOCIAL = "social";
+const WEB_CONVERSATION_DEVICE_GROUP_CLOUD = "runtime:cloud";
+const WEB_CONVERSATION_DEVICE_GROUP_UNASSIGNED = "runtime:unassigned";
 const API_BASE = "";
 const { formatConversationTime, formatMessageTime } = window.miaTimeFormat;
 const { computeUnreadForConversation, totalUnreadFromConversations, unreadBadgeHtml } = window.miaUnread;
@@ -262,6 +265,10 @@ let state = {
   botRuntimeCache: new Map(),
   platformModels: [],
   activeConversationId: "",
+  // UI-only fold state for the device sections in the web sidebar. Device
+  // ownership is derived from the current runtime metadata; the fold state
+  // deliberately does not enter the cloud settings contract.
+  collapsedConversationDeviceGroups: new Set(),
   lastRenderedConversationId: "",
   lastRenderedConversationMessageIds: [],
   lastRenderedConversationMessageCount: 0,
@@ -1986,6 +1993,7 @@ function handleCloudEvent(envelope) {
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
+    renderConversationList();
     renderActiveChat();
   } else if (type === "bridge_run_updated") {
     const status = envelope.run?.status;
@@ -2051,6 +2059,7 @@ function handleCloudEvent(envelope) {
     const binding = envelope.binding;
     if (binding?.botId && binding?.runtimeKind) {
       state.botRuntimeCache.set(runtimeCacheKey(binding.botId, binding.runtimeKind), binding);
+      renderConversationList();
       renderActiveChat();
     }
   } else if (type === "bot.deleted") {
@@ -2203,6 +2212,125 @@ function runtimeKindForBotConversation(conversation, bot) {
   return defaultRuntimeKind === "desktop-local" && botRuntimeKind
     ? botRuntimeKind
     : defaultRuntimeKind;
+}
+
+function webRuntimeValue(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+// Web conversations are grouped by the place where their bot runtime is
+// configured to run. Human DMs and social groups are intentionally kept in a
+// separate section because they are cloud-synchronised conversations, not
+// sessions owned by one local machine.
+function conversationDeviceGroupFor(conversation, bot = null) {
+  const type = sessionHistory.conversationType(conversation, conversation?.id || "");
+  if (type !== "bot") {
+    return {
+      key: WEB_CONVERSATION_DEVICE_GROUP_SOCIAL,
+      label: "社交聊天",
+      meta: "私聊、群聊",
+      kind: "social",
+      order: 900
+    };
+  }
+
+  const botKey = sessionHistory.botId(conversation);
+  const runtimeKind = runtimeKindForBotConversation(conversation, bot);
+  if (runtimeKind === "cloud-claude-code") {
+    return {
+      key: WEB_CONVERSATION_DEVICE_GROUP_CLOUD,
+      label: "Mia Cloud",
+      meta: "云端运行",
+      kind: "cloud",
+      order: 0
+    };
+  }
+
+  const decorations = conversation?.decorations && typeof conversation.decorations === "object"
+    ? conversation.decorations
+    : {};
+  const conversationRuntimeConfig = decorations.runtimeConfig && typeof decorations.runtimeConfig === "object"
+    ? decorations.runtimeConfig
+    : (decorations.runtime_config && typeof decorations.runtime_config === "object" ? decorations.runtime_config : {});
+  const binding = botKey ? runtimeBindingFor(botKey, runtimeKind) : null;
+  const bindingConfig = binding?.config && typeof binding.config === "object" ? binding.config : {};
+  const botRuntimeConfig = bot?.runtimeConfig && typeof bot.runtimeConfig === "object"
+    ? bot.runtimeConfig
+    : (bot?.runtime_config && typeof bot.runtime_config === "object" ? bot.runtime_config : {});
+  const targetDeviceId = webRuntimeValue(
+    decorations.targetDeviceId,
+    decorations.target_device_id,
+    decorations.deviceId,
+    decorations.device_id,
+    conversationRuntimeConfig.targetDeviceId,
+    conversationRuntimeConfig.target_device_id,
+    conversationRuntimeConfig.deviceId,
+    conversationRuntimeConfig.device_id,
+    bindingConfig.targetDeviceId,
+    bindingConfig.target_device_id,
+    bindingConfig.deviceId,
+    bindingConfig.device_id,
+    bot?.targetDeviceId,
+    bot?.target_device_id,
+    bot?.deviceId,
+    bot?.device_id,
+    botRuntimeConfig.targetDeviceId,
+    botRuntimeConfig.target_device_id,
+    botRuntimeConfig.deviceId,
+    botRuntimeConfig.device_id
+  );
+  const matchedDeviceIndex = (Array.isArray(state.bridgeDevices) ? state.bridgeDevices : [])
+    .findIndex((device) => String(device?.id || "").trim() === targetDeviceId);
+  const matchedDevice = matchedDeviceIndex >= 0 ? state.bridgeDevices[matchedDeviceIndex] : null;
+  const targetDeviceName = webRuntimeValue(
+    matchedDevice?.deviceName,
+    matchedDevice?.device_name,
+    decorations.targetDeviceName,
+    decorations.target_device_name,
+    decorations.deviceName,
+    decorations.device_name,
+    conversationRuntimeConfig.targetDeviceName,
+    conversationRuntimeConfig.target_device_name,
+    conversationRuntimeConfig.deviceName,
+    conversationRuntimeConfig.device_name,
+    bindingConfig.targetDeviceName,
+    bindingConfig.target_device_name,
+    bindingConfig.deviceName,
+    bindingConfig.device_name,
+    bot?.targetDeviceName,
+    bot?.target_device_name,
+    bot?.deviceName,
+    bot?.device_name,
+    botRuntimeConfig.targetDeviceName,
+    botRuntimeConfig.target_device_name,
+    botRuntimeConfig.deviceName,
+    botRuntimeConfig.device_name
+  );
+  const deviceName = webCompactDeviceName(targetDeviceName) || targetDeviceId;
+  if (!deviceName) {
+    return {
+      key: WEB_CONVERSATION_DEVICE_GROUP_UNASSIGNED,
+      label: "未分配设备",
+      meta: "桌面智能体",
+      kind: "unassigned",
+      order: 800
+    };
+  }
+
+  const status = matchedDevice
+    ? webDeviceStatusLabel(matchedDevice)
+    : (targetDeviceId ? "离线" : "未配置");
+  return {
+    key: targetDeviceId ? `device:${targetDeviceId}` : `device-name:${deviceName.toLowerCase()}`,
+    label: deviceName,
+    meta: status,
+    kind: "device",
+    order: matchedDeviceIndex >= 0 ? 100 + matchedDeviceIndex : 700
+  };
 }
 
 function engineForRuntimeKind(runtimeKind) {
@@ -2688,6 +2816,8 @@ function combinedConversationItems() {
     const isDM = r.type === "dm" || r.id?.startsWith("dm:");
     const isBot = r.type === "bot" || r.id?.startsWith("botc_");
     const isGroup = r.type === "group" || (!isDM && !isBot && (r.id?.startsWith("g_") || r.id?.startsWith("g-")));
+    const botKey = isBot ? sessionHistory.botId(r) : "";
+    const bot = botKey ? botByKey(botKey) : null;
     let avatar = "";
     let avatarCrop = null;
     let color = "";
@@ -2714,7 +2844,6 @@ function combinedConversationItems() {
       identity = friend?.identity || friend || null;
       statusBadge = statusBadgeFrom(identity, friend);
     } else if (isBot) {
-      const botKey = sessionHistory.botId(r);
       const fa = botAvatarFor(r, botKey);
       if (fa) {
         avatar = fa.image;
@@ -2722,7 +2851,6 @@ function combinedConversationItems() {
         color = fa.color;
         avatarText = fa.text;
       }
-      const bot = botByKey(botKey);
       const members = state.conversationMembersCache.get(r.id) || [];
       const member = members.find((m) => m.member_kind === MemberKind.Bot && m.member_ref === botKey);
       identity = bot || member?.identity || null;
@@ -2744,6 +2872,7 @@ function combinedConversationItems() {
       identity,
       statusBadge,
       memberTiles,
+      deviceGroup: conversationDeviceGroupFor(r, bot),
       tags: conversationTagsFor(r.id),
       pinned: isConversationPinned(r.id)
     };
@@ -2756,25 +2885,7 @@ function combinedConversationItems() {
   });
 }
 
-function renderConversationList() {
-  const query = String(els.conversationSearch.value || "").trim().toLowerCase();
-  const all = combinedConversationItems();
-  const items = query
-    ? all.filter((it) => (
-        it.title.toLowerCase().includes(query)
-        || (Array.isArray(it.tags) && it.tags.some((tag) => String(tag.name || "").toLowerCase().includes(query)))
-      ))
-    : all;
-
-  if (!items.length) {
-    const empty = state.user
-      ? "没有会话。点击右上 + 添加好友或发起群聊；或在桌面端登录同账号并点同步。"
-      : "请先登录。";
-    els.conversationList.innerHTML = `<p class="persona-empty">${empty}</p>`;
-    return;
-  }
-
-  els.conversationList.innerHTML = items.map((it) => {
+function conversationRowHtml(it) {
     const avatarLabel = it.avatarText || avatarResolve.identityDisplayText(it.title, "?");
     let color = "#5e5ce6";
     if (it.kind === "conversation") color = it.color || (it.isDM ? "#5e5ce6" : "#34c759");
@@ -2830,7 +2941,84 @@ function renderConversationList() {
         ${hasMenu ? `<button class="persona-more" type="button" data-conv-more="${escapeHtml(it.id)}" aria-label="更多操作" title="更多操作">⋯</button>` : ""}
       </div>
     `;
-  }).join("");
+}
+
+function conversationDeviceGroups(items) {
+  const groups = new Map();
+  for (const item of Array.isArray(items) ? items : []) {
+    const descriptor = item?.deviceGroup || {
+      key: WEB_CONVERSATION_DEVICE_GROUP_SOCIAL,
+      label: "社交聊天",
+      meta: "私聊、群聊",
+      kind: "social",
+      order: 900
+    };
+    const key = String(descriptor.key || WEB_CONVERSATION_DEVICE_GROUP_SOCIAL);
+    let group = groups.get(key);
+    if (!group) {
+      group = { ...descriptor, key, items: [] };
+      groups.set(key, group);
+    }
+    group.items.push(item);
+  }
+  return [...groups.values()].sort((a, b) => (
+    (Number(a.order) || 0) - (Number(b.order) || 0)
+      || String(a.label || "").localeCompare(String(b.label || ""), "zh-Hans-CN")
+  ));
+}
+
+function toggleConversationDeviceGroup(groupKey) {
+  const key = String(groupKey || "").trim();
+  if (!key) return;
+  if (state.collapsedConversationDeviceGroups.has(key)) {
+    state.collapsedConversationDeviceGroups.delete(key);
+  } else {
+    state.collapsedConversationDeviceGroups.add(key);
+  }
+  renderConversationList();
+}
+
+function conversationDeviceGroupHtml(group) {
+  const key = String(group?.key || "").trim();
+  const collapsed = state.collapsedConversationDeviceGroups.has(key);
+  const items = Array.isArray(group?.items) ? group.items : [];
+  return `
+    <section class="conversation-device-group${collapsed ? " collapsed" : ""}"
+      data-device-group="${escapeHtml(key)}" data-group-kind="${escapeHtml(group?.kind || "device")}">
+      <button class="conversation-device-group-header" type="button"
+        data-device-group-toggle="${escapeHtml(key)}" aria-expanded="${collapsed ? "false" : "true"}">
+        <span class="conversation-device-group-heading">
+          <span class="conversation-device-group-dot" aria-hidden="true"></span>
+          <strong>${escapeHtml(group?.label || "设备")}</strong>
+          ${group?.meta ? `<small>${escapeHtml(group.meta)}</small>` : ""}
+        </span>
+        <span class="conversation-device-group-count">${items.length}</span>
+        <span class="conversation-device-group-chevron" aria-hidden="true">${collapsed ? "›" : "⌄"}</span>
+      </button>
+      <div class="conversation-device-group-items">${items.map(conversationRowHtml).join("")}</div>
+    </section>
+  `;
+}
+
+function renderConversationList() {
+  const query = String(els.conversationSearch.value || "").trim().toLowerCase();
+  const all = combinedConversationItems();
+  const items = query
+    ? all.filter((it) => (
+        it.title.toLowerCase().includes(query)
+        || (Array.isArray(it.tags) && it.tags.some((tag) => String(tag.name || "").toLowerCase().includes(query)))
+      ))
+    : all;
+
+  if (!items.length) {
+    const empty = state.user
+      ? "没有会话。点击右上 + 添加好友或发起群聊；或在桌面端登录同账号并点同步。"
+      : "请先登录。";
+    els.conversationList.innerHTML = `<p class="persona-empty">${empty}</p>`;
+    return;
+  }
+
+  els.conversationList.innerHTML = conversationDeviceGroups(items).map(conversationDeviceGroupHtml).join("");
   hydrateAvatarVideos(els.conversationList);
   initStatusBadgeLotties(els.conversationList);
 }
@@ -4461,6 +4649,12 @@ els.userAvatar?.addEventListener("click", () => {
 });
 
 els.conversationList.addEventListener("click", (event) => {
+  const groupToggle = event.target.closest("[data-device-group-toggle]");
+  if (groupToggle) {
+    event.preventDefault();
+    toggleConversationDeviceGroup(groupToggle.dataset.deviceGroupToggle || "");
+    return;
+  }
   const moreBtn = event.target.closest("[data-conv-more]");
   if (moreBtn) {
     event.stopPropagation();

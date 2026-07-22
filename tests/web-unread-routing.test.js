@@ -196,6 +196,23 @@ test("src/web/app.js renders and searches conversation tags from settings", () =
   assert.match(source, /tag\.name[\s\S]{0,120}includes\(query\)/);
 });
 
+test("src/web groups conversations by runtime device in collapsible sections", () => {
+  const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
+  const css = fs.readFileSync(path.join(ROOT, "src/web/styles.css"), "utf8");
+
+  assert.match(source, /function conversationDeviceGroupFor\(conversation, bot = null\)/);
+  assert.match(source, /label: "Mia Cloud"/);
+  assert.match(source, /label: "未分配设备"/);
+  assert.match(source, /label: "社交聊天"/);
+  assert.match(source, /targetDeviceId/);
+  assert.match(source, /function conversationDeviceGroups\(items\)/);
+  assert.match(source, /data-device-group-toggle/);
+  assert.match(source, /toggleConversationDeviceGroup\(groupToggle\.dataset\.deviceGroupToggle \|\| ""\)/);
+  assert.match(source, /conversationDeviceGroups\(items\)\.map\(conversationDeviceGroupHtml\)/);
+  assert.match(css, /\.conversation-device-group-header/);
+  assert.match(css, /\.conversation-device-group\.collapsed \.conversation-device-group-items/);
+});
+
 test("src/web bot avatars use shared bot identity instead of bare bot key", () => {
   const source = fs.readFileSync(path.join(ROOT, "src/web/app.js"), "utf8");
 
