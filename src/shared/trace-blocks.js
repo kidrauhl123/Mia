@@ -9,6 +9,58 @@
   "use strict";
 
   let state;
+  const lazyTraceBodies = new Map();
+  const MAX_LAZY_TRACE_BODIES = 512;
+
+  function rememberLazyTraceBody(key, render) {
+    if (!key || typeof render !== "function") return;
+    lazyTraceBodies.set(key, render);
+    while (lazyTraceBodies.size > MAX_LAZY_TRACE_BODIES) {
+      const oldest = lazyTraceBodies.keys().next().value;
+      if (oldest == null) break;
+      lazyTraceBodies.delete(oldest);
+    }
+  }
+
+  function traceBodyHtml({ key = "", open = false, render } = {}) {
+    if (typeof render !== "function") return "";
+    rememberLazyTraceBody(key, render);
+    if (open || !key) {
+      return `<div class="trace-accordion-body accordion-body">${render()}</div>`;
+    }
+    return `<div class="trace-accordion-body accordion-body" data-lazy-trace-body="true"></div>`;
+  }
+
+  function traceInlinePreview(value, maxLength = 120) {
+    return String(value || "").slice(0, maxLength).replace(/\s+/g, " ");
+  }
+
+  function traceKeyFromRow(row) {
+    if (!row) return "";
+    if (typeof row.getAttribute === "function") return String(row.getAttribute("data-trace-key") || "");
+    return String(row.dataset?.traceKey || "");
+  }
+
+  function hydrateTraceRow(row) {
+    const key = traceKeyFromRow(row);
+    const render = key ? lazyTraceBodies.get(key) : null;
+    const target = row?.querySelector?.("[data-lazy-trace-body]");
+    if (!render || !target) return false;
+    target.innerHTML = render();
+    target.removeAttribute?.("data-lazy-trace-body");
+    if (target.dataset) target.dataset.traceBodyLoaded = "true";
+    return true;
+  }
+
+  function releaseTraceRow(row) {
+    const target = row?.querySelector?.(".trace-accordion-body[data-trace-body-loaded='true']")
+      || row?.querySelector?.(".trace-accordion-body[data-lazy-trace-body='true']");
+    if (!target || !target.dataset?.traceBodyLoaded) return false;
+    target.innerHTML = "";
+    target.dataset.traceBodyLoaded = "";
+    target.setAttribute?.("data-lazy-trace-body", "true");
+    return true;
+  }
 
   function initTraceBlocks(deps) {
     state = deps.state;
@@ -185,7 +237,11 @@
       rows.push(
         `<details class="trace-row reasoning${animClass(key)}" data-accordion="true"${rowAttrs(key, rows.length, stateForKey)}>` +
           `<summary><span class="trace-chevron">▸</span><span class="trace-cmd">thinking</span>${stateForKey.open ? "" : `<span class="trace-arg">${window.miaMarkdown.escapeHtml(reasoningText.slice(0, 80).replace(/\s+/g, " "))}</span>`}</summary>` +
-          traceAccordionBody(`<pre class="trace-body">${renderTraceText(reasoningText)}</pre>`) +
+          traceBodyHtml({
+            key,
+            open: stateForKey.open,
+            render: () => `<pre class="trace-body">${renderTraceText(reasoningText)}</pre>`
+          }) +
         `</details>`
       );
     }
@@ -201,8 +257,8 @@
       const memoryPresentation = miaMemoryToolPresentation(tool, status);
       const displayName = memoryPresentation?.title || name;
       const displayGlyph = memoryPresentation?.glyph || glyph;
-      const displayBody = memoryPresentation?.body || preview;
-      const previewInline = (memoryPresentation?.body || preview).replace(/\s+/g, " ").slice(0, 120);
+      const displayBody = memoryPresentation?.body || tool.body || preview;
+      const previewInline = traceInlinePreview(memoryPresentation?.body || preview);
       const key = scopeKey ? `${scopeKey}::tool::${tool.id || idx}` : "";
       const stateForKey = openState(key);
       rows.push(
@@ -214,7 +270,11 @@
             (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
             (meta ? `<span class="trace-meta">${window.miaMarkdown.escapeHtml(meta)}</span>` : "") +
           `</summary>` +
-          traceAccordionBody(displayBody ? `<pre class="trace-body">${renderTraceText(displayBody)}</pre>` : "") +
+          traceBodyHtml({
+            key,
+            open: stateForKey.open,
+            render: () => displayBody ? `<pre class="trace-body">${renderTraceText(displayBody)}</pre>` : ""
+          }) +
         `</details>`
       );
     }
@@ -271,7 +331,11 @@
           (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
           meta +
         `</summary>` +
-        traceAccordionBody(diff ? renderDiffBody(diff) : "") +
+        traceBodyHtml({
+          key: scopeKey,
+          open: stateForKey.open,
+          render: () => diff ? renderDiffBody(diff) : ""
+        }) +
       `</details>` +
     `</div>`;
   }
@@ -289,7 +353,11 @@
           `<span class="trace-cmd">Recap</span>` +
           (!stateForKey.open && previewInline ? `<span class="trace-arg">${window.miaMarkdown.escapeHtml(previewInline)}</span>` : "") +
         `</summary>` +
-        traceAccordionBody(`<pre class="trace-body">${renderTraceText(text)}</pre>`) +
+        traceBodyHtml({
+          key: scopeKey,
+          open: stateForKey.open,
+          render: () => `<pre class="trace-body">${renderTraceText(text)}</pre>`
+        }) +
       `</details>` +
     `</div>`;
   }
@@ -513,6 +581,8 @@
     miaMemoryToolPresentation,
     renderTraceBlocks,
     renderAssistantContentBlocks,
+    hydrateTraceRow,
+    releaseTraceRow,
     markRenderedTraceBlocks,
   };
 })();

@@ -5,7 +5,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { Readable, Transform } = require("node:stream");
 const { pipeline } = require("node:stream/promises");
-const AdmZip = require("adm-zip");
 
 function cancelledError() {
   const error = new Error("Engine backup download cancelled.");
@@ -88,7 +87,7 @@ function sourceStream(body) {
 function createEngineBackupClient(deps = {}) {
   const fsImpl = deps.fs || fs;
   const fetchImpl = deps.fetchImpl || globalThis.fetch;
-  const Zip = deps.AdmZip || AdmZip;
+  const Zip = deps.AdmZip || require("adm-zip");
   const manifestUrl = String(deps.manifestUrl || "").trim();
   const allowInsecure = deps.allowInsecure === true;
 

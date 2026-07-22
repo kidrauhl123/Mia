@@ -1,12 +1,52 @@
-const { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
+const { app } = require("electron");
+const { spawn: spawnMemoryBudgetedApp } = require("node:child_process");
+
+const MIA_MEMORY_JS_FLAGS = "--max-old-space-size=64 --max-semi-space-size=1 --optimize-for-size";
+const hasMemoryBudgetFlag = process.argv.some((arg) => String(arg || "").startsWith("--js-flags="));
+const shouldRelaunchWithMemoryBudget = process.platform === "win32"
+  && process.env.MIA_DISABLE_MEMORY_BUDGET !== "1"
+  && process.env.MIA_MEMORY_BUDGET_RELAUNCHED !== "1"
+  && !hasMemoryBudgetFlag;
+
+// The main Electron isolate is created before app.commandLine switches can be
+// applied, so its V8 heap must be configured by the process command line. A
+// tiny bootstrap relaunches the packaged app with the bounded flags, then
+// exits before any Mia service or user data is opened.
+if (shouldRelaunchWithMemoryBudget) {
+  const forwardedArgs = process.argv
+    .slice(1)
+    .filter((arg) => !String(arg || "").startsWith("--js-flags="));
+  const child = spawnMemoryBudgetedApp(
+    process.execPath,
+    [`--js-flags=${MIA_MEMORY_JS_FLAGS}`, ...forwardedArgs],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        MIA_MEMORY_BUDGET_RELAUNCHED: "1",
+        MIA_MEMORY_BUDGET: "1"
+      }
+    }
+  );
+  child.unref();
+  process.exit(0);
+}
+
+const memoryBudgetEnabled = process.platform === "win32" && process.env.MIA_DISABLE_MEMORY_BUDGET !== "1";
+if (memoryBudgetEnabled) process.env.MIA_MEMORY_BUDGET = "1";
+
+const { BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { execFile, spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const zlib = require("node:zlib");
-const AdmZip = require("adm-zip");
-const WebSocket = require("ws");
+// Electron's Node runtime already exposes WHATWG WebSocket. Keep the package
+// fallback for older runtimes, but do not load the compatibility client on
+// every startup when the native implementation is available.
+const WebSocket = globalThis.WebSocket || require("ws");
 const { IpcChannel } = require("./shared/ipc-channels");
 const { MemberKind } = require("./shared/conversation-kinds");
 const { botConversationId } = require("./shared/bot-identity");
@@ -127,6 +167,26 @@ const IS_CORE_PROCESS = false;
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 
 app.setName("Mia");
+// Electron's Chromium processes reserve a large V8 heap by default. Mia's
+// desktop workload is intentionally bounded by the Rust Core service, so a
+// smaller V8 young/old generation keeps the whole Windows UI process group
+// within the desktop memory budget without removing any feature or data.
+// Keep an escape hatch for unusually large local agent turns.
+if (process.platform === "win32" && process.env.MIA_DISABLE_MEMORY_BUDGET !== "1" && !hasMemoryBudgetFlag) {
+  app.commandLine.appendSwitch(
+    "js-flags",
+    "--max-old-space-size=64 --max-semi-space-size=1 --optimize-for-size"
+  );
+}
+// The desktop UI does not require hardware compositing. On Windows the
+// software path avoids keeping a large dedicated GPU process alive (the same
+// rendering strategy used by the lighter Argo build). Keep an escape hatch for
+// machines where hardware acceleration is important for a particular display.
+if (process.platform === "win32" && process.env.MIA_ENABLE_HARDWARE_GPU !== "1") {
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+  app.commandLine.appendSwitch("use-gl", "angle");
+  app.commandLine.appendSwitch("use-angle", "swiftshader-webgl");
+}
 // Migration branch: the background Core is not the Electron GUI process; the
 // old daemon-profile userData / MIA_HOME special casing was deleted here.
 // Electron always runs as the window. A general
@@ -1574,6 +1634,7 @@ function verifySkillPackageChecksum(buf, checksum = "") {
 }
 
 function readSkillMarkdownFromPackage(zipBuffer, entryPath = "SKILL.md") {
+  const AdmZip = require("adm-zip");
   const zip = new AdmZip(Buffer.from(zipBuffer));
   const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
   const preferred = String(entryPath || "").trim();

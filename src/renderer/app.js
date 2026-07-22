@@ -8187,11 +8187,13 @@ els.chat.addEventListener("toggle", (event) => {
   const key = row.dataset.traceKey;
   if (!key) return;
   if (row.open) {
+    window.miaTraceBlocks?.hydrateTraceRow?.(row);
     state.openTraceKeys.add(key);
     state.openTraceKeys.delete(`!${key}`);
     row.dataset.userOpen = "true";
     delete row.dataset.autoOpen;
   } else {
+    window.miaTraceBlocks?.releaseTraceRow?.(row);
     state.openTraceKeys.delete(key);
     state.openTraceKeys.add(`!${key}`);
     delete row.dataset.userOpen;
@@ -8449,16 +8451,26 @@ startAfterFirstPaint();
 renderSendButton();
 if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
   runtimeRefreshScheduler = window.miaRuntimeRefreshScheduler.createRuntimeRefreshScheduler({
-    intervalMs: 5000,
+    // Live chat/task changes arrive over Core's event stream. Runtime status
+    // is a fallback/control-plane refresh, so avoid rebuilding the whole shell
+    // every five seconds while the window is sitting visibly idle.
+    intervalMs: 10000,
     refresh: performRefreshRuntime,
+    isActive: () => desktopWindowFocused && !document.hidden,
     setInterval: (fn, ms) => window.setInterval(fn, ms),
     clearInterval: (id) => window.clearInterval(id),
     onError: (error) => console.error("Failed to refresh runtime", error)
   });
   runtimeRefreshScheduler.start();
 } else {
-  setInterval(refreshRuntime, 5000);
+  setInterval(refreshRuntime, 10000);
 }
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) {
+    const task = runtimeRefreshScheduler?.runNow?.({ queueIfRunning: true });
+    task?.catch?.(() => {});
+  }
+});
 
 (function wireTrafficLights() {
   const controls = document.getElementById("windowControls");
@@ -8503,6 +8515,10 @@ if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
   const applyFocus = (focused) => {
     desktopWindowFocused = Boolean(focused);
     document.body.classList.toggle("window-blurred", !focused);
+    if (desktopWindowFocused) {
+      const task = runtimeRefreshScheduler?.runNow?.({ queueIfRunning: true });
+      task?.catch?.(() => {});
+    }
   };
   const applyFullscreen = (fullscreen) => {
     document.body.classList.toggle("window-fullscreen", Boolean(fullscreen));

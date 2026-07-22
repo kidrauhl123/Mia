@@ -34,6 +34,8 @@ use uuid::Uuid;
 use mia_core_api_types::MemoryMode;
 
 const POLLUTED_ENV_KEYS: [&str; 4] = ["NODE_OPTIONS", "NODE_INSPECT", "NODE_DEBUG", "CLAUDECODE"];
+const MIA_MEMORY_BUDGET_ENV: &str = "MIA_MEMORY_BUDGET";
+const MIA_NODE_MEMORY_FLAGS: &str = "--max-old-space-size=32 --max-semi-space-size=1 --optimize-for-size";
 pub const EVENT_RUNTIME_STARTED: &str = "conversation.runtimeStarted";
 pub const EVENT_RUNTIME_CANCEL_REQUESTED: &str = "conversation.runtimeCancelRequested";
 pub const EVENT_RUNTIME_STDOUT: &str = "conversation.runtimeStdout";
@@ -777,6 +779,14 @@ where
     V: Into<String>,
 {
     let mut env = clean_cli_environment(vars);
+    // The desktop process starts Node-based ACP engines as long-lived child
+    // runtimes. Apply a Mia-owned budget only when the desktop has opted into
+    // its bounded-memory mode; user-provided NODE_OPTIONS remain sanitized.
+    if matches!(engine, "codex" | "claude-code")
+        && env.get(MIA_MEMORY_BUDGET_ENV).map(String::as_str) == Some("1")
+    {
+        env.insert("NODE_OPTIONS".into(), MIA_NODE_MEMORY_FLAGS.into());
+    }
     if engine == "codex" {
         let path = env
             .get("CODEX_PATH")
@@ -1024,6 +1034,24 @@ mod tests {
         assert_eq!(env.get("TERM").map(String::as_str), Some("dumb"));
         assert!(!env.contains_key("NODE_OPTIONS"));
         assert!(!env.contains_key("CLAUDECODE"));
+    }
+
+    #[test]
+    fn runtime_builder_applies_mia_node_memory_budget_only_when_enabled() {
+        let bounded = runtime_environment_for_engine(
+            "claude-code",
+            [(MIA_MEMORY_BUDGET_ENV, "1"), ("NODE_OPTIONS", "--inspect")],
+        );
+        assert_eq!(
+            bounded.get("NODE_OPTIONS").map(String::as_str),
+            Some(MIA_NODE_MEMORY_FLAGS)
+        );
+
+        let unbounded = runtime_environment_for_engine(
+            "claude-code",
+            [("NODE_OPTIONS", "--inspect")],
+        );
+        assert!(!unbounded.contains_key("NODE_OPTIONS"));
     }
 
     #[test]

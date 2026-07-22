@@ -70,7 +70,10 @@ function createCloudBridgeClient({
     if (!shouldHostBridge()) return status(false);
     const s = settings();
     if (!s.enabled || !s.token) return status(false);
-    if (pendingStart) return status(false);
+    // startCloudRuntimeSockets() is intentionally safe to call from several
+    // lifecycle paths. Once Core reports an established bridge, another start
+    // request only creates needless HTTP work and can churn loopback sockets.
+    if (pendingStart || bridgeState.connecting || bridgeState.connected) return status(false);
     bridgeState = {
       ...bridgeState,
       connecting: true,

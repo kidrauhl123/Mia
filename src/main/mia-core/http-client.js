@@ -10,16 +10,30 @@ function errorMessageFromBody(body) {
   return value == null ? "" : String(value);
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 function createMiaCoreHttpClient(deps = {}) {
   const baseUrl = normalizeBaseUrl(deps.baseUrl);
   const fetchImpl = deps.fetch || globalThis.fetch;
+  const requestTimeoutMs = Number.isFinite(Number(deps.requestTimeoutMs))
+    ? Math.max(0, Number(deps.requestTimeoutMs))
+    : DEFAULT_REQUEST_TIMEOUT_MS;
+  const timeoutSignal = typeof deps.timeoutSignal === "function"
+    ? deps.timeoutSignal
+    : (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? (timeoutMs) => AbortSignal.timeout(timeoutMs)
+      : null);
+  const pendingGets = new Map();
   if (!baseUrl) throw new Error("baseUrl dependency is required.");
   if (typeof fetchImpl !== "function") throw new Error("fetch dependency is required.");
 
-  async function request(method, pathname, body) {
+  async function performRequest(method, pathname, body) {
     const path = String(pathname || "/");
     const headers = { accept: "application/json" };
     const options = { method, headers };
+    if (requestTimeoutMs > 0 && timeoutSignal) {
+      options.signal = timeoutSignal(requestTimeoutMs);
+    }
     if (body !== undefined) {
       headers["content-type"] = "application/json";
       options.body = JSON.stringify(body);
@@ -42,6 +56,25 @@ function createMiaCoreHttpClient(deps = {}) {
       throw new Error(`Mia Core HTTP ${method} ${path} failed ${response.status}: ${detail}`);
     }
     return parsed;
+  }
+
+  async function request(method, pathname, body) {
+    const upperMethod = String(method || "GET").toUpperCase();
+    const path = String(pathname || "/");
+    // Read-only status calls often arrive from multiple startup/UI paths at
+    // once. Share only the in-flight request; this does not cache stale data
+    // and writes keep their existing independent semantics.
+    const canShare = (upperMethod === "GET" || upperMethod === "HEAD") && body === undefined;
+    const key = `${upperMethod} ${path}`;
+    if (canShare && pendingGets.has(key)) return pendingGets.get(key);
+    const current = performRequest(upperMethod, path, body);
+    if (!canShare) return current;
+    pendingGets.set(key, current);
+    try {
+      return await current;
+    } finally {
+      if (pendingGets.get(key) === current) pendingGets.delete(key);
+    }
   }
 
   return {

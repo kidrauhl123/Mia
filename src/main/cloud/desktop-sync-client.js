@@ -1,7 +1,5 @@
 "use strict";
 
-const QRCode = require("qrcode");
-
 const {
   DEFAULT_SKILL_MARKET_CACHE_TTL_MS,
   normalizeSkillMarketParams
@@ -363,6 +361,7 @@ function createCloudDesktopSyncClient({
   }
 
   async function startMobileScanLogin() {
+    const QRCode = require("qrcode");
     const started = await cloudApi("/api/auth/mobile-scan/start", {
       method: "POST",
       body: {}

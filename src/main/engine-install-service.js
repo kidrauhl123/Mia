@@ -2,7 +2,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { createEngineBackupClient } = require("./engine-backup-client.js");
 const {
   resolveManagedAgentRuntime,
   runtimeKey
@@ -77,12 +76,19 @@ function createEngineInstallService(deps = {}) {
     packageConfig?.engineBackups?.manifestUrl ||
     ""
   ).trim();
-  const backupClient = deps.backupClient || createEngineBackupClient({
-    manifestUrl,
-    fetchImpl: deps.fetchImpl || globalThis.fetch,
-    fs: fsImpl,
-    allowInsecure: env.MIA_ENGINE_BACKUP_ALLOW_INSECURE === "1"
-  });
+  let backupClient = deps.backupClient || null;
+  function getBackupClient() {
+    if (!backupClient) {
+      const { createEngineBackupClient } = require("./engine-backup-client.js");
+      backupClient = createEngineBackupClient({
+        manifestUrl,
+        fetchImpl: deps.fetchImpl || globalThis.fetch,
+        fs: fsImpl,
+        allowInsecure: env.MIA_ENGINE_BACKUP_ALLOW_INSECURE === "1"
+      });
+    }
+    return backupClient;
+  }
 
   function paths() {
     const value = runtimePaths();
@@ -382,7 +388,7 @@ function createEngineInstallService(deps = {}) {
       stableEngineInfo(id);
     } catch {
       const expected = expectedBackupVersions(id);
-      await backupClient.install({
+      await getBackupClient().install({
         engineId: id,
         targetKey: runtimeKey(platform, arch),
         destination: stableEngineDestination(id),

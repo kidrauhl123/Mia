@@ -14,6 +14,7 @@
     const setIntervalImpl = typeof options.setInterval === "function" ? options.setInterval : setInterval;
     const clearIntervalImpl = typeof options.clearInterval === "function" ? options.clearInterval : clearInterval;
     const onError = typeof options.onError === "function" ? options.onError : () => {};
+    const isActive = typeof options.isActive === "function" ? options.isActive : () => true;
 
     let timer = 0;
     let inFlight = null;
@@ -62,6 +63,7 @@
       if (timer) return timer;
       stopped = false;
       timer = setIntervalImpl(() => {
+        if (!isActive()) return;
         runNow({ queueIfRunning: true }).catch(report);
       }, intervalMs);
       return timer;

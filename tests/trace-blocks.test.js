@@ -91,7 +91,7 @@ test("renderTraceBlocks exposes trace bodies as managed accordions", () => {
         durationMs: 4
       }
     ],
-    expanded: false,
+    expanded: true,
     scopeKey: "msg:m_trace"
   });
 
@@ -105,6 +105,33 @@ test("renderTraceBlocks exposes trace bodies as managed accordions", () => {
     html,
     /<div class="trace-accordion-body accordion-body"><pre class="trace-body">git status<\/pre><\/div>/
   );
+});
+
+test("collapsed trace bodies are hydrated only when the row opens", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const key = "msg:m_lazy::tool::tool_1";
+  const html = traceBlocks.renderTraceBlocks({
+    reasoning: "",
+    tools: [{ id: "tool_1", name: "shell", status: "completed", preview: "git status" }],
+    expanded: false,
+    scopeKey: "msg:m_lazy"
+  });
+
+  assert.match(html, /data-lazy-trace-body="true"/);
+  const body = {
+    dataset: {},
+    innerHTML: "",
+    removeAttribute(name) { delete this.dataset[name.replace(/^data-/, "").replace(/-([a-z])/g, (_m, c) => c.toUpperCase())]; }
+  };
+  const row = {
+    dataset: { traceKey: key },
+    querySelector(selector) {
+      return selector === "[data-lazy-trace-body]" ? body : null;
+    }
+  };
+
+  assert.equal(traceBlocks.hydrateTraceRow(row), true);
+  assert.match(body.innerHTML, /<pre class="trace-body">git status<\/pre>/);
 });
 
 test("Mia memory traces use a brain status and never render raw MCP payloads", () => {
@@ -126,7 +153,7 @@ test("Mia memory traces use a brain status and never render raw MCP payloads", (
       preview: payload
     }],
     content: "",
-    expanded: false,
+    expanded: true,
     scopeKey: "msg:m_memory"
   });
 
@@ -140,7 +167,7 @@ test("Mia memory traces use a brain status and never render raw MCP payloads", (
 test("renderTraceBlocks linkifies URL and local path text only inside trace bodies", () => {
   const { traceBlocks } = loadTraceBlocks();
   const preview = "open https://example.com/docs?x=1, then /Users/jung/GitHub/Mia/src/shared/trace-blocks.js:42:7";
-  const html = traceBlocks.renderTraceBlocks({
+  const trace = {
     reasoning: "",
     tools: [
       {
@@ -150,14 +177,15 @@ test("renderTraceBlocks linkifies URL and local path text only inside trace bodi
         preview
       }
     ],
-    expanded: false,
     scopeKey: "msg:m_links"
-  });
-
+  };
+  const collapsed = traceBlocks.renderTraceBlocks({ ...trace, expanded: false });
   assert.match(
-    html,
+    collapsed,
     /<span class="trace-arg">open https:\/\/example\.com\/docs\?x=1, then \/Users\/jung\/GitHub\/Mia\/src\/shared\/trace-blocks\.js:42:7<\/span>/
   );
+  const html = traceBlocks.renderTraceBlocks({ ...trace, expanded: true });
+
   assert.match(
     html,
     /<a class="message-link trace-link" data-external-link="https:\/\/example\.com\/docs\?x=1"[^>]*data-trace-link="true"[^>]*>https:\/\/example\.com\/docs\?x=1<\/a>,/
@@ -258,6 +286,7 @@ test("renderAssistantContentBlocks renders file edit blocks as expandable diff t
       { type: "text", id: "text_2", text: "改完了。" }
     ],
     scopeKey: "msg:m2",
+    expanded: true,
     renderTextBlock(block) {
       return `<div class="bubble assistant-text-block">${escapeHtml(block.text)}</div>`;
     }

@@ -23,6 +23,52 @@
   const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
   const CLOUD_AGENT_RUN_STALE_MS = 30 * 60 * 1000;
   const BOT_REPLY_BACKFILL_ATTEMPTS = 90;
+  // Keep render signatures cheap even when persisted diagnostic payloads are
+  // large. The first/last edge is enough to notice normal streaming/finalization
+  // changes without copying the whole trace into a temporary JSON string.
+  function compactTextSignature(value) {
+    const text = String(value == null ? "" : value);
+    if (text.length <= 128) return `${text.length}:${text}`;
+    return `${text.length}:${text.slice(0, 64)}\u0000${text.slice(-64)}`;
+  }
+
+  function compactMessageFieldSignature(value) {
+    if (typeof value === "string") return compactTextSignature(value);
+    if (Array.isArray(value)) {
+      return value.map((item, idx) => {
+        if (!item || typeof item !== "object") return `${idx}:${String(item || "")}`;
+        return [
+          item.type || "",
+          item.id || idx,
+          item.status || "",
+          compactTextSignature(item.text),
+          compactTextSignature(item.preview),
+          compactTextSignature(item.diff)
+        ].join(":");
+      }).join("|");
+    }
+    if (value && typeof value === "object") {
+      return jsonSignature({
+        reasoning: compactTextSignature(value.reasoning),
+        tools: Array.isArray(value.tools) ? compactMessageFieldSignature(value.tools) : ""
+      });
+    }
+    return compactTextSignature(value);
+  }
+
+  function compactAttachmentSignature(value) {
+    if (!Array.isArray(value)) return compactMessageFieldSignature(value);
+    return value.map((item, idx) => {
+      if (!item || typeof item !== "object") return `${idx}:${String(item || "")}`;
+      return jsonSignature({
+        id: item.id || item.name || idx,
+        kind: item.kind || item.mimeType || item.mime || item.type || "",
+        size: item.size || 0,
+        path: compactTextSignature(item.path || item.url || ""),
+        data: compactTextSignature(item.dataUrl || item.previewDataUrl || item.thumbnailDataUrl || "")
+      });
+    }).join("|");
+  }
 
   function isValidPublicUid(value) {
     const text = String(value || "").trim();
@@ -253,15 +299,15 @@
       seq: msg.seq || "",
       senderKind: msg.sender_kind || msg.senderKind || "",
       senderRef: msg.sender_ref || msg.senderRef || "",
-      body: msg.body_md || msg.bodyMd || "",
+      body: compactTextSignature(msg.body_md || msg.bodyMd || ""),
       createdAt: msg.created_at || msg.createdAt || "",
       status: msg.status || "",
       error: msg.error || "",
-      trace: msg.trace_json || msg.trace || "",
-      contentBlocks: msg.content_blocks_json || msg.contentBlocks || msg.content_blocks || "",
-      skills: msg.skills_json || "",
-      attachments: msg.attachments || [],
-      translation: msg.translation || null,
+      trace: compactMessageFieldSignature(msg.trace_json || msg.trace || ""),
+      contentBlocks: compactMessageFieldSignature(msg.content_blocks_json || msg.contentBlocks || msg.content_blocks || ""),
+      skills: compactTextSignature(msg.skills_json || ""),
+      attachments: compactAttachmentSignature(msg.attachments || []),
+      translation: compactMessageFieldSignature(msg.translation || null),
       localRunId: msg._localRunId || "",
       localRunStatus: msg._localRunStatus || "",
       localRunStatusText: msg._localRunStatusText || "",
@@ -278,11 +324,11 @@
       botId: run.botId || "",
       status: run.status || "",
       hasTypingActivity: Boolean(run.hasTypingActivity),
-      text: runDisplayText(run),
-      reasoning: run.reasoning || "",
-      tools: run.tools || [],
-      goal: run.goal || null,
-      pendingPermissions: run.pendingPermissions || [],
+      text: compactTextSignature(runDisplayText(run)),
+      reasoning: compactTextSignature(run.reasoning || ""),
+      tools: compactMessageFieldSignature(run.tools || []),
+      goal: compactMessageFieldSignature(run.goal || null),
+      pendingPermissions: compactMessageFieldSignature(run.pendingPermissions || []),
       createdAt: run.createdAt || ""
     });
   }
@@ -1092,6 +1138,8 @@
     if (shouldSyncDisplay) syncRunDisplayText(run);
   }
 
+  const TRACE_TOOL_PREVIEW_MAX_LENGTH = 4000;
+
   function parseTraceJson(value) {
     if (!value) return null;
     let parsed = value;
@@ -1105,10 +1153,15 @@
         if (!tool || typeof tool !== "object") return null;
         const name = String(tool.name || "").trim();
         if (!name) return null;
+        const fullPreview = String(tool.preview || "");
         return {
           id: String(tool.id || `tool_${idx}`),
           name,
-          preview: String(tool.preview || ""),
+          // Keep the collapsed row cheap while retaining the full payload for
+          // the lazy expanded body. The source message already owns the full
+          // trace string; this avoids eagerly copying it into the DOM.
+          preview: fullPreview.slice(0, TRACE_TOOL_PREVIEW_MAX_LENGTH),
+          ...(fullPreview.length > TRACE_TOOL_PREVIEW_MAX_LENGTH ? { body: fullPreview } : {}),
           status: normalizeToolStatus(tool.status),
           duration: typeof tool.duration === "number" ? tool.duration : null,
           error: Boolean(tool.error)

@@ -11,7 +11,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { shell } = require("electron");
-const AdmZip = require("adm-zip");
 const { botCapabilitiesWithPresetDefaults } = require("../shared/bot-identity.js");
 const { materializeSkillsForTurn } = require("../shared/skill-materializer.js");
 const { isSafeId, isSafeEntryName, assertInside, MAX_FILES, MAX_UNCOMPRESSED_BYTES } = require("../shared/skill-safety.js");
@@ -351,6 +350,7 @@ function createSkillsLoader(deps = {}) {
     }
     if (!isSafeId(id)) throw new Error("installMarketplaceSkill: invalid skill id");
     const skillDir = path.join(runtimePaths().home, "skills", String(id));
+    const AdmZip = require("adm-zip");
     const zip = new AdmZip(Buffer.from(zipBuffer));
     const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
     if (entries.length > MAX_FILES) throw new Error("package has too many files");
@@ -398,6 +398,7 @@ function createSkillsLoader(deps = {}) {
     const found = resolveLocalSkill(skillId);
     if (!found) throw new Error("Skill not found.");
     const skillDir = path.dirname(found.filePath);
+    const AdmZip = require("adm-zip");
     const zip = new AdmZip();
     zip.addLocalFolder(skillDir);
     return {
