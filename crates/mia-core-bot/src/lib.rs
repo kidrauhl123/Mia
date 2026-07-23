@@ -296,6 +296,7 @@ impl BotService {
         } else {
             request.config
         };
+        let config = enforce_managed_runtime_permissions(&request.runtime_kind, config);
         let allow_top_level_model_fields =
             request.target_intent.is_none() && request.sync_intent.is_none();
         let provider_connection_id = if allow_top_level_model_fields {
@@ -1158,9 +1159,8 @@ fn runtime_config_from_target_intent(
         if !has_non_empty(&config, "effortLevel") {
             config.insert("effortLevel".to_string(), json!("medium"));
         }
-        if !has_non_empty(&config, "permissionMode") {
-            config.insert("permissionMode".to_string(), json!("bypassPermissions"));
-        }
+        config.insert("permissionMode".to_string(), json!("bypassPermissions"));
+        config.remove("permission_mode");
         return sanitize_runtime_config(Value::Object(config));
     }
     if let Some(device_id) = clean_optional(&intent.device_id) {
@@ -1178,7 +1178,7 @@ fn runtime_config_from_target_intent(
 }
 
 fn runtime_config_from_control_intent(
-    _runtime_kind: &str,
+    runtime_kind: &str,
     existing: Value,
     intent: &BotRuntimeControlIntent,
 ) -> Value {
@@ -1188,12 +1188,12 @@ fn runtime_config_from_control_intent(
         "effortLevel" => {
             config.insert("effortLevel".to_string(), json!(intent.value.trim()));
         }
-        "permissionMode" => {
+        "permissionMode" if normalize_runtime_kind(runtime_kind) != "cloud-claude-code" => {
             config.insert("permissionMode".to_string(), json!(intent.value.trim()));
         }
         _ => {}
     }
-    sanitize_runtime_config(Value::Object(config))
+    enforce_managed_runtime_permissions(runtime_kind, Value::Object(config))
 }
 
 fn runtime_config_from_sync_intent(
@@ -1262,6 +1262,15 @@ fn runtime_config_from_sync_intent(
     }
     if !model_entries.is_empty() {
         config.insert("modelEntries".to_string(), Value::Array(model_entries));
+    }
+    enforce_managed_runtime_permissions(runtime_kind, Value::Object(config))
+}
+
+fn enforce_managed_runtime_permissions(runtime_kind: &str, config: Value) -> Value {
+    let mut config = object_from_value(sanitize_runtime_config(config));
+    if normalize_runtime_kind(runtime_kind) == "cloud-claude-code" {
+        config.insert("permissionMode".to_string(), json!("bypassPermissions"));
+        config.remove("permission_mode");
     }
     sanitize_runtime_config(Value::Object(config))
 }
@@ -2357,11 +2366,7 @@ fn runtime_control_permission_options(
     engine_capabilities: &Value,
 ) -> Vec<BotRuntimeControlOption> {
     if runtime_kind == "cloud-claude-code" {
-        return vec![runtime_control_permission_option(
-            "bypassPermissions",
-            "Sandbox",
-            "",
-        )];
+        return Vec::new();
     }
     if is_external_runtime_engine(engine) {
         let capability = runtime_control_engine_capability(engine_capabilities, engine);

@@ -379,7 +379,7 @@ function createCloudClaudeCodeClient(deps = {}) {
     const prompt = buildPrompt({ ...args, worker });
     const systemPromptAppend = buildSystemPromptAppend({ ...args, worker });
     const model = normalizeCloudClaudeCodeModel(args.model, { defaultModel: worker.model });
-    const permissionMode = normalizeClaudePermissionMode(args.permissionMode || worker.permissionMode);
+    const permissionMode = normalizeClaudePermissionMode(worker.permissionMode);
     const mcpServers = normalizeCloudMcpServers(
       worker.mcpServers,
       worker.mcp_servers,

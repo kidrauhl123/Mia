@@ -289,7 +289,6 @@ const els = {
   appearanceThemeToggleText: document.getElementById("appearanceThemeToggleText"),
   appearanceFontPreset: document.getElementById("appearanceFontPreset"),
   appearanceFontChoices: document.getElementById("appearanceFontChoices"),
-  navLayoutChoices: document.querySelectorAll("[data-nav-layout-choice]"),
   workspacePath: document.getElementById("workspacePath"),
   workspacePickButton: document.getElementById("workspacePickButton"),
   appearanceAccentColor: document.getElementById("appearanceAccentColor"),
@@ -1131,11 +1130,6 @@ function syncNavLayoutState() {
   const layout = state.navLayout === "sidebar-bottom" ? "sidebar-bottom" : "rail";
   const nativeControlsLayout = layout === "sidebar-bottom" ? "default" : "rail";
   els.appShell?.setAttribute("data-nav-layout", layout);
-  els.navLayoutChoices?.forEach((button) => {
-    const active = button.dataset.navLayoutChoice === layout;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-checked", active ? "true" : "false");
-  });
   if (lastNativeControlsLayout !== nativeControlsLayout) {
     lastNativeControlsLayout = nativeControlsLayout;
     try {
@@ -4983,6 +4977,10 @@ function runtimeControlArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function usesManagedCloudAgentPermissions(context = activeBotRuntimeControlContext()) {
+  return String(context?.runtimeKind || "").trim() === "cloud-claude-code";
+}
+
 function runtimeControlOptionValue(entry = {}) {
   return String(entry.id || entry.value || entry.model || "").trim();
 }
@@ -5028,7 +5026,9 @@ function activeBotRuntimeSendConfig() {
   const effortEntries = runtimeControlArray(options.effortOptions);
   const selectedEffort = String(els.effortSelect?.value || options.selectedEffort || "").trim();
   if (runtimeControlSelectedEntry(effortEntries, selectedEffort)) config.effortLevel = selectedEffort;
-  const permissionEntries = runtimeControlArray(options.permissionOptions);
+  const permissionEntries = usesManagedCloudAgentPermissions(context)
+    ? []
+    : runtimeControlArray(options.permissionOptions);
   const selectedPermission = String(els.permissionMode?.value || options.selectedPermission || "").trim();
   if (runtimeControlSelectedEntry(permissionEntries, selectedPermission)) config.permissionMode = selectedPermission;
   return config;
@@ -5330,8 +5330,11 @@ function syncConversationBotRuntimeControls() {
   const hasSelectedModelEntry = Boolean(selectedModelEntry?.id || selectedModelEntry?.value || selectedModelEntry?.model || selectedModelEntry?.provider);
   setComposerModelAvatar(selectedModelEntry, engine, { hidden: !hasSelectedModelEntry });
   const selectedEffortEntry = runtimeControlSelectedEntry(effortEntries, selectedEffort) || {};
-  const permissionEntries = runtimeControlArray(options?.permissionOptions);
-  const selectedPermission = String(options?.selectedPermission || "").trim();
+  const cloudPermissionsManaged = usesManagedCloudAgentPermissions(controlContext);
+  const permissionEntries = cloudPermissionsManaged
+    ? []
+    : runtimeControlArray(options?.permissionOptions);
+  const selectedPermission = cloudPermissionsManaged ? "" : String(options?.selectedPermission || "").trim();
   const selectedPermissionEntry = runtimeControlSelectedEntry(permissionEntries, selectedPermission) || {};
   const hermesPermissionMenuEnabled = engine.toLowerCase() === "hermes"
     && Boolean(options?.hermesSessionYoloControlId);
@@ -5470,6 +5473,7 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
 }
 
 async function saveActivePermissionRuntimeControl(mode) {
+  if (usesManagedCloudAgentPermissions()) return false;
   return saveActiveBotRuntimeControl(
     "permissionMode",
     mode || "",
@@ -7409,13 +7413,6 @@ els.workspacePickButton?.addEventListener("click", async () => {
     if (ws?.path && els.workspacePath) els.workspacePath.textContent = ws.path;
     if (ws?.changed) { await refreshRuntime(); renderView(); }
   } catch { /* ignore pick errors */ }
-});
-
-els.navLayoutChoices?.forEach((button) => {
-  button.addEventListener("click", () => {
-    setNavLayout(button.dataset.navLayoutChoice, true);
-    renderView();
-  });
 });
 
 els.appearanceAccentColor?.addEventListener("input", () => {

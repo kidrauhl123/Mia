@@ -794,7 +794,7 @@ async fn bot_service_treats_checking_agent_inventory_as_not_ready() {
 }
 
 #[tokio::test]
-async fn bot_service_owns_cloud_runtime_control_permission_options() {
+async fn bot_service_hides_cloud_runtime_control_permission_options() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());
 
@@ -811,10 +811,61 @@ async fn bot_service_owns_cloud_runtime_control_permission_options() {
 
     assert_eq!(response.runtime_kind, "cloud-claude-code");
     assert_eq!(response.agent_engine, "claude-code");
-    assert_eq!(response.permission_options.len(), 1);
-    assert_eq!(response.permission_options[0].value, "bypassPermissions");
-    assert_eq!(response.permission_options[0].label, "Sandbox");
-    assert_eq!(response.selected_permission, "bypassPermissions");
+    assert!(response.permission_options.is_empty());
+    assert_eq!(response.selected_permission, "");
+}
+
+#[tokio::test]
+async fn bot_service_enforces_managed_cloud_permission_policy() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let direct = service
+        .save_runtime(
+            "cloud_bot_123",
+            SaveBotRuntimeRequest {
+                runtime_kind: "cloud-claude-code".to_string(),
+                provider_connection_id: None,
+                model_profile_id: None,
+                model: None,
+                target_intent: None,
+                sync_intent: None,
+                control_intent: None,
+                config: json!({ "permissionMode": "plan", "permission_mode": "ask" }),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        direct.binding["config"]["permissionMode"],
+        "bypassPermissions"
+    );
+    assert!(direct.binding["config"].get("permission_mode").is_none());
+
+    let control = service
+        .save_runtime(
+            "cloud_bot_123",
+            SaveBotRuntimeRequest {
+                runtime_kind: "cloud-claude-code".to_string(),
+                provider_connection_id: None,
+                model_profile_id: None,
+                model: None,
+                target_intent: None,
+                sync_intent: None,
+                control_intent: Some(BotRuntimeControlIntent {
+                    field: "permissionMode".to_string(),
+                    value: "plan".to_string(),
+                    model_entries: vec![],
+                }),
+                config: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        control.binding["config"]["permissionMode"],
+        "bypassPermissions"
+    );
 }
 
 #[tokio::test]

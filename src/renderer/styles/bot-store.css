@@ -1001,21 +1001,28 @@
   }
 }
 
-body.platform-win32 .app-shell[data-active-view="contacts"] .discover-top-bar,
-body.platform-win32 .app-shell[data-active-view="bot-store"] .discover-top-bar {
-  top: var(--win-titlebar-height);
-  height: 70px;
-  padding-top: 12px;
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="contacts"] .discover-top-bar,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="bot-store"] .discover-top-bar {
+  /* This header is mounted on the app shell instead of #contactsView. Match
+   * the top offset of the nested skills header from the workspace's origin. */
+  top: calc(var(--win-titlebar-height) + var(--workspace-top-control-offset));
+  z-index: 64;
+  height: auto;
+  padding: 0;
 }
 
-body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar {
-  margin: calc(var(--win-titlebar-height) + 58px) 8px 10px 0;
-  border: 1px solid var(--win-panel-border);
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="contacts"] .contacts-sidebar {
+  margin: 58px 8px 10px 0;
+  border: 0;
   border-radius: 8px;
   background: var(--surface);
   box-shadow: var(--rail-expanded-shadow);
   -webkit-backdrop-filter: blur(18px) saturate(1.08);
   backdrop-filter: blur(18px) saturate(1.08);
+}
+
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="bot-store"] .explore-sidebar {
+  margin-top: 0;
 }
 
 body.platform-win32 .app-shell[data-active-view="contacts"] .contacts-sidebar .sidebar-tools,

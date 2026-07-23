@@ -89,7 +89,13 @@ function makeDispatcher(ctx, overrides = {}) {
     cloudAgentRunsStore: ctx.cloudAgentRunsStore,
     workerManager: {
       async ensureWorker(userId) {
-        return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway" };
+        return {
+          userId,
+          baseUrl: "http://worker",
+          apiKey: "k",
+          gatewayWsUrl: "ws://gateway",
+          permissionMode: "bypassPermissions"
+        };
       }
     },
     agentClient: overrides.agentClient || overrides.hermesImClient || defaultAgentClient,
@@ -114,7 +120,7 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
       botId: BOT_ID,
       runtimeKind: "cloud-claude-code",
       enabled: true,
-      config: { model: "hermes-agent" }
+      config: { model: "hermes-agent", permissionMode: "plan" }
     });
     const dispatcher = makeDispatcher(ctx, {
       hermesImClient: {
@@ -154,6 +160,7 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
     assert.equal(hermesCalls[0].model, "mia-auto");
     assert.equal(hermesCalls[0].workerModel, "mia-auto");
     assert.equal(hermesCalls[0].modelProvider, "mia");
+    assert.equal(hermesCalls[0].permissionMode, "bypassPermissions");
     assert.equal(hermesCalls[0].transient, true);
     assert.equal(Object.prototype.hasOwnProperty.call(hermesCalls[0], "seedMessages"), false);
     assert.match(hermesCalls[0].input, /用户消息：\nhello/);

@@ -246,7 +246,9 @@
     const engine = String(optionsPayload?.agentEngine || "hermes").trim() || "hermes";
     const modelEntries = runtimeControlArray(optionsPayload?.modelOptions);
     const effortEntries = runtimeControlArray(optionsPayload?.effortOptions);
-    const permissionEntries = runtimeControlArray(optionsPayload?.permissionOptions);
+    const permissionEntries = runtimeKind === "cloud-claude-code"
+      ? []
+      : runtimeControlArray(optionsPayload?.permissionOptions);
     const nativeHermesMemory = Boolean(optionsPayload?.nativeMemoryFallback);
     const selectedModel = String(optionsPayload?.selectedModel || "").trim();
     const selectedModelEntry = selectedModel
@@ -491,6 +493,7 @@
     initNameBadgeLotties(card);
 
     async function persistField(field, value) {
+      if (runtimeKind === "cloud-claude-code" && field === "permissionMode") return;
       const latestOptions = controlOptionsForBot(botKey, runtimeKind) || {};
       try {
         if (runtimeKind === "desktop-local" && conversationId) {

@@ -189,7 +189,7 @@ test("cloud bot card avatar preserves the bot explicit color", () => {
   assert.equal(window.lastPaintedAvatar.color, "#5e5ce6");
 });
 
-test("owned cloud bot card reads runtime binding and asks Core for runtime control options", async () => {
+test("owned cloud bot card reads runtime binding and omits managed permission controls", async () => {
   const { card, body, window } = loadCard();
   const calls = { bindings: [], options: [] };
   window.miaBotCommands = {
@@ -244,7 +244,8 @@ test("owned cloud bot card reads runtime binding and asks Core for runtime contr
   assert.match(controlsHtml, /data-bot-field="model"/);
   assert.match(controlsHtml, /GPT-5\.3/);
   assert.match(controlsHtml, /High/);
-  assert.match(controlsHtml, /Auto/);
+  assert.doesNotMatch(controlsHtml, /data-bot-field="permissionMode"/);
+  assert.doesNotMatch(controlsHtml, /Auto/);
 });
 
 test("bot contact-card runtime edits go through bot command adapter", () => {

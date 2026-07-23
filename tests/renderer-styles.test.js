@@ -330,6 +330,11 @@ test("message sidebar resize handle sits on the visible middle pane edge", () =>
     /\.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-layout="index-workspace"\] \.sidebar-resize-handle\s*\{[\s\S]*?grid-column:\s*2;[\s\S]*?grid-row:\s*1;[\s\S]*?justify-self:\s*end;[\s\S]*?margin-right:\s*4px;/,
     "desktop message sidebar handle should center on the visible sidebar edge, not the workspace-side grid boundary"
   );
+  assert.match(
+    baseCss,
+    /body\.platform-win32 \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-layout="index-workspace"\] \.sidebar-resize-handle\s*\{[\s\S]*?z-index:\s*63;[\s\S]*?margin-right:\s*-4px;[\s\S]*?-webkit-app-region:\s*no-drag;/,
+    "Windows resize target should sit above the raised middle pane and straddle its workspace seam"
+  );
   assert.doesNotMatch(baseHandleRule, /grid-column:\s*4;/);
   assert.match(baseHandleRule, /width:\s*8px;/);
 });

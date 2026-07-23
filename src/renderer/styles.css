@@ -66,15 +66,17 @@
   --win-rail-column-width: 70px;
   --win-titlebar-height: 32px;
   --win-titlebar-control-width: 138px;
-  --win-titlebar-bg: #f2f4f7;
+  --win-workspace-corner-radius: 16px;
+  --workspace-top-control-offset: 18px;
+  --win-workspace-shadow: 0 0 0 1px rgba(16, 20, 39, 0.075), 0 3px 14px rgba(16, 20, 39, 0.065);
+  --win-titlebar-bg: #ffffff;
   --win-titlebar-symbol: #24262d;
   --win-titlebar-control-hover: rgba(0, 0, 0, 0.08);
   --win-titlebar-control-active: rgba(0, 0, 0, 0.14);
   --win-titlebar-close-hover: #e81123;
   --win-titlebar-close-active: #f1707a;
-  --win-rail-bg: #f2f4f7;
-  --win-sidebar-bg: #f2f4f7;
-  --win-panel-border: rgba(0, 0, 0, 0.12);
+  --win-rail-bg: #ffffff;
+  --win-sidebar-bg: #ffffff;
   --traffic-spacer-height: 52px;
   --mac-traffic-spacer-height: 44px;
   --rail-corner-radius: 22px;
@@ -139,7 +141,7 @@
   --win-titlebar-control-active: rgba(255, 255, 255, 0.16);
   --win-rail-bg: #20232a;
   --win-sidebar-bg: #20232a;
-  --win-panel-border: rgba(255, 255, 255, 0.11);
+  --win-workspace-shadow: 0 0 0 1px rgba(255, 255, 255, 0.075), 0 3px 14px rgba(0, 0, 0, 0.24);
   --rail-expanded-shadow: 0 1px 2px rgba(0, 0, 0, 0.24), 0 18px 46px rgba(0, 0, 0, 0.28);
   --sidebar-bottom-nav-bg: color-mix(in srgb, var(--surface) 46%, transparent);
   --sidebar-bottom-nav-border: rgba(255, 255, 255, 0.14);
@@ -303,16 +305,13 @@ body.platform-win32 .app-shell {
   padding: var(--win-titlebar-height) 0 0;
 }
 
-body.platform-win32 .app-shell::before {
-  content: "";
-  position: absolute;
-  top: calc(var(--win-titlebar-height) - 1px);
-  left: 0;
-  right: 0;
-  z-index: 61;
-  height: 1px;
-  background: var(--win-panel-border);
-  pointer-events: none;
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) {
+  background: var(--surface);
+}
+
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="contacts"],
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="bot-store"] {
+  background: var(--surface);
 }
 
 .window-drag-strip {
@@ -558,12 +557,18 @@ body:not(.platform-win32) .app-shell:not([data-nav-layout="sidebar-bottom"])[dat
 body.platform-win32 .nav-rail {
   margin: calc(-1 * var(--win-titlebar-height)) 0 0;
   padding: calc(var(--win-titlebar-height) + 8px) 0 12px;
-  border-right: 1px solid var(--win-panel-border);
   border-radius: 0;
   background: var(--win-rail-bg);
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* Keep the Windows caption area over the workspace only.  The rail starts at
+ * the window edge, so its content should not inherit that caption spacing. */
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) .nav-rail {
+  padding: 8px 0 12px;
+  z-index: 61;
 }
 /* rail 上可点的元素保持可点（不参与拖拽） */
 .nav-rail .rail-button,
@@ -646,17 +651,6 @@ body.platform-win32 .window-controls {
   gap: 0;
   background: var(--win-titlebar-bg);
   -webkit-app-region: no-drag;
-}
-
-body.platform-win32 .window-controls::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  background: var(--win-panel-border);
-  pointer-events: none;
 }
 
 body.platform-win32 .window-controls[data-fullscreen="true"] {
@@ -1119,6 +1113,19 @@ body.platform-win32 .sidebar {
   background: transparent;
 }
 
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="chat"] > #chatView,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="contacts"] > #contactsView,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="bot-store"] > #botStoreView,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="skills"] > #skillsView,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-active-view="tasks"] > #tasksView {
+  position: relative;
+  z-index: 62;
+  margin: 0 8px 8px 0;
+  border-radius: var(--win-workspace-corner-radius);
+  background: var(--workspace-floor);
+  box-shadow: var(--win-workspace-shadow);
+}
+
 .conversation-sidebar {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
@@ -1167,7 +1174,6 @@ body.platform-win32 .task-sidebar,
 body.platform-win32 .settings-sidebar,
 body.platform-win32 .app-shell[data-layout="index-workspace"] .sidebar {
   margin: 0;
-  border-right: 1px solid var(--win-panel-border);
   border-radius: 0;
   background: var(--win-sidebar-bg);
   box-shadow: none;
@@ -1175,9 +1181,37 @@ body.platform-win32 .app-shell[data-layout="index-workspace"] .sidebar {
   backdrop-filter: none;
 }
 
+/* Let desktop sidebars reach the top edge instead of reserving the caption
+ * strip used by the main workspace.  Keep them above that strip so their
+ * controls remain interactive. */
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) .conversation-sidebar,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) .contacts-sidebar,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) .explore-sidebar,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) .task-sidebar,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"]) .settings-sidebar,
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-layout="index-workspace"] .sidebar {
+  position: relative;
+  z-index: 61;
+  margin: calc(-1 * var(--win-titlebar-height)) 0 0;
+}
+
+/* The raised Windows middle pane sits above the original resize target. Keep
+ * that target centered on the pane/workspace seam and above the pane instead. */
+body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-layout="index-workspace"] .sidebar-resize-handle {
+  z-index: 63;
+  margin-right: -4px;
+  -webkit-app-region: no-drag;
+}
+
+/* Keep side-pane popovers above the raised workspace without moving the white
+ * sidebar planes themselves back over the workspace edge. */
+body.platform-win32 .conversation-sidebar:has(.create-menu:not(.hidden)),
+body.platform-win32 .contacts-sidebar:has(.create-menu:not(.hidden)) {
+  z-index: 80;
+}
+
 body.platform-win32 [class~="sidebar-tools"] {
   background: var(--win-sidebar-bg);
-  border-bottom: 1px solid var(--win-panel-border);
 }
 
 .app-shell[data-layout="index-workspace"][data-sidebar-state="collapsed"] .sidebar {
@@ -1601,7 +1635,6 @@ body.platform-win32 [class~="sidebar-tools"] {
 
 body.platform-win32 .app-shell[data-nav-layout="sidebar-bottom"][data-active-view="settings"] .settings-sidebar {
   margin: 0;
-  border-right: 1px solid var(--win-panel-border);
   border-radius: 0;
   background: var(--win-sidebar-bg);
   box-shadow: none;
@@ -1613,7 +1646,6 @@ body.platform-win32 .app-shell[data-nav-layout="sidebar-bottom"][data-active-vie
   left: 0;
   bottom: 0;
   width: var(--sidebar-width);
-  border-right: 1px solid var(--win-panel-border);
   border-radius: 0;
   background: var(--win-sidebar-bg);
   box-shadow: none;
@@ -1776,10 +1808,6 @@ body.sidebar-resizing * {
 
 .conversation-sidebar .sidebar-tools.has-tag-filters {
   -webkit-app-region: drag;
-}
-
-body.platform-win32 .conversation-sidebar .sidebar-tools.has-tag-filters {
-  border-bottom: 0;
 }
 
 .contacts-sidebar .sidebar-tools {
@@ -7338,6 +7366,10 @@ select.select-open {
   pointer-events: none;
 }
 
+body.platform-win32 .profile-popover {
+  z-index: 80;
+}
+
 .profile-popover-form {
   width: 100%;
   max-height: calc(100vh - 46px);
@@ -8511,7 +8543,6 @@ select.select-open {
     min-width: 0;
     max-width: none;
     padding: 28px 24px;
-    border-right: 1px solid var(--win-panel-border);
     border-radius: 0;
     background: var(--win-sidebar-bg);
     box-shadow: none;

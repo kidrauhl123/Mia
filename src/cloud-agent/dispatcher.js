@@ -638,7 +638,7 @@ function createCloudAgentDispatcher(deps = {}) {
           workerModel: worker.workerModel || worker.platformModel || worker.model || "mia-auto",
           modelProvider: worker.modelProvider || "mia",
           effortLevel: runtimeConfig.effortLevel || "medium",
-          permissionMode: runtimeConfig.permissionMode || worker.permissionMode || "ask",
+          permissionMode: worker.permissionMode,
           input: turnInput,
           attachments: materialized.attachments || [],
           onRunCreated(runtimeSessionId) {

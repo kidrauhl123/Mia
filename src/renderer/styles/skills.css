@@ -26,7 +26,7 @@
 /* 顶栏只负责摆放浮动控件，不再占据页面结构的一行 */
 .skills-topbar {
   position: absolute;
-  top: 18px;
+  top: var(--workspace-top-control-offset);
   right: 24px;
   left: 24px;
   z-index: 12;

@@ -88,7 +88,7 @@ test("cloud Claude Code sandbox manager creates per-user workspace and direct De
       pipIndexUrl: "https://mirror.test/simple",
       sandboxRequired: true
     });
-    const worker = await manager.ensureWorker("user:1");
+    const worker = await manager.ensureWorker("user-1");
     assert.equal(worker.runtimeKind, "cloud-claude-code");
     assert.equal(worker.model, DEFAULT_CLOUD_CLAUDE_CODE_MODEL);
     assert.equal(worker.platformModel, "mia-auto");
@@ -108,6 +108,7 @@ test("cloud Claude Code sandbox manager creates per-user workspace and direct De
     assert.equal(worker.env.MPLCONFIGDIR, path.join(worker.paths.cache, "matplotlib"));
     assert.equal(worker.sandboxSettings.enabled, true);
     assert.equal(worker.sandboxSettings.failIfUnavailable, true);
+    assert.equal(worker.permissionMode, "bypassPermissions");
     assert.ok(fs.statSync(worker.paths.workspace).isDirectory());
     assert.ok(fs.statSync(worker.paths.pythonUserBase).isDirectory());
     assert.ok(fs.statSync(worker.paths.agentHome).isDirectory());
@@ -128,13 +129,13 @@ test("cloud Claude Code sandbox manager prefers the metered internal model proxy
       platformModel: "mia-auto",
       pythonVenv: false
     });
-    const worker = await manager.ensureWorker("user:2");
+    const worker = await manager.ensureWorker("user-2");
     assert.equal(worker.runtimeKind, "cloud-claude-code");
     assert.equal(worker.model, "mia-auto");
     assert.equal(worker.meteredModelProxy, true);
     assert.equal(worker.env.ANTHROPIC_BASE_URL, "https://mia.example/api/internal/model-proxy");
-    assert.equal(worker.env.ANTHROPIC_API_KEY, "mia-user-token:user:2");
-    assert.equal(worker.env.ANTHROPIC_AUTH_TOKEN, "mia-user-token:user:2");
+    assert.equal(worker.env.ANTHROPIC_API_KEY, "mia-user-token:user-2");
+    assert.equal(worker.env.ANTHROPIC_AUTH_TOKEN, "mia-user-token:user-2");
     assert.notEqual(worker.env.ANTHROPIC_API_KEY, "sk-deepseek");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -213,6 +214,7 @@ test("cloud Claude Code client runs SDK query without Hermes gateway and streams
     model: "mia-auto",
     instructions: "system instructions",
     seedMessages: [{ role: "user", content: "earlier" }],
+    permissionMode: "plan",
     input: "hello",
     attachments: [{ name: "a.txt", path: "/data/attachments/a.txt", hostPath: "/tmp/mia-worker/attachments/a.txt" }],
     onRunCreated(id) {
