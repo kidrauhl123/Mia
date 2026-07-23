@@ -160,6 +160,71 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
   }
 });
 
+test("prepareMiaCoreRs prepares cross-arch ACP resources with a host Core and target npm wrapper", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-cross-managed-"));
+  try {
+    const targetCore = path.join(rootDir, "target", "arm64", "mia-core");
+    const hostCore = path.join(rootDir, "target", "x64", "mia-core");
+    fs.mkdirSync(path.dirname(targetCore), { recursive: true });
+    fs.mkdirSync(path.dirname(hostCore), { recursive: true });
+    fs.writeFileSync(targetCore, "arm64 core\n", { mode: 0o755 });
+    fs.writeFileSync(hostCore, "x64 core\n", { mode: 0o755 });
+    const calls = [];
+    let wrapperPath = "";
+
+    const result = await prepareMiaCoreRs(
+      { arch: 3, electronPlatformName: "darwin" },
+      {
+        rootDir,
+        env: {
+          MIA_CORE_RS_BIN: targetCore,
+          MIA_CORE_VERSION: "v1.2.3",
+          MIA_MANAGED_RESOURCES_CORE_BIN: hostCore
+        },
+        hostPlatform: "darwin",
+        hostArch: "x64",
+        execFileSync: (command, args, options) => {
+          calls.push({ command, args, options });
+          assert.equal(command, hostCore);
+          assert.equal(args[0], "prepare-managed-resources");
+          assert.equal(options.env.MIA_MANAGED_AGENT_RUNTIME_KEY, "darwin-arm64");
+          wrapperPath = options.env.MIA_MANAGED_AGENT_NPM;
+          assert.match(wrapperPath, /npm-target\.js$/);
+          assert.match(fs.readFileSync(wrapperPath, "utf8"), /targetArch = "arm64"/);
+          assert.match(fs.readFileSync(wrapperPath, "utf8"), /targetArch, "--force"/);
+          const resourceDir = args[args.indexOf("--resource-dir") + 1];
+          for (const [toolId, version] of [["claude-agent-acp", "0.59.0"], ["codex-acp", "1.1.4"]]) {
+            const manifestDir = path.join(resourceDir, "acp", toolId, version, "darwin-arm64");
+            fs.mkdirSync(manifestDir, { recursive: true });
+            fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ version }));
+          }
+        }
+      }
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(result.managedResources.skipped, false);
+    assert.equal(fs.existsSync(wrapperPath), false);
+    assert.equal(
+      fs.existsSync(path.join(
+        rootDir,
+        "resources",
+        "bundled-mia-core",
+        "darwin-arm64",
+        "managed-resources",
+        "acp",
+        "codex-acp",
+        "1.1.4",
+        "darwin-arm64",
+        "manifest.json"
+      )),
+      true
+    );
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("prepareMiaCoreRs rejects website HTML fallback downloads before archive extraction", () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-html-"));
   try {

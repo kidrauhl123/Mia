@@ -160,6 +160,16 @@ function ensureExecutableMode(filePath, platform = process.platform) {
   fs.chmodSync(filePath, 0o755);
 }
 
+function isUsableExecutable(filePath, platform = process.platform) {
+  try {
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile()) return false;
+    return normalizePlatform(platform) === "win32" || Boolean(stat.mode & 0o111);
+  } catch {
+    return false;
+  }
+}
+
 function downloadFile(url, outputPath, { platform = process.platform, execFileSync = childProcess.execFileSync } = {}) {
   ensureDirectory(path.dirname(outputPath));
   if (normalizePlatform(platform) === "win32") {
@@ -237,6 +247,7 @@ function prepareManagedAgentResources({
   execFileSync = childProcess.execFileSync,
   hostPlatform = process.platform,
   hostArch = os.arch(),
+  allowCrossTarget = false,
   resourceDir = path.join(rootDir, "resources", "managed-resources")
 }) {
   const mode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim();
@@ -244,7 +255,7 @@ function prepareManagedAgentResources({
   if ((mode === "0" || mode.toLowerCase() === "false") && !forced) {
     return { skipped: true, reason: "disabled", resourceDir: "" };
   }
-  if (!forced && !canPrepareManagedResourcesForTarget({ platform, arch, hostPlatform, hostArch })) {
+  if (!forced && !allowCrossTarget && !canPrepareManagedResourcesForTarget({ platform, arch, hostPlatform, hostArch })) {
     return {
       skipped: true,
       reason: `target ${platform}-${arch} cannot be prepared on host ${hostPlatform}-${hostArch}`,
@@ -279,6 +290,132 @@ function prepareManagedAgentResources({
     removeDirectorySafe(stagingDir);
     removeDirectorySafe(dataDir);
   }
+}
+
+function runtimeKey(platform, arch) {
+  return `${normalizePlatform(platform) || platform}-${normalizeArch(arch)}`;
+}
+
+function createTargetNpmWrapper({ env = process.env, platform, arch, hostPlatform = process.platform }) {
+  const wrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-target-npm-"));
+  const actualNpm = String(env.MIA_MANAGED_AGENT_NPM || "npm").trim() || "npm";
+  const scriptPath = path.join(wrapperDir, "npm-target.js");
+  const targetPlatform = normalizePlatform(platform) || platform;
+  const targetArch = normalizeArch(arch);
+  const script = `#!/usr/bin/env node
+const { spawnSync } = require("node:child_process");
+const actualNpm = ${JSON.stringify(actualNpm)};
+const targetPlatform = ${JSON.stringify(targetPlatform)};
+const targetArch = ${JSON.stringify(targetArch)};
+const rawArgs = process.argv.slice(2);
+const args = [];
+for (let index = 0; index < rawArgs.length; index += 1) {
+  const arg = rawArgs[index];
+  if (arg === "--os" || arg === "--cpu") {
+    index += 1;
+    continue;
+  }
+  if (arg.startsWith("--os=") || arg.startsWith("--cpu=")) continue;
+  args.push(arg);
+}
+// Core invokes npm with --ignore-scripts and exact pinned packages. --force
+// only bypasses npm's host-architecture rejection for those target packages.
+args.push("--os", targetPlatform, "--cpu", targetArch, "--force");
+const result = spawnSync(actualNpm, args, {
+  cwd: process.cwd(),
+  env: { ...process.env, npm_config_os: targetPlatform, npm_config_cpu: targetArch },
+  stdio: "inherit"
+});
+if (result.error) throw result.error;
+process.exit(typeof result.status === "number" ? result.status : 1);
+`;
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  if (normalizePlatform(hostPlatform) === "win32") {
+    const commandPath = path.join(wrapperDir, "npm-target.cmd");
+    const escapedNode = process.execPath.replace(/"/g, "\\\"");
+    const escapedScript = scriptPath.replace(/"/g, "\\\"");
+    fs.writeFileSync(commandPath, `@echo off\r\n"${escapedNode}" "${escapedScript}" %*\r\n`, "utf8");
+    return { commandPath, cleanup: () => removeDirectorySafe(wrapperDir) };
+  }
+  return { commandPath: scriptPath, cleanup: () => removeDirectorySafe(wrapperDir) };
+}
+
+function temporaryHostCore({ rootDir, tag, env, execFileSync, hostPlatform, hostArch }) {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-host-core-"));
+  try {
+    const url = miaCoreDownloadUrl({
+      rootDir,
+      platform: hostPlatform,
+      arch: hostArch,
+      tag,
+      env
+    });
+    const archivePath = path.join(tempDir, miaCoreAssetName(hostPlatform, hostArch, tag));
+    downloadFile(url, archivePath, { platform: hostPlatform, execFileSync });
+    assertNotHtmlDownload(archivePath, url);
+    const extractDir = path.join(tempDir, "extracted");
+    extractArchive(archivePath, extractDir, { platform: hostPlatform, execFileSync });
+    const corePath = findBinaryInDir(extractDir, rustCoreBinaryName(hostPlatform));
+    if (!corePath) throw new Error(`Host Mia Core binary not found in ${url}`);
+    ensureExecutableMode(corePath, hostPlatform);
+    return {
+      corePath,
+      source: url,
+      cleanup: () => removeDirectorySafe(tempDir)
+    };
+  } catch (error) {
+    removeDirectorySafe(tempDir);
+    throw error;
+  }
+}
+
+function resolveManagedResourcesCore({
+  rootDir,
+  targetCorePath,
+  tag,
+  env = process.env,
+  execFileSync = childProcess.execFileSync,
+  platform,
+  arch,
+  hostPlatform = process.platform,
+  hostArch = os.arch()
+}) {
+  const normalizedHostPlatform = normalizePlatform(hostPlatform) || hostPlatform;
+  const normalizedHostArch = normalizeArch(hostArch);
+  const crossTarget = !canPrepareManagedResourcesForTarget({ platform, arch, hostPlatform, hostArch });
+  const explicit = String(env.MIA_MANAGED_RESOURCES_CORE_BIN || "").trim();
+  if (explicit) {
+    const corePath = path.resolve(explicit);
+    if (crossTarget && !isUsableExecutable(corePath, normalizedHostPlatform)) {
+      throw new Error(`MIA_MANAGED_RESOURCES_CORE_BIN is not an executable host Mia Core: ${corePath}`);
+    }
+    return { corePath, source: corePath, crossTarget, cleanup: () => {} };
+  }
+  if (!crossTarget) {
+    return { corePath: targetCorePath, source: targetCorePath, crossTarget, cleanup: () => {} };
+  }
+
+  const hostBinaryName = rustCoreBinaryName(normalizedHostPlatform);
+  const candidates = [
+    path.join(rootDir, "target", rustTargetTriple(normalizedHostPlatform, normalizedHostArch), "release", hostBinaryName),
+    bundledRustCorePath(rootDir, normalizedHostPlatform, normalizedHostArch)
+  ];
+  for (const candidate of candidates) {
+    if (isUsableExecutable(candidate, normalizedHostPlatform)) {
+      return { corePath: candidate, source: candidate, crossTarget, cleanup: () => {} };
+    }
+  }
+  return {
+    ...temporaryHostCore({
+      rootDir,
+      tag,
+      env,
+      execFileSync,
+      hostPlatform: normalizedHostPlatform,
+      hostArch: normalizedHostArch
+    }),
+    crossTarget
+  };
 }
 
 function resolveLatestTag({ rootDir, env = process.env, execFileSync = childProcess.execFileSync } = {}) {
@@ -402,18 +539,52 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
 
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
   const bundledResources = bundledManagedResourcesPath(rootDir, platform, arch);
-  const managedResourcesCore = String(env.MIA_MANAGED_RESOURCES_CORE_BIN || "").trim();
-  const managedResources = prepareManagedAgentResources({
-    rootDir,
-    corePath: managedResourcesCore ? path.resolve(managedResourcesCore) : result.dest,
-    platform,
-    arch,
-    env,
-    execFileSync,
-    hostPlatform: options.hostPlatform || process.platform,
-    hostArch: options.hostArch || os.arch(),
-    resourceDir: bundledResources
-  });
+  const hostPlatform = options.hostPlatform || process.platform;
+  const hostArch = options.hostArch || os.arch();
+  const managedResourcesMode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim().toLowerCase();
+  const managedResourcesDisabled = managedResourcesMode === "0" || managedResourcesMode === "false";
+  const managedResourcesCore = managedResourcesDisabled
+    ? { corePath: result.dest, source: result.dest, crossTarget: false, cleanup: () => {} }
+    : resolveManagedResourcesCore({
+      rootDir,
+      targetCorePath: result.dest,
+      tag,
+      env,
+      execFileSync,
+      platform,
+      arch,
+      hostPlatform,
+      hostArch
+    });
+  const npmWrapper = managedResourcesCore.crossTarget
+    ? createTargetNpmWrapper({ env, platform, arch, hostPlatform })
+    : null;
+  const managedResourcesEnv = {
+    ...env,
+    MIA_MANAGED_AGENT_RUNTIME_KEY: runtimeKey(platform, arch),
+    ...(npmWrapper ? { MIA_MANAGED_AGENT_NPM: npmWrapper.commandPath } : {})
+  };
+  let managedResources;
+  try {
+    if (managedResourcesCore.crossTarget) {
+      console.log(`[prepare-mia-core-rs] preparing ${runtimeKey(platform, arch)} ACP resources with host Core ${managedResourcesCore.source}`);
+    }
+    managedResources = prepareManagedAgentResources({
+      rootDir,
+      corePath: managedResourcesCore.corePath,
+      platform,
+      arch,
+      env: managedResourcesEnv,
+      execFileSync,
+      hostPlatform,
+      hostArch,
+      allowCrossTarget: managedResourcesCore.crossTarget,
+      resourceDir: bundledResources
+    });
+  } finally {
+    npmWrapper?.cleanup();
+    managedResourcesCore.cleanup();
+  }
   if (!managedResources.skipped) {
     includeManagedResourcesInManifest(result.dest, platform);
     result.managedResources = {
@@ -434,6 +605,7 @@ Object.assign(module.exports, {
   bundledRustCorePath,
   bundledManagedResourcesPath,
   canPrepareManagedResourcesForTarget,
+  createTargetNpmWrapper,
   assertNotHtmlDownload,
   downloadFile,
   extractArchive,
@@ -445,6 +617,7 @@ Object.assign(module.exports, {
   normalizeVersionTag,
   prepareManagedAgentResources,
   prepareMiaCoreRs,
+  resolveManagedResourcesCore,
   releaseBaseUrl,
   resolveLatestTag,
   rustTargetTriple,
