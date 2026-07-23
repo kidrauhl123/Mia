@@ -1392,7 +1392,7 @@ test("src/web/app.js preserves transient ordered file edits when final bot messa
   assert.ok(handlerMatch, "conversation.message_appended handler must exist");
   assert.match(
     handlerMatch[0],
-    /const cachedMsg = messageWithFallbackRunContentBlocks\(conversationId,\s*msg\)/,
+    /let cachedMsg = messageWithFallbackRunContentBlocks\(conversationId,\s*msg\)/,
     "message_appended must cache the merged final bot message"
   );
   assert.match(
@@ -1402,8 +1402,8 @@ test("src/web/app.js preserves transient ordered file edits when final bot messa
   );
   assert.match(
     handlerMatch[0],
-    /cachedMsg\.sender_kind === SenderKind\.Bot[\s\S]*?state\.cloudAgentRunsByConversation\.delete\(conversationId\)/,
-    "the streaming run must be cleared only after contentBlocks can be copied"
+    /!assistantMessageIsProcessing\(cachedMsg\)[\s\S]*?!isCloudRunBusy\(activeRunAtAppend\)[\s\S]*?state\.cloudAgentRunsByConversation\.delete\(conversationId\)/,
+    "persisted content may clear a run only after the backend run is no longer busy"
   );
 });
 

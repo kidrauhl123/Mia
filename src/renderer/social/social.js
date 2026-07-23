@@ -315,6 +315,48 @@
     });
   }
 
+  function assistantMessageIsProcessing(message) {
+    const renderer = global.miaTraceBlocks;
+    if (renderer && typeof renderer.isAssistantMessageProcessing === "function") {
+      return renderer.isAssistantMessageProcessing(message);
+    }
+    const status = String(message?.status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    return status === "streaming"
+      || status === "running"
+      || status === "in_progress"
+      || status === "pending"
+      || status === "cancelling";
+  }
+
+  function cloudRunCorrelationId(conversationId, run) {
+    return String(run?.runId || run?.turnId || conversationId || "").trim();
+  }
+
+  function activeRunCoversProcessingMessage(conversationId, message) {
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (!run) return false;
+    if (message?.sender_kind !== conversationKinds().SenderKind.Bot) return false;
+    const correlatedRunId = String(message?._activeCloudRunId || "").trim();
+    if (correlatedRunId && correlatedRunId === cloudRunCorrelationId(conversationId, run)) return true;
+    const messageTurnId = String(message?.turn_id || message?.turnId || "").trim();
+    const runTurnId = String(run.turnId || "").trim();
+    if (messageTurnId && runTurnId && messageTurnId === runTurnId) return true;
+    const messageRunId = String(message?._cloudBridgeRunId || message?.cloud_bridge_run_id || "").trim();
+    const runId = String(run.runId || "").trim();
+    if (messageRunId && runId && messageRunId === runId) return true;
+    const messageSeq = Number(message?.seq) || 0;
+    const triggerSeq = Number(run.triggerMessageSeq) || 0;
+    if (triggerSeq > 0 && messageSeq > triggerSeq) return true;
+    return assistantMessageIsProcessing(message);
+  }
+
+  function hasAuthoritativeBusyRun(run) {
+    return Boolean(run?.backendObserved) && isConversationRunBusy(run);
+  }
+
   function streamSignature(run) {
     // A run with no visible content must not make the chat remount. The user
     // bubble can still be in its entrance animation when the run is created.
@@ -1886,7 +1928,7 @@
     return merged;
   }
 
-  function renderTraceFor({ reasoning, tools, content, completed, expanded, scopeKey, durationSeconds }) {
+  function renderTraceFor({ reasoning, tools, content, completed, processing, expanded, scopeKey, durationSeconds }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderTraceBlocks !== "function") return "";
     return renderer.renderTraceBlocks({
@@ -1894,18 +1936,20 @@
       tools,
       content,
       completed,
+      processing,
       expanded,
       scopeKey,
       durationSeconds
     });
   }
 
-  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock, durationSeconds }) {
+  function renderOrderedAssistantBlocks({ blocks, completed, processing, expanded, scopeKey, renderTextBlock, durationSeconds }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
     return renderer.renderAssistantContentBlocks({
       blocks,
       completed,
+      processing,
       expanded,
       scopeKey,
       renderTextBlock,
@@ -1937,6 +1981,7 @@
       contentBlockCollector: null,
       pendingPermissions: [],
       hasTypingActivity: false,
+      backendObserved: false,
       toolsById: new Map(),
       toolsByName: new Map()
     };
@@ -3752,6 +3797,7 @@
       run.turnId = payload.turnId || payload.turn_id || run.turnId || "";
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
+      run.backendObserved = true;
       run.status = "running";
       markCloudRunActivity(run);
       if (!wasBusy && deps && typeof deps.render === "function") deps.render();
@@ -3771,6 +3817,7 @@
       run.runId = payload.runId || run.runId;
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
+      run.backendObserved = true;
       const hermesEventType = eventType(hermesEvent);
       markCloudRunActivity(run);
       applyCloudAgentRunEvent(run, hermesEvent);
@@ -3785,6 +3832,9 @@
         refreshCloudRunStatusTimer();
         if (deps && typeof deps.render === "function") deps.render();
         if (conversationId === moduleState.activeConversationId) _reRenderActiveChat({ force: true });
+        return;
+      }
+      if (run.status === "complete" && clearConversationRunIfFinalBotReplyPresent(conversationId)) {
         return;
       }
       const isBusy = isConversationRunBusy(run);
@@ -3804,7 +3854,7 @@
     if (type === "conversation.message_appended") {
       const { conversationId, message } = payload || {};
       if (!conversationId || !message) return;
-      const cachedMessage = messageWithFallbackRunTrace(conversationId, message);
+      let cachedMessage = messageWithFallbackRunTrace(conversationId, message);
       if (!moduleState.messageCache.has(conversationId)) {
         moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
       }
@@ -3812,28 +3862,50 @@
       if (_reconcileEchoedConversationMessage(conversationId, cachedMessage)) return;
       if (_reconcilePersistedCancelledRun(conversationId, cachedMessage)) return;
       if (_reconcileCloudBridgeBotMirror(conversationId, cachedMessage)) return;
-      // De-dup by id
-      const fresh = !entry.messages.find((m) => m.id === cachedMessage.id);
+      const activeRunAtAppend = moduleState.cloudAgentRunsByConversation.get(conversationId);
+      if (
+        cachedMessage.sender_kind === conversationKinds().SenderKind.Bot
+        && hasAuthoritativeBusyRun(activeRunAtAppend)
+      ) {
+        cachedMessage = {
+          ...cachedMessage,
+          _activeCloudRunId: cloudRunCorrelationId(conversationId, activeRunAtAppend)
+        };
+      }
+      // Upsert by id. Checkpointed assistant messages keep the same id when
+      // they later transition from streaming to a terminal status.
+      const existingIndex = entry.messages.findIndex((m) => m.id === cachedMessage.id);
+      const fresh = existingIndex < 0;
       if (fresh) {
         entry.messages.push(cachedMessage);
         entry.messages.sort((a, b) => a.seq - b.seq);
+      } else {
+        entry.messages[existingIndex] = mergeFetchedMessage(entry.messages[existingIndex], cachedMessage);
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
       const { SenderKind } = conversationKinds();
       const isBotMessage = cachedMessage.sender_kind === SenderKind.Bot;
-      const hadStreamingRun = isBotMessage && moduleState.cloudAgentRunsByConversation.has(conversationId);
-      if (isBotMessage) {
-        clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
+      const isTerminalBotMessage = isBotMessage && !assistantMessageIsProcessing(cachedMessage);
+      const activeRun = isBotMessage
+        ? moduleState.cloudAgentRunsByConversation.get(conversationId)
+        : null;
+      const hasActiveRun = Boolean(activeRun);
+      const hadStreamingRun = isTerminalBotMessage && hasActiveRun;
+      const canFinishFromMessage = isTerminalBotMessage && !hasAuthoritativeBusyRun(activeRun);
+      if (canFinishFromMessage) {
+        clearRunPermissions(activeRun);
         moduleState.cloudAgentRunsByConversation.delete(conversationId);
         refreshCloudRunStatusTimer();
         renderAgentPermissionBanner();
         if (conversationId === moduleState.activeConversationId && deps && typeof deps.paintHeaderStatus === "function") {
           deps.paintHeaderStatus();
         }
-        // First bot reply in an untitled conversation → auto-title it.
-        if (deps && typeof deps.maybeGenerateConversationTitle === "function") {
-          Promise.resolve(deps.maybeGenerateConversationTitle(conversationId)).catch(() => {});
-        }
+      }
+      // Message persistence may happen before the backend run reaches a terminal
+      // state. It is still a valid first reply for title generation, but it must
+      // not end a backend-observed run on its own.
+      if (isTerminalBotMessage && deps && typeof deps.maybeGenerateConversationTitle === "function") {
+        Promise.resolve(deps.maybeGenerateConversationTitle(conversationId)).catch(() => {});
       }
 
       // Unread bookkeeping: count messages that aren't mine and didn't land
@@ -3856,7 +3928,7 @@
       // stick to the bottom for my own messages; someone else's message must not
       // pull me away from history I've scrolled up to read.
       if (conversationId === moduleState.activeConversationId) {
-        if (hadStreamingRun) {
+        if (hadStreamingRun || hasActiveRun) {
           _reRenderActiveChat();
         } else if (fresh) {
           _appendMessageToActiveChat(cachedMessage, { stick: isMine });
@@ -4180,6 +4252,7 @@
       const members = _conversationMembersCache.get(conversationId) || [];
       let previousMessage = null;
       for (const msg of messages) {
+        if (activeRunCoversProcessingMessage(conversationId, msg)) continue;
         const article = _buildGroupMessageArticle(msg, color, members);
         if (article) {
           addMessageDateDivider(article, msg, previousMessage);
@@ -4209,6 +4282,7 @@
     }
     let previousMessage = null;
     for (const msg of messages) {
+      if (activeRunCoversProcessingMessage(conversationId, msg)) continue;
       const article = _buildMessageArticle(msg, color, members);
       if (article) {
         addMessageDateDivider(article, msg, previousMessage);
@@ -4288,13 +4362,15 @@
           `data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}"`
         );
     const contentBlocks = !isUser ? contentBlocksFromMessage(msg) : [];
+    const processing = !isUser && assistantMessageIsProcessing(msg);
     const orderedBlocksHaveProcess = contentBlocksHaveProcess(contentBlocks);
     const persistedTrace = !isUser ? parseTraceJson(msg.trace_json || msg.trace) : null;
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
         blocks: contentBlocks,
-        completed: true,
+        completed: !processing,
+        processing,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         durationSeconds: persistedTrace?.durationSeconds || 0,
@@ -4316,7 +4392,8 @@
         reasoning: trace.reasoning,
         tools: trace.tools,
         content: bodyMd,
-        completed: true,
+        completed: !processing,
+        processing,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         durationSeconds: trace.durationSeconds
@@ -4366,6 +4443,7 @@
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     const runBlocks = displayedContentBlocksPayloadFromRun(run) || [];
     if (!streamingRunHasRenderableOutput(run)) return null;
+    const processing = isConversationRunBusy(run);
     let conversation = moduleState.conversations.find((r) => r.id === conversationId) || { id: conversationId };
     const botKey = run.botId || sessionHistoryShared().botId(conversation) || "mia";
     const synthetic = {
@@ -4396,7 +4474,9 @@
     const orderedBlocksHtml = runBlocks.length
       ? renderOrderedAssistantBlocks({
         blocks: runBlocks,
-        expanded: true,
+        completed: !processing,
+        processing,
+        expanded: processing,
         scopeKey: `cloud-run:${run.runId || conversationId}`,
         renderTextBlock(block) {
           return `<div class="bubble">${_renderMsgBody(block.text || "")}</div>`;
@@ -4409,7 +4489,9 @@
         reasoning: run.reasoning,
         tools: run.tools,
         content: displayText,
-        expanded: true,
+        completed: !processing,
+        processing,
+        expanded: processing,
         scopeKey: `cloud-run:${run.runId || conversationId}`
       });
     const toolsHtml = !orderedBlocksHtml && !traceHtml && run.tools.length
@@ -5174,6 +5256,13 @@
   function messageCompletesActiveBotRun(conversationId, message) {
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     if (!run || !message || message.sender_kind !== conversationKinds().SenderKind.Bot) return false;
+    if (hasAuthoritativeBusyRun(run)) return false;
+    if (assistantMessageIsProcessing(message)) return false;
+    const correlatedRunId = String(message._activeCloudRunId || "").trim();
+    if (correlatedRunId && correlatedRunId === cloudRunCorrelationId(conversationId, run)) return true;
+    const messageRunId = String(message._cloudBridgeRunId || message.cloud_bridge_run_id || "").trim();
+    const runId = String(run.runId || "").trim();
+    if (messageRunId && runId && messageRunId === runId) return true;
     const messageSeq = Number(message.seq) || 0;
     const triggerSeq = Number(run.triggerMessageSeq) || 0;
     if (triggerSeq > 0 && messageSeq > triggerSeq) return true;
@@ -5204,12 +5293,14 @@
   }
 
   function hasBotReplyAfterMessage(conversationId, sentMsg) {
+    if (hasAuthoritativeBusyRun(moduleState.cloudAgentRunsByConversation.get(conversationId))) return false;
     const entry = moduleState.messageCache.get(conversationId);
     if (!entry || !Array.isArray(entry.messages)) return false;
     const triggerSeq = Number(sentMsg?.seq) || 0;
     const { SenderKind } = conversationKinds();
     return entry.messages.some((message) => {
       if (!message || message.sender_kind !== SenderKind.Bot) return false;
+      if (assistantMessageIsProcessing(message)) return false;
       const seq = Number(message.seq) || 0;
       return triggerSeq > 0 ? seq > triggerSeq : String(message.id || "") !== String(sentMsg?.id || "");
     });
@@ -5758,12 +5849,14 @@
 
   function mergedBotReplyCompletesActiveRun(conversationId, incoming = []) {
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (hasAuthoritativeBusyRun(run)) return false;
     const runTurnId = String(run?.turnId || "").trim();
     if (!run || !runTurnId) return false;
     const { SenderKind } = conversationKinds();
     return (Array.isArray(incoming) ? incoming : []).some((message) => (
       message
       && message.sender_kind === SenderKind.Bot
+      && !assistantMessageIsProcessing(message)
       && String(message.turn_id || message.turnId || "").trim() === runTurnId
     ));
   }

@@ -6179,6 +6179,48 @@ test("renderConversationChat renders persisted trace_json on bot messages", () =
   assert.match(chat.children[0].innerHTML, /search/);
 });
 
+test("renderConversationChat marks persisted streaming trace as processing", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  let traceRender = null;
+  s.__mockWindow.miaTraceBlocks = {
+    renderTraceBlocks(options) {
+      traceRender = options;
+      return '<div class="trace">processing</div>';
+    }
+  };
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", {
+    messages: [{
+      id: "m_streaming_trace",
+      seq: 1,
+      sender_kind: "bot",
+      sender_ref: "mia",
+      body_md: "partial",
+      status: "streaming",
+      trace_json: JSON.stringify({ reasoning: "处理中", tools: [{ name: "search", status: "running" }] })
+    }],
+    maxSeq: 1
+  });
+
+  const chat = {
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  s.renderConversationChat(chat);
+
+  assert.equal(traceRender.processing, true);
+  assert.equal(traceRender.completed, false);
+});
+
 test("renderConversationChat prefers ordered content blocks over top-level trace_json", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
@@ -6347,7 +6389,7 @@ test("renderConversationChat does not render an extra final bubble for a whitesp
   assert.doesNotMatch(html, /legacy-trace/);
 });
 
-test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
+test("handleCloudEvent clears transient cloud agent stream only after run completion", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
@@ -6361,6 +6403,11 @@ test("handleCloudEvent bot reply clears transient cloud agent stream", () => {
       conversationId: "botc_u_a_mia",
       message: { id: "m1", seq: 1, sender_kind: "bot", sender_ref: "mia", body_md: "done" },
     },
+  });
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
   });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
@@ -6442,6 +6489,12 @@ test("handleCloudEvent bot reply repaints the active header after clearing typin
     },
   });
 
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  assert.equal(headerPaints, 1);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
+  });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
   assert.equal(headerPaints, 2);
 });
@@ -6592,10 +6645,92 @@ test("handleCloudEvent bot reply replaces the active streaming bubble", () => {
     },
   });
 
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
+  });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
   assert.equal(chat.children.length, 1);
   assert.doesNotMatch(chat.children[0].className, /streaming/);
   assert.match(chat.children[0].innerHTML, /done/);
+});
+
+test("message-level completion cannot finish an assistant run before the backend run completes", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  const conversationId = "botc_u_a_mia";
+  s.moduleState.activeConversationId = conversationId;
+  s.moduleState.conversations = [{ id: conversationId, type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId, runId: "car_checkpoint", turnId: "turn_checkpoint", botId: "mia" },
+  });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId,
+      message: {
+        id: "m_checkpoint",
+        seq: 1,
+        turn_id: "turn_checkpoint",
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "partial",
+        status: "streaming"
+      },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), true);
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].status, "streaming");
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId,
+      message: {
+        id: "m_checkpoint",
+        seq: 1,
+        turn_id: "turn_checkpoint",
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "final",
+        status: "complete"
+      },
+    },
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), true);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.get(conversationId).status, "running");
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages.length, 1);
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].body_md, "final");
+  assert.equal(s.moduleState.messageCache.get(conversationId).messages[0].status, "complete");
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId,
+      runId: "car_checkpoint",
+      event: { type: "message.complete", text: "final" }
+    },
+  });
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), true);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.get(conversationId).status, "running");
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId,
+      runId: "car_checkpoint",
+      event: { type: "run.completed" }
+    },
+  });
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has(conversationId), false);
 });
 
 test("handleCloudEvent rerenders the active chat when a duplicate bot reply event clears streaming state", () => {
@@ -6640,6 +6775,11 @@ test("handleCloudEvent rerenders the active chat when a duplicate bot reply even
     },
   });
 
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
+  });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
   assert.equal(chat.children.length, 1);
   assert.doesNotMatch(chat.children[0].className, /streaming/);
@@ -6678,6 +6818,11 @@ test("handleCloudEvent preserves transient run trace when final bot message lack
   assert.equal(cached.trace.reasoning, "检查文件");
   assert.equal(cached.trace.tools[0].name, "shell");
   assert.equal(cached.trace.tools[0].status, "completed");
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
+  });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 
@@ -6729,6 +6874,11 @@ test("handleCloudEvent preserves transient ordered file edits when final bot mes
   assert.match(cached.contentBlocks[0].diff, /-hello mia/);
   assert.equal(cached.contentBlocks[1].type, "text");
   assert.equal(cached.contentBlocks[1].text, "done");
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
+  });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 
@@ -6775,6 +6925,11 @@ test("handleCloudEvent upgrades text-only final content blocks from transient or
   const cached = s.moduleState.messageCache.get("botc_u_a_mia").messages[0];
   assert.equal(cached.contentBlocks.some((block) => block.type === "tool" && block.name === "shell"), true);
   assert.equal(cached.contentBlocks.filter((block) => block.type === "text").length, 2);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), true);
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "car_1", event: { type: "run.completed" } },
+  });
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_mia"), false);
 });
 
@@ -7035,7 +7190,86 @@ test("backfill bot reply replaces the active streaming bubble instead of duplica
   await flushMicrotasks();
 
   assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_me_mia"), true);
+
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: {
+      conversationId: "botc_u_me_mia",
+      runId: "car_backfill",
+      event: { type: "run.completed" }
+    },
+  });
+
+  assert.equal(chat.children.length, 1);
   assert.doesNotMatch(chat.children[0].className, /streaming/);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_me_mia"), false);
+});
+
+test("backfill streaming checkpoint keeps the active run and one streaming bubble", async () => {
+  const chat = {
+    dataset: {},
+    children: [],
+    appendChild(child) { this.children.push(child); return child; },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+    set innerHTML(value) { this.children = []; this._html = value; },
+    get innerHTML() { return this._html || ""; },
+    scrollTop: 0,
+    scrollHeight: 0,
+    clientHeight: 0,
+  };
+  const s = loadSocial({ elementsById: { chat } });
+  installCloudConversationSource(s.__mockWindow);
+  s.__mockWindow.miaAssistantContentBlocks = require("../src/shared/assistant-content-blocks.js");
+  s.__mockWindow.miaTraceBlocks = {
+    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+      return blocks.map((block) => block.type === "text" ? renderTextBlock(block) : "").join("");
+    },
+    renderTraceBlocks() { return ""; },
+    markRenderedTraceBlocks() {}
+  };
+  s.__mockWindow.miaAvatar = {
+    avatarHtml() { return '<div class="avatar message-avatar"></div>'; },
+    hydrateAvatarVideos() {},
+    avatarThumbBackgroundStyle: () => ""
+  };
+  s.initSocialModule({ getState: () => ({ runtime: {} }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_me";
+  s.moduleState.cloudSettings = { version: 1, readMarks: {}, unreadOverrides: {} };
+  s.moduleState.conversations = [{ id: "botc_u_me_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  const checkpoint = {
+    id: "m_checkpoint",
+    seq: 1,
+    sender_kind: "bot",
+    sender_ref: "mia",
+    turn_id: "turn_checkpoint",
+    body_md: "partial",
+    status: "streaming",
+    content_blocks_json: JSON.stringify([{ type: "text", id: "text_1", text: "partial" }])
+  };
+  s.__mockWindow.mia.social = {
+    getCachedConversationMessages: async () => ({ ok: true, data: { messages: [checkpoint] } }),
+    listConversationMessages: async () => ({ ok: true, data: { messages: [checkpoint] } }),
+    settingsPut: async () => ({})
+  };
+
+  s.setActiveConversationId("botc_u_me_mia");
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_checkpoint", turnId: "turn_checkpoint", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_me_mia", runId: "car_checkpoint", event: { type: "text_delta", id: "text_1", text: "partial" } },
+  });
+  await flushMicrotasks();
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_me_mia"), true);
+  s.renderConversationChat(chat);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].className, /streaming/);
 });
 
 test("warm cache backfill overlaps recent messages to repair missing trace_json", async () => {

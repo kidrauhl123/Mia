@@ -122,6 +122,22 @@
       : blocks;
   }
 
+  function assistantMessageIsProcessing(message) {
+    const renderer = global.miaTraceBlocks;
+    if (renderer && typeof renderer.isAssistantMessageProcessing === "function") {
+      return renderer.isAssistantMessageProcessing(message);
+    }
+    const status = String(message?.status || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    return status === "streaming"
+      || status === "running"
+      || status === "in_progress"
+      || status === "pending"
+      || status === "cancelling";
+  }
+
   function renderTraceForMessage(msg, content) {
     if (msg.sender_kind !== SenderKind.Bot) return "";
     if (contentBlocksFromMessage(msg).length) return "";
@@ -129,23 +145,26 @@
     if (!trace) return "";
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderTraceBlocks !== "function") return "";
+    const processing = assistantMessageIsProcessing(msg);
     return renderer.renderTraceBlocks({
       reasoning: trace.reasoning,
       tools: trace.tools,
       content,
-      completed: true,
+      completed: !processing,
+      processing,
       expanded: false,
       scopeKey: `cloud-msg:${msg.id || ""}`,
       durationSeconds: trace.durationSeconds
     });
   }
 
-  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock, durationSeconds }) {
+  function renderOrderedAssistantBlocks({ blocks, completed, processing, expanded, scopeKey, renderTextBlock, durationSeconds }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
     return renderer.renderAssistantContentBlocks({
       blocks,
       completed,
+      processing,
       expanded,
       scopeKey,
       renderTextBlock,
@@ -271,12 +290,14 @@
     const attachmentBeforeBodyHtml = isOwn ? attachmentHtml : "";
     const attachmentAfterBodyHtml = isOwn ? "" : attachmentHtml;
     const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
+    const processing = !isOwn && assistantMessageIsProcessing(msg);
     const persistedTrace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
         blocks: contentBlocks,
-        completed: true,
+        completed: !processing,
+        processing,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
         durationSeconds: persistedTrace?.durationSeconds || 0,

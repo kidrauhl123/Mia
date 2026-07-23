@@ -1651,6 +1651,7 @@ function cloudRunFor(conversationId, runId = "") {
     tools: [],
     contentBlocks: [],
     contentBlockCollector: null,
+    backendObserved: false,
     toolsById: new Map(),
     toolsByName: new Map(),
   };
@@ -1829,6 +1830,61 @@ function contentBlocksFromMessage(msg) {
     : blocks;
 }
 
+function assistantMessageIsProcessing(message) {
+  if (window.miaTraceBlocks?.isAssistantMessageProcessing) {
+    return window.miaTraceBlocks.isAssistantMessageProcessing(message);
+  }
+  const status = String(message?.status || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return status === "streaming"
+    || status === "running"
+    || status === "in_progress"
+    || status === "pending"
+    || status === "cancelling";
+}
+
+function cloudRunCorrelationId(conversationId, run) {
+  return String(run?.runId || run?.turnId || conversationId || "").trim();
+}
+
+function isCloudRunBusy(run) {
+  const status = String(run?.status || "").trim();
+  return status === "running" || status === "cancelling";
+}
+
+function activeRunCoversProcessingMessage(conversationId, message) {
+  const run = state.cloudAgentRunsByConversation.get(conversationId);
+  if (!run) return false;
+  if (message?.sender_kind !== SenderKind.Bot) return false;
+  const correlatedRunId = String(message?._activeCloudRunId || "").trim();
+  if (correlatedRunId && correlatedRunId === cloudRunCorrelationId(conversationId, run)) return true;
+  const messageTurnId = String(message?.turn_id || message?.turnId || "").trim();
+  const runTurnId = String(run.turnId || "").trim();
+  if (messageTurnId && runTurnId && messageTurnId === runTurnId) return true;
+  const messageRunId = String(message?._cloudBridgeRunId || message?.cloud_bridge_run_id || "").trim();
+  const runId = String(run.runId || "").trim();
+  if (messageRunId && runId && messageRunId === runId) return true;
+  const messageSeq = Number(message?.seq) || 0;
+  const triggerSeq = Number(run.triggerMessageSeq) || 0;
+  if (triggerSeq > 0 && messageSeq > triggerSeq) return true;
+  return assistantMessageIsProcessing(message);
+}
+
+function clearTerminalWebRunIfPersistedMessagePresent(conversationId) {
+  const entry = state.messageCache.get(conversationId);
+  if (!entry || !Array.isArray(entry.messages)) return false;
+  const hasTerminalMessage = entry.messages.some((message) => (
+    message?.sender_kind === SenderKind.Bot
+    && !assistantMessageIsProcessing(message)
+    && activeRunCoversProcessingMessage(conversationId, message)
+  ));
+  if (!hasTerminalMessage) return false;
+  state.cloudAgentRunsByConversation.delete(conversationId);
+  return true;
+}
+
 function collectRunContentBlock(run, event = {}) {
   if (!run || !event || typeof event !== "object") return;
   if (!assistantContentBlocks || typeof assistantContentBlocks.createAssistantContentBlockCollector !== "function") return;
@@ -1884,12 +1940,26 @@ function handleCloudEvent(envelope) {
     const msg = envelope.message;
     const conversationId = msg?.conversation_id || envelope.conversation_id;
     if (!conversationId || !msg) return;
-    const cachedMsg = messageWithFallbackRunContentBlocks(conversationId, msg);
+    let cachedMsg = messageWithFallbackRunContentBlocks(conversationId, msg);
+    const activeRunAtAppend = state.cloudAgentRunsByConversation.get(conversationId);
+    if (cachedMsg.sender_kind === SenderKind.Bot && isCloudRunBusy(activeRunAtAppend)) {
+      cachedMsg = {
+        ...cachedMsg,
+        _activeCloudRunId: cloudRunCorrelationId(conversationId, activeRunAtAppend)
+      };
+    }
     const entry = ensureWebMessageCacheEntry(conversationId);
     const fresh = !entry.messages.some((m) => m.id === cachedMsg.id);
+    mergeWebMessageWindow(conversationId, [cachedMsg]);
+    const isBotMessage = cachedMsg.sender_kind === SenderKind.Bot || msg.sender_kind === SenderKind.Bot;
+    if (
+      isBotMessage
+      && !assistantMessageIsProcessing(cachedMsg)
+      && !isCloudRunBusy(activeRunAtAppend)
+    ) {
+      state.cloudAgentRunsByConversation.delete(conversationId);
+    }
     if (fresh) {
-      mergeWebMessageWindow(conversationId, [cachedMsg]);
-      if (cachedMsg.sender_kind === SenderKind.Bot || msg.sender_kind === SenderKind.Bot) state.cloudAgentRunsByConversation.delete(conversationId);
       // Bump unread if the message isn't mine and the conversation isn't currently open.
       // Self-id check goes through shared/contact: resolveContact returns kind="self"
       // only when ref matches ctx.self.id (works for any sender kind).
@@ -1922,8 +1992,10 @@ function handleCloudEvent(envelope) {
     if (!conversationId) return;
     const run = cloudRunFor(conversationId, envelope.runId || "");
     run.runId = envelope.runId || run.runId;
+    run.turnId = envelope.turnId || envelope.turn_id || run.turnId || "";
     run.hermesRunId = envelope.hermesRunId || run.hermesRunId || "";
     run.botId = envelope.botId || run.botId || "";
+    run.backendObserved = true;
     run.status = "running";
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "cloud_agent_run_event") {
@@ -1932,6 +2004,7 @@ function handleCloudEvent(envelope) {
     if (!conversationId) return;
     const run = cloudRunFor(conversationId, envelope.runId || "");
     run.botId = envelope.botId || run.botId || "";
+    run.backendObserved = true;
     const name = hermesEventType(event);
     collectRunContentBlock(run, event);
     let shouldSyncDisplay = eventUpdatesDisplayedRunText(name);
@@ -1992,6 +2065,7 @@ function handleCloudEvent(envelope) {
       }
     }
     if (shouldSyncDisplay) syncRunDisplayText(run);
+    if (run.status === "complete") clearTerminalWebRunIfPersistedMessagePresent(conversationId);
     if (conversationId === state.activeConversationId) renderActiveChat();
   } else if (type === "device_updated") {
     if (Array.isArray(envelope.devices)) state.bridgeDevices = envelope.devices;
@@ -3289,12 +3363,14 @@ function buildConversationMessageArticle(msg, conversation) {
     ? window.miaMentionRender.highlightMentions(renderedBody, members || [])
     : renderedBody;
   const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
+  const processing = !isOwn && assistantMessageIsProcessing(msg);
   const persistedTrace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
   let renderedFirstTextBlock = false;
   const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
       blocks: contentBlocks,
-      completed: true,
+      completed: !processing,
+      processing,
       expanded: false,
       scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
       durationSeconds: persistedTrace?.durationSeconds || 0,
@@ -3320,7 +3396,8 @@ function buildConversationMessageArticle(msg, conversation) {
       reasoning: trace.reasoning,
       tools: trace.tools,
       content: spec.bodyMd || "",
-      completed: true,
+      completed: !processing,
+      processing,
       expanded: false,
       scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
       durationSeconds: trace.durationSeconds,
@@ -3366,12 +3443,15 @@ function buildCloudAgentStreamingArticle(conversation, run) {
     text: avatar.text || avatarResolve.identityDisplayText(spec.authorName, "?")
   });
   const displayText = runDisplayText(run);
+  const processing = isCloudRunBusy(run);
   const textHtml = displayText ? `<div class="bubble">${renderMarkdown(displayText)}</div>` : "";
   const displayBlocks = displayedContentBlocksPayloadFromRun(run) || [];
   const orderedBlocksHtml = displayBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
       blocks: displayBlocks,
-      expanded: true,
+      completed: !processing,
+      processing,
+      expanded: processing,
       scopeKey: `web-run:${run.runId || conversation.id}`,
       renderTextBlock(block) {
         return block.text ? `<div class="bubble">${renderMarkdown(block.text)}</div>` : "";
@@ -3384,7 +3464,9 @@ function buildCloudAgentStreamingArticle(conversation, run) {
       reasoning: run.reasoning,
       tools: run.tools,
       content: displayText,
-      expanded: true,
+      completed: !processing,
+      processing,
+      expanded: processing,
       scopeKey: `web-run:${run.runId || conversation.id}`,
     });
   const permissionHtml = permissionBannerHtml(run.permission);
@@ -3631,13 +3713,14 @@ function renderActiveChat() {
     renderComposerControls(conversation);
     const cached = state.messageCache.get(conversation.id);
     const messages = cached?.messages || [];
+    const visibleMessages = messages.filter((message) => !activeRunCoversProcessingMessage(conversation.id, message));
     const streaming = buildCloudAgentStreamingArticle(conversation, state.cloudAgentRunsByConversation.get(conversation.id));
     const isConversationSwitch = state.lastRenderedConversationId !== conversation.id;
     const isFirstMessageHydration = !isConversationSwitch
       && state.lastRenderedConversationMessageCount === 0
-      && messages.length > 0;
+      && visibleMessages.length > 0;
     const previousRenderedMessageIds = isConversationSwitch ? [] : state.lastRenderedConversationMessageIds;
-    const currentMessageIds = messageStableIds(messages);
+    const currentMessageIds = messageStableIds(visibleMessages);
     const prevScrollTop = els.chat.scrollTop;
     const startBottomGap = chatBottomGap(els.chat);
     const nearBottom = isChatPinnedToBottom(els.chat);
@@ -3649,17 +3732,17 @@ function renderActiveChat() {
     const tailMessageIds = shouldAnimateTail
       ? tailMessageIdsAddedToEnd(previousRenderedMessageIds, currentMessageIds)
       : [];
-    els.chat.innerHTML = messages.length
-      ? `${messages.map((m) => buildConversationMessageArticle(m, conversation)).join("")}${streaming}`
+    els.chat.innerHTML = visibleMessages.length
+      ? `${visibleMessages.map((m) => buildConversationMessageArticle(m, conversation)).join("")}${streaming}`
       : `<p class="persona-empty">还没有消息。</p>`;
-    if (!messages.length && streaming) els.chat.innerHTML = streaming;
+    if (!visibleMessages.length && streaming) els.chat.innerHTML = streaming;
     hydrateAvatarVideos(els.chat);
     initStatusBadgeLotties(els.chat);
     if (window.miaTraceBlocks?.markRenderedTraceBlocks) window.miaTraceBlocks.markRenderedTraceBlocks(els.chat);
     state.lastRenderedConversationId = conversation.id;
     state.lastRenderedConversationMessageIds = currentMessageIds;
-    state.lastRenderedConversationMessageCount = messages.length;
-    if (messages.length || streaming) {
+    state.lastRenderedConversationMessageCount = visibleMessages.length;
+    if (visibleMessages.length || streaming) {
       if (shouldAnimateTail && tailMessageIds.length) {
         animateRenderedTailMessages(els.chat, tailMessageIds, startBottomGap);
       } else if (stickToBottom) {

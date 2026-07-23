@@ -133,6 +133,22 @@ test("completed legacy trace is grouped behind one manually expandable process r
   assert.match(expanded, /class="trace-row tool[^"]*"[^>]*open/);
 });
 
+test("in-progress legacy trace is labelled as processing instead of completed", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderTraceBlocks({
+    reasoning: "checking project files",
+    tools: [{ id: "tool_1", name: "shell", status: "running", preview: "git status" }],
+    content: "",
+    processing: true,
+    expanded: true,
+    scopeKey: "run:active"
+  });
+
+  assert.match(html, /class="trace-row assistant-process/);
+  assert.match(html, /<span class="assistant-process-label">正在处理<\/span>/);
+  assert.doesNotMatch(html, /<span class="assistant-process-label">已处理<\/span>/);
+});
+
 test("collapsed trace bodies are hydrated only when the row opens", () => {
   const { traceBlocks } = loadTraceBlocks();
   const key = "msg:m_lazy::tool::tool_1";
@@ -283,6 +299,27 @@ test("completed assistant content collapses prior text and trace while keeping t
   assert.match(expanded, /检查上下文/);
   assert.match(expanded, /pwd/);
   assert.ok(expanded.indexOf("最终结论：开发态已修复。") > expanded.indexOf("我先看一下目录。"));
+});
+
+test("in-progress assistant content uses the processing disclosure state", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderAssistantContentBlocks({
+    blocks: [
+      { type: "thinking", id: "think_1", text: "检查上下文", status: "running" },
+      { type: "text", id: "text_1", text: "我正在看目录。" }
+    ],
+    processing: true,
+    expanded: true,
+    scopeKey: "run:active",
+    renderTextBlock(block) {
+      return `<div class="bubble assistant-text-block">${escapeHtml(block.text)}</div>`;
+    }
+  });
+
+  assert.match(html, /class="trace-row assistant-process/);
+  assert.match(html, /<span class="assistant-process-label">正在处理<\/span>/);
+  assert.doesNotMatch(html, /<span class="assistant-process-label">已处理<\/span>/);
+  assert.match(html, /我正在看目录。/);
 });
 
 test("renderAssistantContentBlocks displays agent-provided recap blocks", () => {

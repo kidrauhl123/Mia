@@ -51,6 +51,21 @@
     return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
   }
 
+  function isAssistantMessageProcessing(messageOrStatus) {
+    const rawStatus = messageOrStatus && typeof messageOrStatus === "object"
+      ? messageOrStatus.status
+      : messageOrStatus;
+    const status = String(rawStatus || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    return status === "streaming"
+      || status === "running"
+      || status === "in_progress"
+      || status === "pending"
+      || status === "cancelling";
+  }
+
   function traceKeyFromRow(row) {
     if (!row) return "";
     if (typeof row.getAttribute === "function") return String(row.getAttribute("data-trace-key") || "");
@@ -208,7 +223,7 @@
     return { glyph: "🧠", title: "记忆已更新", body: "已更新当前 Bot 的记忆。" };
   }
 
-  function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools, completed = false, durationSeconds = 0 }) {
+  function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools, completed = false, processing = false, durationSeconds = 0 }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
     const defaultExpanded = completed || Boolean(expanded);
@@ -296,10 +311,12 @@
       );
     }
     const traceHtml = `<div class="trace">${rows.join("")}</div>`;
-    if (!completed) return traceHtml;
+    if (!completed && !processing) return traceHtml;
     return renderAssistantProcessDetails({
       processKey: scopeKey ? `${scopeKey}::process` : "",
       durationSeconds: Number(durationSeconds) > 0 ? Number(durationSeconds) : processDurationSeconds(toolList),
+      processing,
+      expanded: processing && Boolean(expanded),
       render: () => traceHtml
     });
   }
@@ -337,13 +354,15 @@
     return attrs.length ? ` ${attrs.join(" ")}` : "";
   }
 
-  function renderAssistantProcessDetails({ processKey, durationSeconds, render }) {
-    const processState = traceOpenState(processKey, false);
+  function renderAssistantProcessDetails({ processKey, durationSeconds, processing = false, expanded = false, render }) {
+    const processState = traceOpenState(processKey, expanded);
     const durationText = formatProcessDuration(durationSeconds);
+    const processStatus = processing ? "processing" : "completed";
+    const processLabel = processing ? "正在处理" : "已处理";
     return `<div class="trace assistant-process-trace">` +
-      `<details class="trace-row assistant-process${traceAnimClass(processKey)}" data-accordion="true"${traceRowAttrs(processKey, 0, processState)}>` +
+      `<details class="trace-row assistant-process${traceAnimClass(processKey)}" data-process-status="${processStatus}" data-accordion="true"${traceRowAttrs(processKey, 0, processState)}>` +
         `<summary>` +
-          `<span class="assistant-process-label">已处理</span>` +
+          `<span class="assistant-process-label">${processLabel}</span>` +
           (durationText ? `<span class="assistant-process-duration">${window.miaMarkdown.escapeHtml(durationText)}</span>` : "") +
           `<span class="trace-chevron" aria-hidden="true"></span>` +
         `</summary>` +
@@ -601,23 +620,33 @@
     return rows.join("");
   }
 
-  function renderCompletedAssistantContent({
+  function renderGroupedAssistantContent({
     normalized,
     renderTextBlock,
     scopeKey,
     assistantContent,
-    durationSeconds
+    durationSeconds,
+    processing = false,
+    expanded = false
   }) {
     let finalTextIndex = -1;
-    for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
-      if (normalized[idx]?.type === "text" && String(normalized[idx].text || "").trim()) {
-        finalTextIndex = idx;
-        break;
+    if (processing) {
+      const lastIndex = normalized.length - 1;
+      if (normalized[lastIndex]?.type === "text" && String(normalized[lastIndex].text || "").trim()) {
+        finalTextIndex = lastIndex;
+      }
+    } else {
+      for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
+        if (normalized[idx]?.type === "text" && String(normalized[idx].text || "").trim()) {
+          finalTextIndex = idx;
+          break;
+        }
       }
     }
-    if (finalTextIndex < 0 || normalized.length < 2) return "";
     const entries = normalized.map((block, index) => ({ block, index }));
-    const processEntries = entries.filter((entry) => entry.index !== finalTextIndex);
+    const processEntries = finalTextIndex >= 0
+      ? entries.filter((entry) => entry.index !== finalTextIndex)
+      : entries;
     if (!processEntries.length) return "";
     const processKey = scopeKey ? `${scopeKey}::process` : "";
     const processHtml = () => renderAssistantBlockEntries({
@@ -633,28 +662,32 @@
       durationSeconds: Number(durationSeconds) > 0
         ? Number(durationSeconds)
         : processDurationSeconds(processEntries.map((entry) => entry.block)),
+      processing,
+      expanded: processing && Boolean(expanded),
       render: processHtml
     });
-    const finalBlock = normalized[finalTextIndex];
-    const finalHtml = typeof renderTextBlock === "function"
+    const finalBlock = finalTextIndex >= 0 ? normalized[finalTextIndex] : null;
+    const finalHtml = finalBlock && typeof renderTextBlock === "function"
       ? renderTextBlock(finalBlock, finalTextIndex, { process: false, final: true })
       : "";
     return `${processDetails}${finalHtml}`;
   }
 
-  function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey, completed = false, durationSeconds = 0 }) {
+  function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey, completed = false, processing = false, durationSeconds = 0 }) {
     const normalized = normalizeAssistantBlocks(blocks);
     if (!normalized.length) return "";
     const assistantContent = assistantTextFromBlocks(normalized);
-    if (completed) {
-      const completedHtml = renderCompletedAssistantContent({
+    if (completed || processing) {
+      const groupedHtml = renderGroupedAssistantContent({
         normalized,
         renderTextBlock,
         scopeKey,
         assistantContent,
-        durationSeconds
+        durationSeconds,
+        processing,
+        expanded
       });
-      if (completedHtml) return completedHtml;
+      if (groupedHtml) return groupedHtml;
     }
     return renderAssistantBlockEntries({
       entries: normalized.map((block, index) => ({ block, index })),
@@ -689,6 +722,7 @@
     renderTraceText,
     isMiaMemoryTool,
     miaMemoryToolPresentation,
+    isAssistantMessageProcessing,
     renderTraceBlocks,
     renderAssistantContentBlocks,
     hydrateTraceRow,
