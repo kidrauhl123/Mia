@@ -2844,16 +2844,18 @@ test("mixed platform snapshots preserve Mia Auto and native engine model identit
     controls: [{
       id: "model",
       category: "model",
-      currentValue: "claude-opus-future",
+      currentValue: "default",
       source: "mia_provider",
       options: [
         { value: "mia-auto", label: "Auto", description: "Mia platform model" },
+        { value: "default", label: "Default (recommended)", description: "Agent native model" },
         { value: "claude-opus-future", label: "Claude Opus Future", description: "Agent native model" }
       ]
     }]
   });
   assert.equal(claudeOptions.selectedModelEntry.provider, "claude-code");
-  assert.equal(claudeOptions.selectedModelEntry.modelProfileId, "claude-code:claude-opus-future");
+  assert.equal(claudeOptions.selectedModelEntry.modelProfileId, "claude-code:default");
+  assert.equal(claudeOptions.selectedModelEntry.label, "Default");
 });
 
 test("bot runtime send block only honors an explicit Core block", () => {

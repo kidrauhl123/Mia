@@ -5114,9 +5114,15 @@ function runtimeControlOptionsFromSnapshot(snapshot = {}, runtimeKind = "desktop
         || value === "mia-default"
         || String(choice?.description || "") === "Mia platform model");
     const isNativeModel = control?.category === "model" && Boolean(snapshotEngine) && !isMiaModel;
+    const upstreamLabel = String(choice?.label || value).trim();
     const label = isMiaModel && typeof globalThis.miaEngineContracts?.platformModelDisplayLabel === "function"
       ? globalThis.miaEngineContracts.platformModelDisplayLabel(choice, value)
-      : String(choice?.label || value);
+      // Claude Code annotates its default alias as "Default (recommended)".
+      // The selection value already retains that intent, so avoid repeating it
+      // in Mia's compact model picker.
+      : (control?.category === "model"
+        ? (upstreamLabel.replace(/\s*\(\s*recommended\s*\)\s*$/i, "").trim() || upstreamLabel)
+        : upstreamLabel);
     return {
       id: value,
       value,
