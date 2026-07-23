@@ -188,7 +188,7 @@
   // ── Main render: chip row + card grid + preview dialog ────────────────────
 
   function renderTaskView() {
-    if (!els.tasksContent) return;
+    if (!state || !els?.tasksContent) return;
     const mode = state.taskMode || "active";
     renderModeToggle(mode);
     if (mode === "history") renderHistoryView();
@@ -930,6 +930,7 @@
   }
 
   function updateTasksRailBadge() {
+    if (!state || !els) return;
     const total = [...state.tasksUnread.values()].reduce((a, b) => a + b, 0);
     for (const badge of [els.tasksUnreadBadge, els.sidebarTasksUnreadBadge]) {
       if (!badge) continue;

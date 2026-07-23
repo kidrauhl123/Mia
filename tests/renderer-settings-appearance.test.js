@@ -659,6 +659,18 @@ test("appearance settings initialize before startup modules that can render", ()
   });
 });
 
+test("runtime refresh stays gated until renderer modules finish initialization", () => {
+  const refreshGuard = appSource.indexOf("if (!rendererModulesReady) return state.runtime;");
+  const modulesReady = appSource.indexOf("rendererModulesReady = true;");
+  const firstRuntimeRefresh = appSource.indexOf("const runtime = await window.mia.runtimeStatus();");
+  const firstFullRenderAfterInit = appSource.indexOf("\n  render();", modulesReady);
+
+  assert.notEqual(refreshGuard, -1, "runtime refresh must be gated during renderer initialization");
+  assert.notEqual(modulesReady, -1, "renderer initialization must publish a ready state");
+  assert.ok(refreshGuard < firstRuntimeRefresh, "runtime refresh guard must run before runtimeStatus");
+  assert.ok(modulesReady < firstFullRenderAfterInit, "renderer modules must be marked ready before the first full render");
+});
+
 test("hover background toggle does not erase controls that already have a fill", () => {
   assert.match(cssBlock(".session-trigger:hover"), /background:\s*var\(--field\);/);
   assert.match(cssBlock(".agent-permission-button:hover:not(:disabled)"), /background:\s*var\(--field\);/);

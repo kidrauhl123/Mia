@@ -5693,8 +5693,13 @@ async function openBotConversation(botKey) {
 window.miaOpenBotConversation = openBotConversation;
 
 let runtimeRefreshScheduler = null;
+let rendererModulesReady = false;
 
 async function performRefreshRuntime() {
+  // The visibility event can fire while the first-paint runtime bootstrap is
+  // still waiting on IPC. Do not publish a runtime (and trigger a full render)
+  // until every extracted renderer module has received its dependencies.
+  if (!rendererModulesReady) return state.runtime;
   const previousDaemon = state.runtime?.daemon || {};
   const previousCloud = state.runtime?.cloud || {};
   const previousRuntimeControlInventory = runtimeControlInventorySignature(state.runtime);
@@ -6181,6 +6186,7 @@ async function initializeRuntime(options = {}) {
         });
     }
   }
+  rendererModulesReady = true;
   render();
   if (state.runtime?.agentInventory?.summary?.scanning) {
     setTimeout(refreshRuntime, 120);

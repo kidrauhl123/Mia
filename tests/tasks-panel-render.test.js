@@ -116,6 +116,13 @@ function loadTasksPanel(options = {}) {
   return { panel: mockWindow.miaTasksPanel, elements };
 }
 
+test("task panel render entry points are inert before dependencies are injected", () => {
+  const { panel } = loadTasksPanel();
+
+  assert.doesNotThrow(() => panel.renderTaskView());
+  assert.doesNotThrow(() => panel.updateTasksRailBadge());
+});
+
 test("task refresh keeps real cloud tasks and removes unread ids that no longer exist", async () => {
   const cloudTask = {
     id: "t-cloud-1",
