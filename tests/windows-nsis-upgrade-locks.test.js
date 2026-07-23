@@ -11,11 +11,12 @@ test("Windows NSIS upgrades use same-volume staging and release Mia Core before 
   const source = fs.readFileSync(includePath, "utf8");
 
   assert.equal(packageJson.build.nsis.include, "build/installer.nsh");
-  assert.match(source, /!macro customInit/);
+  assert.match(source, /!macro customUnInit/);
+  assert.doesNotMatch(source, /!macro customInit/);
   assert.match(source, /\$\{GetOptions\} \$R0 "--updated" \$R1/);
-  assert.match(source, /StrCpy \$miaUpdateTempDir "\$INSTDIR\.__mia_update_tmp"/);
-  assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TEMP", t "\$miaUpdateTempDir"\)/);
-  assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TMP", t "\$miaUpdateTempDir"\)/);
+  assert.match(source, /StrCpy \$R9 "\$INSTDIR\.__mia_update_tmp"/);
+  assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TEMP", t "\$R9"\)/);
+  assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TMP", t "\$R9"\)/);
   assert.match(source, /!macro customCheckAppRunning/);
   assert.match(source, /-Command "& \{ param\(\[string\]\$\$root\)/);
   assert.match(source, /Get-CimInstance -ClassName Win32_Process/);

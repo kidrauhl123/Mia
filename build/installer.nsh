@@ -17,19 +17,21 @@
 ;
 ; SetEnvironmentVariable only changes this installer process and its children;
 ; it does not persistently change the user's TEMP/TMP settings.
-Var /GLOBAL miaUpdateTempDir
-
-!macro customInit
+; This runs in the *old uninstaller* before electron-builder initializes
+; $PLUGINSDIR for its atomic replacement. `customInit` is not an
+; electron-builder hook, so using it silently skipped this repair during
+; updater-driven installs.
+!macro customUnInit
   ${GetParameters} $R0
   ${GetOptions} $R0 "--updated" $R1
   ${IfNot} ${Errors}
-    StrCpy $miaUpdateTempDir "$INSTDIR.__mia_update_tmp"
+    StrCpy $R9 "$INSTDIR.__mia_update_tmp"
     ClearErrors
-    CreateDirectory "$miaUpdateTempDir"
+    CreateDirectory "$R9"
     ${IfNot} ${Errors}
-      System::Call 'Kernel32::SetEnvironmentVariable(t "TEMP", t "$miaUpdateTempDir") i.r2'
-      System::Call 'Kernel32::SetEnvironmentVariable(t "TMP", t "$miaUpdateTempDir") i.r2'
-      DetailPrint "Using same-volume temporary directory for the update: $miaUpdateTempDir"
+      System::Call 'Kernel32::SetEnvironmentVariable(t "TEMP", t "$R9") i.r2'
+      System::Call 'Kernel32::SetEnvironmentVariable(t "TMP", t "$R9") i.r2'
+      DetailPrint "Using same-volume temporary directory for the update: $R9"
     ${EndIf}
   ${EndIf}
 !macroend
