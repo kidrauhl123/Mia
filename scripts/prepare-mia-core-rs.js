@@ -453,11 +453,25 @@ function stageBinary({ rootDir, platform, arch, tag, sourcePath, sourceType, sou
   return { platform, arch, source: sourcePath, dest, bytes, sourceType, tag: normalizeVersionTag(tag) };
 }
 
-function stageArchive({ rootDir, platform, arch, tag, archivePath, sourceType, sourceDetail, execFileSync }) {
+function stageArchive({
+  rootDir,
+  platform,
+  arch,
+  tag,
+  archivePath,
+  sourceType,
+  sourceDetail,
+  execFileSync,
+  extractionPlatform = process.platform
+}) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-prepare-"));
   const extractDir = path.join(tempDir, "extracted");
   try {
-    extractArchive(archivePath, extractDir, { platform, execFileSync });
+    // The archive describes the target, but extraction must be performed by
+    // tools available on the host that is running electron-builder. In
+    // particular, macOS cross-packaging a Windows Core must use `unzip`, not
+    // ask macOS to spawn Windows PowerShell.
+    extractArchive(archivePath, extractDir, { platform: extractionPlatform, execFileSync });
     const binaryName = rustCoreBinaryName(platform);
     const binaryPath = findBinaryInDir(extractDir, binaryName);
     if (!binaryPath) {
@@ -483,6 +497,8 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   const execFileSync = options.execFileSync || childProcess.execFileSync;
   const platform = targetPlatformFromContext(context, env);
   const arch = targetArchFromContext(context, env);
+  const hostPlatform = normalizePlatform(options.hostPlatform || process.platform) || process.platform;
+  const hostArch = normalizeArch(options.hostArch || os.arch()) || os.arch();
   const explicitSource = String(env.MIA_CORE_RS_BIN || "").trim();
   let tag = normalizeVersionTag(resolveMiaCoreVersion(rootDir, env));
 
@@ -512,14 +528,17 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
         archivePath: path.resolve(explicitArchive),
         sourceType: "local-archive",
         sourceDetail: { path: path.resolve(explicitArchive) },
-        execFileSync
+        execFileSync,
+        extractionPlatform: hostPlatform
       });
     } else {
       const url = miaCoreDownloadUrl({ rootDir, platform, arch, tag, env });
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-download-"));
       const archivePath = path.join(tempDir, miaCoreAssetName(platform, arch, tag));
       try {
-        downloadFile(url, archivePath, { platform, execFileSync });
+        // The URL and archive name are target-specific, while the downloader
+        // is necessarily host-specific during cross-platform packaging.
+        downloadFile(url, archivePath, { platform: hostPlatform, execFileSync });
         assertNotHtmlDownload(archivePath, url);
         result = stageArchive({
           rootDir,
@@ -529,7 +548,8 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
           archivePath,
           sourceType: "download",
           sourceDetail: { url },
-          execFileSync
+          execFileSync,
+          extractionPlatform: hostPlatform
         });
       } finally {
         removeDirectorySafe(tempDir);
@@ -539,8 +559,6 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
 
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
   const bundledResources = bundledManagedResourcesPath(rootDir, platform, arch);
-  const hostPlatform = options.hostPlatform || process.platform;
-  const hostArch = options.hostArch || os.arch();
   const managedResourcesMode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim().toLowerCase();
   const managedResourcesDisabled = managedResourcesMode === "0" || managedResourcesMode === "false";
   const managedResourcesCore = managedResourcesDisabled

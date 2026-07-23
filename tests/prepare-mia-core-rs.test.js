@@ -96,6 +96,52 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
   }
 });
 
+test("prepareMiaCoreRs uses host tools to download and extract a Windows Core during cross-packaging", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-win-cross-download-"));
+  try {
+    const calls = [];
+    const result = await prepareMiaCoreRs(
+      { arch: 1, electronPlatformName: "win32" },
+      {
+        rootDir,
+        env: {
+          MIA_CORE_VERSION: "v9.8.7",
+          MIA_CORE_RELEASE_BASE_URL: "https://cdn.example/mia-core",
+          MIA_MANAGED_RESOURCES_PREPARE: "0"
+        },
+        hostPlatform: "darwin",
+        hostArch: "x64",
+        execFileSync: (command, args) => {
+          calls.push({ command, args });
+          if (command === "curl") {
+            const outputPath = args[args.indexOf("-o") + 1];
+            fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+            fs.writeFileSync(outputPath, "fake zip archive\n");
+            return "";
+          }
+          if (command === "unzip") {
+            const outputDir = args[args.indexOf("-d") + 1];
+            const binary = path.join(outputDir, "nested", "mia-core.exe");
+            fs.mkdirSync(path.dirname(binary), { recursive: true });
+            fs.writeFileSync(binary, "downloaded windows rust core\n");
+            return "";
+          }
+          throw new Error(`unexpected command: ${command}`);
+        }
+      }
+    );
+
+    assert.equal(calls.some((call) => call.command === "powershell"), false);
+    assert.equal(calls[0].command, "curl");
+    assert.equal(calls[0].args.at(-1), "https://cdn.example/mia-core/v9.8.7/mia-core-v9.8.7-x86_64-pc-windows-msvc.zip");
+    assert.equal(calls[1].command, "unzip");
+    assert.equal(result.dest, path.join(rootDir, "resources", "bundled-mia-core", "win32-x64", "mia-core.exe"));
+    assert.equal(fs.readFileSync(result.dest, "utf8"), "downloaded windows rust core\n");
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core", async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-managed-"));
   try {
