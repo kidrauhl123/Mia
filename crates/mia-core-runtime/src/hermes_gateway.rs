@@ -1870,7 +1870,16 @@ fn value_string(value: &Value, keys: &[&str]) -> Option<String> {
 }
 
 fn payload_text(payload: &Value) -> String {
-    value_string(payload, &["text", "message"]).unwrap_or_default()
+    ["text", "message"]
+        .iter()
+        .find_map(|key| {
+            payload
+                .get(*key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default()
+        .to_string()
 }
 
 fn provider_value(plan: &RuntimeTurnPlan, keys: &[&str]) -> Option<String> {
@@ -2124,6 +2133,21 @@ mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn gateway_payload_text_preserves_streaming_whitespace() {
+        assert_eq!(payload_text(&json!({ "text": " user" })), " user");
+        assert_eq!(payload_text(&json!({ "text": "\n\n- item" })), "\n\n- item");
+        assert_eq!(payload_text(&json!({ "text": " " })), " ");
+        assert_eq!(
+            payload_text(&json!({ "message": " trailing " })),
+            " trailing "
+        );
+        assert_eq!(
+            payload_text(&json!({ "text": "", "message": " fallback" })),
+            " fallback"
+        );
+    }
 
     #[test]
     fn hermes_controls_normalize_legacy_permission_and_effort_values() {
