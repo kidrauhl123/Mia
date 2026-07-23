@@ -269,15 +269,15 @@ Configure the Official Account message push URL \`https://mia.gifgif.cn/api/auth
 
 ## Platform Model Gateway
 
-Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and token pricing. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Claude Code sandboxes receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1/messages\`; Mia Cloud transparently forwards the Anthropic Messages request to DeepSeek's \`/anthropic/v1/messages\`, records token usage in SQLite, and deducts the user's Mia model balance. Claude Code requests never fall back to OpenAI Chat Completions. The official DeepSeek API base is detected automatically; a custom gateway must expose an Anthropic-compatible endpoint configured with \`MIA_DEEPSEEK_ANTHROPIC_BASE_URL\` or the request fails closed. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. LiteLLM remains optional for a future multi-provider gateway.
+Mia can sell a platform DeepSeek model without exposing provider keys to users. Set \`MIA_MODEL_GATEWAY=deepseek\` and \`MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>\` in \`/etc/mia-cloud/admin.env\`, then open \`/admin/model\` to save the DeepSeek API Key, base URL, public Mia model name, and versioned point rate cards. Each card records cache-hit input, cache-miss input, and output cost in yuan per million tokens, then settles at the configured points per yuan of upstream cost. Mia currently sells ¥1 = 20 points and budgets 1 point for ¥0.02 of direct upstream cost. \`MIA_DEEPSEEK_API_KEY=<DeepSeek API key>\` is an optional bootstrap fallback if the database setting has not been saved yet. Cloud Claude Code sandboxes receive per-user internal proxy tokens and call \`/api/internal/model-proxy/v1/messages\`; Mia Cloud transparently forwards the Anthropic Messages request to DeepSeek's \`/anthropic/v1/messages\`, records token usage in SQLite, and deducts the user's Mia model points. Claude Code requests never fall back to OpenAI Chat Completions. The official DeepSeek API base is detected automatically; a custom gateway must expose an Anthropic-compatible endpoint configured with \`MIA_DEEPSEEK_ANTHROPIC_BASE_URL\` or the request fails closed. On China-hosted VPS networks, set \`MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian\` and \`MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple\` before running the installer if upstream Debian/PyPI downloads hang. LiteLLM remains optional for a future multi-provider gateway.
 
-Manual first-version credit grant:
+Manual first-version point grant:
 
 \`\`\`bash
 curl -u "$MIA_CLOUD_ADMIN_USERNAME:$MIA_CLOUD_ADMIN_PASSWORD" \\
   -H 'content-type: application/json' \\
-  -d '{"account":"user@example.com","amountUsd":5,"reason":"manual_topup"}' \\
-  https://mia.gifgif.cn/api/admin/model-credits/grant
+  -d '{"account":"user@example.com","points":20,"reason":"manual_topup"}' \\
+  https://mia.gifgif.cn/api/admin/model-points/grant
 \`\`\`
 
 ## Install On The VPS
@@ -542,6 +542,9 @@ function verifyRelease() {
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud/hermes-skills-source.js",
     "api/src/cloud/model-billing-store.js",
+    "api/src/cloud/model-point-pricing.js",
+    "api/src/cloud/model-point-promotion-store.js",
+    "api/src/cloud/model-rate-card-store.js",
     "api/src/cloud/model-gateway-store.js",
     "api/src/cloud/model-proxy-auth.js",
     "api/src/cloud/tasks-store.js",
@@ -657,6 +660,9 @@ function verifyRelease() {
     "api/src/cloud/desktop-bridge-permission.js",
     "api/src/cloud/hermes-skills-source.js",
     "api/src/cloud/model-billing-store.js",
+    "api/src/cloud/model-point-pricing.js",
+    "api/src/cloud/model-point-promotion-store.js",
+    "api/src/cloud/model-rate-card-store.js",
     "api/src/cloud/model-gateway-store.js",
     "api/src/cloud/model-proxy-auth.js",
     "api/src/cloud-agent/runtime-bindings-store.js",
@@ -834,7 +840,7 @@ function verifyRelease() {
     !/MIA_DEEPSEEK_API_KEY=<DeepSeek API key>` is an optional bootstrap fallback/.test(releaseReadme) ||
     !/MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>/.test(releaseReadme) ||
     !/\/api\/internal\/model-proxy\/v1/.test(releaseReadme) ||
-    !/\/api\/admin\/model-credits\/grant/.test(releaseReadme) ||
+    !/\/api\/admin\/model-points\/grant/.test(releaseReadme) ||
     !/LiteLLM remains optional/.test(releaseReadme)
   ) {
     throw new Error("Release README must document the paid DeepSeek platform model gateway.");
@@ -848,6 +854,9 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud/dm-conversation.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/desktop-bridge-permission.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/model-billing-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/model-point-pricing.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/model-point-promotion-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/model-rate-card-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/model-gateway-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/model-proxy-auth.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-bindings-store.js"))});

@@ -7,8 +7,8 @@
     <title>Mia 管理后台</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="/styles.css?v=20260722-pointer">
-    <link rel="stylesheet" href="/admin-model.css?v=20260722-pointer">
-    <script defer src="/admin-model.js?v=20260612-row-credit"></script>
+    <link rel="stylesheet" href="/admin-model.css?v=20260723-points">
+    <script defer src="/admin-model.js?v=20260723-points"></script>
   </head>
   <body class="admin-body admin-model-body">
     <div class="console-shell">
@@ -22,7 +22,8 @@
         </div>
         <nav class="console-nav" aria-label="后台导航">
           <button class="active" type="button" data-admin-nav="overview">总览</button>
-          <button type="button" data-admin-nav="users">用户用量</button>
+          <button type="button" data-admin-nav="users">用户积分</button>
+          <button type="button" data-admin-nav="activities">新用户活动</button>
           <button type="button" data-admin-nav="logs">调用日志</button>
           <button type="button" data-admin-nav="gateway">模型网关</button>
         </nav>
@@ -61,14 +62,14 @@
               <small>Prompt + Completion</small>
             </article>
             <article class="metric-card">
-              <span>扣费</span>
+              <span>积分消耗</span>
               <strong id="metricCharge">-</strong>
-              <small>按 Mia 余额扣减</small>
+              <small>按模型实际成本换算</small>
             </article>
             <article class="metric-card">
-              <span>余额</span>
+              <span>积分</span>
               <strong id="metricBalance">-</strong>
-              <small>用户可用余额合计</small>
+              <small>用户可用积分合计</small>
             </article>
             <article class="metric-card">
               <span>网关</span>
@@ -82,7 +83,7 @@
               <div class="card-heading">
                 <div>
                   <strong>用户排行</strong>
-                  <p>按最近调用和扣费排序</p>
+                  <p>按最近调用和积分消耗排序</p>
                 </div>
                 <button class="text-button" type="button" data-admin-nav-jump="users">查看全部</button>
               </div>
@@ -91,9 +92,9 @@
                   <thead>
                     <tr>
                       <th>用户</th>
-                      <th>余额</th>
+                      <th>积分</th>
                       <th>请求</th>
-                      <th>扣费</th>
+                      <th>积分消耗</th>
                     </tr>
                   </thead>
                   <tbody id="overviewUsersBody">
@@ -122,12 +123,12 @@
           <section class="console-card">
             <div class="card-heading">
               <div>
-                <strong>用户用量和余额</strong>
+                <strong>用户用量和积分</strong>
                 <p id="usageSummaryText">正在读取统计...</p>
               </div>
             </div>
 
-            <form id="userCreditForm" class="toolbar-form user-filter-form">
+            <form id="userPointForm" class="toolbar-form user-filter-form">
               <input id="userAccountInput" autocomplete="off" spellcheck="false" placeholder="搜索 UID / username">
               <button id="lookupUserButton" class="admin-secondary" type="submit">查询</button>
             </form>
@@ -139,10 +140,10 @@
                 <thead>
                   <tr>
                     <th>用户</th>
-                    <th>余额</th>
+                    <th>积分</th>
                     <th>请求</th>
                     <th>Token</th>
-                    <th>扣费</th>
+                    <th>积分消耗</th>
                     <th>最近调用</th>
                   </tr>
                 </thead>
@@ -150,6 +151,60 @@
                   <tr><td colspan="6">正在读取...</td></tr>
                 </tbody>
               </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="console-page" data-admin-page="activities">
+          <section class="console-card">
+            <div class="card-heading">
+              <div>
+                <strong>创建新用户赠送活动</strong>
+                <p>草稿不会发放积分；启用后，活动开始后注册的用户会自动获得一次积分。</p>
+              </div>
+            </div>
+            <form id="campaignForm" class="gateway-form">
+              <div class="form-grid campaign-form-grid">
+                <label>
+                  活动名称
+                  <input id="campaignNameInput" maxlength="80" autocomplete="off" spellcheck="false" placeholder="例如：新用户欢迎积分" required>
+                </label>
+                <label>
+                  赠送积分
+                  <input id="campaignPointsInput" type="number" min="1" step="1" inputmode="numeric" placeholder="20" required>
+                </label>
+                <label>
+                  活动开始
+                  <input id="campaignStartsAtInput" type="datetime-local" required>
+                </label>
+                <label>
+                  活动结束（可选）
+                  <input id="campaignEndsAtInput" type="datetime-local">
+                </label>
+                <label>
+                  总名额（留空不限）
+                  <input id="campaignMaxClaimsInput" type="number" min="1" step="1" inputmode="numeric" placeholder="不限">
+                </label>
+                <label>
+                  积分有效期（可选）
+                  <input id="campaignGrantExpiresAtInput" type="datetime-local">
+                </label>
+              </div>
+              <div class="admin-actions">
+                <button id="createCampaignButton" class="admin-primary" type="submit">创建草稿</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="console-card">
+            <div class="card-heading">
+              <div>
+                <strong>活动列表</strong>
+                <p>同时只能有一个进行中的新用户活动；启用新的活动会暂停当前活动。</p>
+              </div>
+            </div>
+            <div id="campaignList" class="campaign-list">
+              <div class="event-row">正在读取活动...</div>
             </div>
           </section>
         </section>
@@ -180,7 +235,7 @@
                     <th>状态</th>
                     <th>Prompt</th>
                     <th>Completion</th>
-                    <th>扣费</th>
+                    <th>积分消耗</th>
                     <th>错误</th>
                   </tr>
                 </thead>
@@ -249,19 +304,24 @@
                     <input id="apiBaseInput" autocomplete="off" spellcheck="false" placeholder="https://api.deepseek.com/v1">
                   </label>
 
-                  <label data-admin-field="inputPrice">
-                    输入单价（microUSD / 1M tokens）
-                    <input id="inputPriceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="140000">
+                  <label data-admin-field="pointRate">
+                    缓存命中输入成本（元 / 100 万 Tokens）
+                    <input id="cacheHitCostInput" type="number" min="0" step="0.000001" inputmode="decimal" placeholder="0.02">
                   </label>
 
-                  <label data-admin-field="outputPrice">
-                    输出单价（microUSD / 1M tokens）
-                    <input id="outputPriceInput" type="number" min="0" step="1" inputmode="numeric" placeholder="280000">
+                  <label data-admin-field="pointRate">
+                    缓存未命中输入成本（元 / 100 万 Tokens）
+                    <input id="cacheMissCostInput" type="number" min="0" step="0.000001" inputmode="decimal" placeholder="1">
                   </label>
 
-                  <label data-admin-field="markup">
-                    加价倍率
-                    <input id="markupInput" type="number" min="0" step="0.01" inputmode="decimal" placeholder="1">
+                  <label data-admin-field="pointRate">
+                    输出成本（元 / 100 万 Tokens）
+                    <input id="outputCostInput" type="number" min="0" step="0.000001" inputmode="decimal" placeholder="2">
+                  </label>
+
+                  <label data-admin-field="pointRate">
+                    每元成本折算积分
+                    <input id="pointsPerCnyCostInput" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="50">
                   </label>
 
                   <label data-admin-field="apiVersion" hidden>

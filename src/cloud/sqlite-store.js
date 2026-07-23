@@ -7,6 +7,7 @@ const { normalizeStatusBadge } = require("../shared/identity.js");
 const { generatePrincipalId, publicIdFromConversationId } = require("../shared/ids.js");
 const { canonicalDeviceName } = require("../shared/device-identity.js");
 const { sanitizeCssColor } = require("./css-color.js");
+const { DEEPSEEK_RATE_CARD_SEEDS, LEGACY_USD_TO_MILLIPOINTS } = require("./model-point-pricing.js");
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const MAX_IMAGE_BYTES = 18 * 1024 * 1024;
@@ -276,6 +277,10 @@ function resetVolatileBridgeState(db, now = nowIso) {
 function hasColumn(db, tableName, columnName) {
   return db.prepare(`PRAGMA table_info(${tableName})`).all()
     .some((column) => column.name === columnName);
+}
+
+function hasTable(db, tableName) {
+  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName));
 }
 
 function createCloudStore(options = {}) {
@@ -1114,6 +1119,7 @@ function migrate(db) {
     CREATE TABLE IF NOT EXISTS model_accounts (
       user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       balance_microusd  INTEGER NOT NULL DEFAULT 0,
+      balance_millipoints INTEGER NOT NULL DEFAULT 0,
       updated_at        TEXT NOT NULL
     );
 
@@ -1122,6 +1128,8 @@ function migrate(db) {
       user_id                 TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       delta_microusd          INTEGER NOT NULL,
       balance_after_microusd  INTEGER NOT NULL,
+      delta_millipoints       INTEGER NOT NULL DEFAULT 0,
+      balance_after_millipoints INTEGER NOT NULL DEFAULT 0,
       reason                  TEXT NOT NULL DEFAULT '',
       usage_id                TEXT NOT NULL DEFAULT '',
       created_at              TEXT NOT NULL
@@ -1141,12 +1149,90 @@ function migrate(db) {
       total_tokens       INTEGER NOT NULL DEFAULT 0,
       cost_microusd      INTEGER NOT NULL DEFAULT 0,
       charge_microusd    INTEGER NOT NULL DEFAULT 0,
+      prompt_cache_hit_tokens  INTEGER NOT NULL DEFAULT 0,
+      prompt_cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+      actual_cost_microcny     INTEGER NOT NULL DEFAULT 0,
+      charge_millipoints       INTEGER NOT NULL DEFAULT 0,
+      rate_card_id             TEXT NOT NULL DEFAULT '',
+      rate_card_version        INTEGER NOT NULL DEFAULT 0,
       status             TEXT NOT NULL,
       error              TEXT NOT NULL DEFAULT '',
       created_at         TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_model_usage_ledger_user
       ON model_usage_ledger(user_id, created_at);
+
+    -- Point buckets preserve source/expiry rules. Event points are deducted
+    -- first, so a trial cannot silently consume a user's paid balance.
+    CREATE TABLE IF NOT EXISTS model_point_buckets (
+      id                    TEXT PRIMARY KEY,
+      user_id               TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_type           TEXT NOT NULL,
+      source_id             TEXT NOT NULL DEFAULT '',
+      granted_millipoints   INTEGER NOT NULL,
+      remaining_millipoints INTEGER NOT NULL,
+      expires_at            TEXT NOT NULL DEFAULT '',
+      created_at            TEXT NOT NULL,
+      updated_at            TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_point_buckets_spend
+      ON model_point_buckets(user_id, source_type, expires_at, created_at);
+
+    CREATE TABLE IF NOT EXISTS model_point_bucket_consumptions (
+      usage_id              TEXT NOT NULL REFERENCES model_usage_ledger(id) ON DELETE CASCADE,
+      bucket_id             TEXT NOT NULL REFERENCES model_point_buckets(id) ON DELETE RESTRICT,
+      consumed_millipoints  INTEGER NOT NULL,
+      created_at            TEXT NOT NULL,
+      PRIMARY KEY (usage_id, bucket_id)
+    );
+
+    -- Marketing points keep a durable claim record independent from the
+    -- aggregate account balance.
+    CREATE TABLE IF NOT EXISTS model_point_campaigns (
+      id                TEXT PRIMARY KEY,
+      name              TEXT NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'draft',
+      grant_millipoints INTEGER NOT NULL,
+      starts_at         TEXT NOT NULL,
+      ends_at           TEXT NOT NULL DEFAULT '',
+      grant_expires_at  TEXT NOT NULL DEFAULT '',
+      max_claims        INTEGER NOT NULL DEFAULT 0,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_point_campaigns_status_window
+      ON model_point_campaigns(status, starts_at, ends_at);
+
+    CREATE TABLE IF NOT EXISTS model_point_campaign_claims (
+      campaign_id       TEXT NOT NULL REFERENCES model_point_campaigns(id) ON DELETE RESTRICT,
+      user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      grant_millipoints INTEGER NOT NULL,
+      bucket_id         TEXT NOT NULL DEFAULT '',
+      grant_expires_at  TEXT NOT NULL DEFAULT '',
+      created_at        TEXT NOT NULL,
+      PRIMARY KEY (campaign_id, user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_point_campaign_claims_user
+      ON model_point_campaign_claims(user_id, created_at);
+
+    -- Rate cards are versioned. A usage row retains the card id/version used
+    -- for settlement, so provider price changes never rewrite history.
+    CREATE TABLE IF NOT EXISTS model_rate_cards (
+      id                                  TEXT PRIMARY KEY,
+      provider                            TEXT NOT NULL,
+      upstream_model                      TEXT NOT NULL,
+      version                             INTEGER NOT NULL DEFAULT 1,
+      cache_hit_microcny_per_million      INTEGER NOT NULL DEFAULT 0,
+      cache_miss_microcny_per_million     INTEGER NOT NULL DEFAULT 0,
+      output_microcny_per_million         INTEGER NOT NULL DEFAULT 0,
+      millipoints_per_cny_cost            INTEGER NOT NULL DEFAULT 50000,
+      is_active                           INTEGER NOT NULL DEFAULT 1,
+      created_at                          TEXT NOT NULL,
+      updated_at                          TEXT NOT NULL,
+      UNIQUE(provider, upstream_model, version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_model_rate_cards_active
+      ON model_rate_cards(provider, upstream_model, is_active, version DESC);
 
     CREATE TABLE IF NOT EXISTS model_gateway_settings (
       id                             TEXT PRIMARY KEY,
@@ -1530,6 +1616,148 @@ function migrate(db) {
   `);
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (25, ?)")
     .run(nowIso());
+  // v26: new-user campaign claims use a durable unique user/campaign pair.
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (26, ?)")
+    .run(nowIso());
+
+  // v27: replace public USD credits with point accounting. Existing dollar
+  // balances are converted exactly once at ¥7.20 / USD and 50 points per yuan
+  // of upstream cost; old audit columns stay intact for historical recovery.
+  const migratedPoints = db.prepare("SELECT 1 FROM schema_migrations WHERE version = 27").get();
+  if (!migratedPoints) {
+    if (!hasColumn(db, "model_accounts", "balance_millipoints")) {
+      db.exec("ALTER TABLE model_accounts ADD COLUMN balance_millipoints INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!hasColumn(db, "model_balance_ledger", "delta_millipoints")) {
+      db.exec("ALTER TABLE model_balance_ledger ADD COLUMN delta_millipoints INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!hasColumn(db, "model_balance_ledger", "balance_after_millipoints")) {
+      db.exec("ALTER TABLE model_balance_ledger ADD COLUMN balance_after_millipoints INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!hasColumn(db, "model_point_campaign_claims", "grant_expires_at")) {
+      db.exec("ALTER TABLE model_point_campaign_claims ADD COLUMN grant_expires_at TEXT NOT NULL DEFAULT ''");
+    }
+    for (const [column, definition] of [
+      ["prompt_cache_hit_tokens", "INTEGER NOT NULL DEFAULT 0"],
+      ["prompt_cache_miss_tokens", "INTEGER NOT NULL DEFAULT 0"],
+      ["actual_cost_microcny", "INTEGER NOT NULL DEFAULT 0"],
+      ["charge_millipoints", "INTEGER NOT NULL DEFAULT 0"],
+      ["rate_card_id", "TEXT NOT NULL DEFAULT ''"],
+      ["rate_card_version", "INTEGER NOT NULL DEFAULT 0"]
+    ]) {
+      if (!hasColumn(db, "model_usage_ledger", column)) {
+        db.exec(`ALTER TABLE model_usage_ledger ADD COLUMN ${column} ${definition}`);
+      }
+    }
+
+    const legacyMultiplier = LEGACY_USD_TO_MILLIPOINTS / 1_000_000;
+    db.prepare(`
+      UPDATE model_accounts
+      SET balance_millipoints = CAST(ROUND(balance_microusd * ?) AS INTEGER)
+      WHERE balance_millipoints = 0 AND balance_microusd <> 0
+    `).run(legacyMultiplier);
+    db.exec(`
+      INSERT OR IGNORE INTO model_point_buckets (
+        id, user_id, source_type, source_id, granted_millipoints,
+        remaining_millipoints, expires_at, created_at, updated_at
+      )
+      SELECT
+        'legacy-points:' || user_id,
+        user_id,
+        'legacy',
+        'usd-balance-v15',
+        balance_millipoints,
+        CASE WHEN balance_millipoints > 0 THEN balance_millipoints ELSE 0 END,
+        '',
+        updated_at,
+        updated_at
+      FROM model_accounts
+      WHERE balance_millipoints > 0;
+    `);
+    db.exec(`
+      INSERT OR IGNORE INTO model_balance_ledger (
+        id, user_id, delta_microusd, balance_after_microusd,
+        delta_millipoints, balance_after_millipoints, reason, usage_id, created_at
+      )
+      SELECT
+        'legacy-points:' || user_id,
+        user_id,
+        0,
+        balance_microusd,
+        balance_millipoints,
+        balance_millipoints,
+        'legacy_usd_migration',
+        '',
+        updated_at
+      FROM model_accounts
+      WHERE balance_millipoints <> 0;
+    `);
+
+    // The unshipped v26 implementation used USD campaign tables. If a preview
+    // database has them, retain campaign/claim history while the converted
+    // account balance remains the sole source of value.
+    if (hasTable(db, "model_credit_campaigns") && hasColumn(db, "model_credit_campaigns", "credit_microusd")) {
+      db.prepare(`
+        INSERT OR IGNORE INTO model_point_campaigns (
+          id, name, status, grant_millipoints, starts_at, ends_at,
+          grant_expires_at, max_claims, created_at, updated_at
+        )
+        SELECT
+          id,
+          name,
+          status,
+          CAST(ROUND(credit_microusd * ?) AS INTEGER),
+          starts_at,
+          ends_at,
+          '',
+          max_claims,
+          created_at,
+          updated_at
+        FROM model_credit_campaigns
+      `).run(legacyMultiplier);
+    }
+    if (hasTable(db, "model_credit_campaign_claims") && hasColumn(db, "model_credit_campaign_claims", "credit_microusd")) {
+      db.prepare(`
+        INSERT OR IGNORE INTO model_point_campaign_claims (
+          campaign_id, user_id, grant_millipoints, bucket_id, grant_expires_at, created_at
+        )
+        SELECT
+          campaign_id,
+          user_id,
+          CAST(ROUND(credit_microusd * ?) AS INTEGER),
+          '',
+          '',
+          created_at
+        FROM model_credit_campaign_claims
+      `).run(legacyMultiplier);
+    }
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (27, ?)").run(nowIso());
+  }
+
+  const insertRateCardSeed = db.prepare(`
+    INSERT OR IGNORE INTO model_rate_cards (
+      id, provider, upstream_model, version,
+      cache_hit_microcny_per_million, cache_miss_microcny_per_million,
+      output_microcny_per_million, millipoints_per_cny_cost,
+      is_active, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `);
+  for (const seed of DEEPSEEK_RATE_CARD_SEEDS) {
+    const timestamp = nowIso();
+    const seedId = `seed:${seed.provider}:${seed.upstreamModel}:v${seed.version}`;
+    insertRateCardSeed.run(
+      seedId,
+      seed.provider,
+      seed.upstreamModel,
+      seed.version,
+      seed.cacheHitMicrocnyPerMillion,
+      seed.cacheMissMicrocnyPerMillion,
+      seed.outputMicrocnyPerMillion,
+      seed.millipointsPerCnyCost,
+      timestamp,
+      timestamp
+    );
+  }
 }
 
 function retiredIdentityKind() {

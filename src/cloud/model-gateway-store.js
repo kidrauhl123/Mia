@@ -17,9 +17,6 @@ function rowToSettings(row) {
     upstreamModel: row.provider === "deepseek" ? normalizeDeepSeekModel(row.upstream_model) : (row.upstream_model || ""),
     apiBase: row.api_base || "",
     apiKey: row.api_key || "",
-    inputMicrousdPerMillion: Number(row.input_microusd_per_million || 0),
-    outputMicrousdPerMillion: Number(row.output_microusd_per_million || 0),
-    markup: Number(row.markup || 1),
     updatedAt: row.updated_at || ""
   };
 }
@@ -35,16 +32,14 @@ function publicSettings(settings) {
 
 function createModelGatewayStore(db) {
   const selectStmt = db.prepare(`
-    SELECT id, mode, model_id, provider, upstream_model, api_base, api_key,
-           input_microusd_per_million, output_microusd_per_million, markup, updated_at
+    SELECT id, mode, model_id, provider, upstream_model, api_base, api_key, updated_at
     FROM model_gateway_settings
     WHERE id = 'default'
   `);
   const upsertStmt = db.prepare(`
     INSERT INTO model_gateway_settings (
-      id, mode, model_id, provider, upstream_model, api_base, api_key,
-      input_microusd_per_million, output_microusd_per_million, markup, updated_at
-    ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      id, mode, model_id, provider, upstream_model, api_base, api_key, updated_at
+    ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       mode = excluded.mode,
       model_id = excluded.model_id,
@@ -52,9 +47,6 @@ function createModelGatewayStore(db) {
       upstream_model = excluded.upstream_model,
       api_base = excluded.api_base,
       api_key = CASE WHEN excluded.api_key = '' THEN model_gateway_settings.api_key ELSE excluded.api_key END,
-      input_microusd_per_million = excluded.input_microusd_per_million,
-      output_microusd_per_million = excluded.output_microusd_per_million,
-      markup = excluded.markup,
       updated_at = excluded.updated_at
   `);
 
@@ -76,9 +68,6 @@ function createModelGatewayStore(db) {
       upstreamModel,
       String(hasApiBase ? input.apiBase : (existing?.apiBase || "")).trim().replace(/\/+$/, ""),
       String(input.apiKey || "").trim(),
-      Number(input.inputMicrousdPerMillion ?? existing?.inputMicrousdPerMillion ?? 140000),
-      Number(input.outputMicrousdPerMillion ?? existing?.outputMicrousdPerMillion ?? 280000),
-      Number(input.markup ?? existing?.markup ?? 1),
       nowIso()
     );
     return getSettings();

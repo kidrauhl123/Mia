@@ -308,7 +308,7 @@ test("release builder includes operator README with safe install verification", 
   assert.match(source, /\/admin\/model/);
   assert.match(source, /MIA_DEEPSEEK_API_KEY=<DeepSeek API key>` is an optional bootstrap fallback/);
   assert.match(source, /MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>/);
-  assert.match(source, /\/api\/admin\/model-credits\/grant/);
+  assert.match(source, /\/api\/admin\/model-points\/grant/);
   assert.match(source, /same Mia Cloud account/);
   assert.match(source, /does not require a separate local approval click/);
   assert.match(source, /Agent permission mode remains/);

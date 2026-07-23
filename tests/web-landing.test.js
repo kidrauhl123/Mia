@@ -149,7 +149,7 @@ test("web app shell lives under /app and keeps parent-relative assets", () => {
   assert.match(css, /\.message-code-copy\s*\{[\s\S]*cursor:\s*pointer/);
   assert.match(css, /\.trace-row > summary\s*\{[\s\S]*cursor:\s*pointer/);
   assert.match(adminHtml, /href="\/styles\.css\?v=20260722-pointer"/);
-  assert.match(adminHtml, /href="\/admin-model\.css\?v=20260722-pointer"/);
+  assert.match(adminHtml, /href="\/admin-model\.css\?v=20260723-points"/);
   assert.match(adminCss, /\.admin-advanced-fields summary\s*\{[\s\S]*cursor:\s*pointer/);
 });
 

@@ -144,19 +144,30 @@ const { DatabaseSync } = require("node:sqlite");
 
 const [dbPath, exportPath] = process.argv.slice(2);
 const db = new DatabaseSync(dbPath);
-let rows = [];
+let gatewaySettings = [];
+let rateCards = [];
 try {
-  rows = db.prepare([
-    "SELECT id, mode, model_id, provider, upstream_model, api_base, api_key,",
-    "       input_microusd_per_million, output_microusd_per_million, markup, updated_at",
+  gatewaySettings = db.prepare([
+    "SELECT id, mode, model_id, provider, upstream_model, api_base, api_key, updated_at",
     "FROM model_gateway_settings"
+  ].join("\n")).all();
+} catch (error) {
+  if (!/no such table/i.test(error?.message || "")) throw error;
+}
+try {
+  rateCards = db.prepare([
+    "SELECT id, provider, upstream_model, version,",
+    "       cache_hit_microcny_per_million, cache_miss_microcny_per_million,",
+    "       output_microcny_per_million, millipoints_per_cny_cost,",
+    "       is_active, created_at, updated_at",
+    "FROM model_rate_cards"
   ].join("\n")).all();
 } catch (error) {
   if (!/no such table/i.test(error?.message || "")) throw error;
 } finally {
   db.close();
 }
-fs.writeFileSync(exportPath, JSON.stringify(rows, null, 2) + "\n", { mode: 0o600 });
+fs.writeFileSync(exportPath, JSON.stringify({ version: 2, gatewaySettings, rateCards }, null, 2) + "\n", { mode: 0o600 });
 NODE
   run_as_root chmod 600 "\$export_file" || true
   echo "Model gateway settings export written to \$export_file"
@@ -174,7 +185,9 @@ const fs = require("node:fs");
 const { DatabaseSync } = require("node:sqlite");
 
 const [dbPath, exportPath] = process.argv.slice(2);
-const rows = JSON.parse(fs.readFileSync(exportPath, "utf8"));
+const exported = JSON.parse(fs.readFileSync(exportPath, "utf8"));
+const gatewaySettings = Array.isArray(exported) ? exported : (Array.isArray(exported?.gatewaySettings) ? exported.gatewaySettings : []);
+const rateCards = Array.isArray(exported?.rateCards) ? exported.rateCards : [];
 const db = new DatabaseSync(dbPath);
 db.exec([
   "CREATE TABLE IF NOT EXISTS model_gateway_settings (",
@@ -189,13 +202,26 @@ db.exec([
   "  output_microusd_per_million    INTEGER NOT NULL DEFAULT 280000,",
   "  markup                         REAL NOT NULL DEFAULT 1,",
   "  updated_at                     TEXT NOT NULL",
+  ");",
+  "CREATE TABLE IF NOT EXISTS model_rate_cards (",
+  "  id                                  TEXT PRIMARY KEY,",
+  "  provider                            TEXT NOT NULL,",
+  "  upstream_model                      TEXT NOT NULL,",
+  "  version                             INTEGER NOT NULL DEFAULT 1,",
+  "  cache_hit_microcny_per_million      INTEGER NOT NULL DEFAULT 0,",
+  "  cache_miss_microcny_per_million     INTEGER NOT NULL DEFAULT 0,",
+  "  output_microcny_per_million         INTEGER NOT NULL DEFAULT 0,",
+  "  millipoints_per_cny_cost            INTEGER NOT NULL DEFAULT 50000,",
+  "  is_active                           INTEGER NOT NULL DEFAULT 1,",
+  "  created_at                          TEXT NOT NULL,",
+  "  updated_at                          TEXT NOT NULL,",
+  "  UNIQUE(provider, upstream_model, version)",
   ");"
 ].join("\n"));
 const stmt = db.prepare([
   "INSERT INTO model_gateway_settings (",
-  "  id, mode, model_id, provider, upstream_model, api_base, api_key,",
-  "  input_microusd_per_million, output_microusd_per_million, markup, updated_at",
-  ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "  id, mode, model_id, provider, upstream_model, api_base, api_key, updated_at",
+  ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   "ON CONFLICT(id) DO UPDATE SET",
   "  mode = excluded.mode,",
   "  model_id = excluded.model_id,",
@@ -203,9 +229,25 @@ const stmt = db.prepare([
   "  upstream_model = excluded.upstream_model,",
   "  api_base = excluded.api_base,",
   "  api_key = excluded.api_key,",
-  "  input_microusd_per_million = excluded.input_microusd_per_million,",
-  "  output_microusd_per_million = excluded.output_microusd_per_million,",
-  "  markup = excluded.markup,",
+  "  updated_at = excluded.updated_at"
+].join("\n"));
+const rateCardStmt = db.prepare([
+  "INSERT INTO model_rate_cards (",
+  "  id, provider, upstream_model, version,",
+  "  cache_hit_microcny_per_million, cache_miss_microcny_per_million,",
+  "  output_microcny_per_million, millipoints_per_cny_cost,",
+  "  is_active, created_at, updated_at",
+  ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  "ON CONFLICT(id) DO UPDATE SET",
+  "  provider = excluded.provider,",
+  "  upstream_model = excluded.upstream_model,",
+  "  version = excluded.version,",
+  "  cache_hit_microcny_per_million = excluded.cache_hit_microcny_per_million,",
+  "  cache_miss_microcny_per_million = excluded.cache_miss_microcny_per_million,",
+  "  output_microcny_per_million = excluded.output_microcny_per_million,",
+  "  millipoints_per_cny_cost = excluded.millipoints_per_cny_cost,",
+  "  is_active = excluded.is_active,",
+  "  created_at = excluded.created_at,",
   "  updated_at = excluded.updated_at"
 ].join("\n"));
 function text(value, fallback = "") {
@@ -216,13 +258,9 @@ function integer(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
 }
-function real(value, fallback) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
 db.exec("BEGIN");
 try {
-  for (const row of Array.isArray(rows) ? rows : []) {
+  for (const row of gatewaySettings) {
     const id = text(row.id, "").trim();
     if (!id) continue;
     stmt.run(
@@ -233,9 +271,25 @@ try {
       text(row.upstream_model, "deepseek-chat").trim() || "deepseek-chat",
       text(row.api_base, "").trim(),
       text(row.api_key, "").trim(),
-      integer(row.input_microusd_per_million, 140000),
-      integer(row.output_microusd_per_million, 280000),
-      real(row.markup, 1),
+      text(row.updated_at, new Date().toISOString())
+    );
+  }
+  for (const row of rateCards) {
+    const id = text(row.id, "").trim();
+    const provider = text(row.provider, "").trim();
+    const upstreamModel = text(row.upstream_model, "").trim();
+    if (!id || !provider || !upstreamModel) continue;
+    rateCardStmt.run(
+      id,
+      provider,
+      upstreamModel,
+      integer(row.version, 1),
+      integer(row.cache_hit_microcny_per_million, 0),
+      integer(row.cache_miss_microcny_per_million, 0),
+      integer(row.output_microcny_per_million, 0),
+      integer(row.millipoints_per_cny_cost, 50000),
+      integer(row.is_active, 1) ? 1 : 0,
+      text(row.created_at, new Date().toISOString()),
       text(row.updated_at, new Date().toISOString())
     );
   }

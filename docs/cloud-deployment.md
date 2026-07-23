@@ -36,9 +36,6 @@ MIA_WECHAT_MP_APP_SECRET=<WeChat Official Account AppSecret>
 MIA_WECHAT_MP_TOKEN=<message push token configured in WeChat>
 MIA_MODEL_GATEWAY=deepseek
 MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY=<random internal proxy secret>
-MIA_MODEL_INPUT_MICROUSD_PER_1M=140000
-MIA_MODEL_OUTPUT_MICROUSD_PER_1M=280000
-MIA_MODEL_MARKUP=1
 # Required for Cloud Agent turns; keep this in /etc/mia-cloud/admin.env.
 # MIA_DEEPSEEK_API_KEY=<DeepSeek API key>
 ```
@@ -49,7 +46,7 @@ MIA_MODEL_MARKUP=1
 Cloud Claude Code also prepends the shared Agent Python venv to `PATH`. The default venv is `/opt/mia-agent-runtime/python`; deploy scripts create it with Python 3.12 and preinstall common office/data packages such as `python-pptx`, `python-docx`, `openpyxl`, `pandas`, `matplotlib`, `pillow`, `reportlab`, `pypdf`, `requests`, `beautifulsoup4`, and `lxml`. Override with `MIA_CLOUD_AGENT_PYTHON_VENV`, `MIA_CLOUD_AGENT_PYTHON_BIN`, or `MIA_CLOUD_AGENT_PYTHON_PACKAGES` if a host needs a different toolchain.
 On China-hosted VPS networks, Debian apt metadata or PyPI downloads can hang when they use upstream defaults. Set `MIA_DEBIAN_APT_MIRROR=https://mirrors.tencent.com/debian` and `MIA_PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple` before running `install-cloud-release-local.sh` or `cloud:deploy`. If unset, the shared Agent Python venv uses the Tencent PyPI mirror by default.
 Cloud runtime now supports `cloud-claude-code` only.
-`MIA_MODEL_GATEWAY=deepseek` powers Mia's paid model gateway and admin billing. Cloud Claude Code receives a per-user internal proxy token, calls `/api/internal/model-proxy/v1`, and is charged against that user's Mia model balance. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository.
+`MIA_MODEL_GATEWAY=deepseek` powers Mia's point-based model gateway and admin billing. Cloud Claude Code receives a per-user internal proxy token, calls `/api/internal/model-proxy/v1`, and consumes that user's Mia model points. Put `MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY`, `MIA_DEEPSEEK_API_KEY`, and admin credentials in `/etc/mia-cloud/admin.env`, not in the repository. The admin page keeps a versioned rate card per upstream model; it records cache-hit input, cache-miss input, and output costs in yuan per million tokens, then settles usage at the configured 50 points per yuan of upstream cost. The current retail rule is ¥1 = 20 points.
 
 ## WeChat Official Account Login
 
@@ -57,13 +54,13 @@ Mia Cloud uses the Official Account identity as the only cloud account login. Co
 
 Mia creates a temporary `QR_STR_SCENE` code and completes login from the pushed `subscribe` or `SCAN` event. `JS接口安全域名`, web authorization domain, OAuth callback, and “使用完整服务” are not used for this login path. Profile name and avatar come from the Official Account user info API when available; otherwise the account is still bound by the event's real `openid`.
 
-To grant first-version manual credits before a payment provider is wired:
+To grant points manually before a payment provider is wired:
 
 ```bash
 curl -u "$MIA_CLOUD_ADMIN_USERNAME:$MIA_CLOUD_ADMIN_PASSWORD" \
   -H 'content-type: application/json' \
-  -d '{"account":"user@example.com","amountUsd":5,"reason":"manual_topup"}' \
-  https://mia.gifgif.cn/api/admin/model-credits/grant
+  -d '{"account":"user@example.com","points":20,"reason":"manual_topup"}' \
+  https://mia.gifgif.cn/api/admin/model-points/grant
 ```
 
 ## Optional LiteLLM Model Gateway

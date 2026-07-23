@@ -28,10 +28,10 @@
     return "";
   }
 
-  function formatUsdFromMicro(value) {
-    const usd = Number(value || 0) / 1_000_000;
-    if (!usd) return "$0";
-    return `$${usd.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+  function formatPoints(value) {
+    const points = Number(value || 0);
+    if (!Number.isFinite(points)) return "0 积分";
+    return `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 }).format(points)} 积分`;
   }
 
   function cloudAccountKey(cloud = {}) {
@@ -50,7 +50,7 @@
   function renderModelBalanceSignedOut() {
     setModelBalanceVisible(false);
     if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = "";
-    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "登录后可查看 Mia 模型额度。";
+    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "登录后可查看 Mia 模型积分。";
   }
 
   function renderMobileScanSignedOut() {
@@ -98,21 +98,25 @@
   function renderModelBalancePayload(payload) {
     const balance = payload?.balance || {};
     const usage = Array.isArray(payload?.recentUsage) ? payload.recentUsage[0] : null;
-    const amount = Number(balance.balanceMicrousd || 0);
-    const charge = Number(usage?.chargeMicrousd || 0);
+    const promotion = Array.isArray(payload?.promotionClaims) ? payload.promotionClaims[0] : null;
+    const amount = Number(balance.balancePoints || 0);
+    const charge = Number(usage?.chargePoints || 0);
+    const promotionAmount = Number(promotion?.grantPoints || 0);
     setModelBalanceVisible(true);
-    if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = formatUsdFromMicro(amount);
+    if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = formatPoints(amount);
     if (els?.cloudModelBalanceMeta) {
-      els.cloudModelBalanceMeta.textContent = charge > 0
-        ? `最近扣费 ${formatUsdFromMicro(charge)}`
-        : "暂无模型调用扣费记录。";
+      els.cloudModelBalanceMeta.textContent = promotionAmount > 0
+        ? `${promotion?.campaignName || "新用户活动"}已赠 ${formatPoints(promotionAmount)}`
+        : charge > 0
+        ? `最近消耗 ${formatPoints(charge)}`
+        : "暂无模型调用积分记录。";
     }
   }
 
   function renderModelBalanceLoading() {
     setModelBalanceVisible(true);
     if (els?.cloudModelBalanceAmount) els.cloudModelBalanceAmount.textContent = "读取中…";
-    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "正在读取 Mia 模型额度。";
+    if (els?.cloudModelBalanceMeta) els.cloudModelBalanceMeta.textContent = "正在读取 Mia 模型积分。";
   }
 
   function modelBalanceErrorCopy(error) {
@@ -120,12 +124,12 @@
     if (/No handler registered|cloud:model-balance|remote method/i.test(message)) {
       return {
         amount: "暂不可用",
-        meta: "重启 Mia 后可读取模型额度。"
+        meta: "重启 Mia 后可读取模型积分。"
       };
     }
     return {
       amount: "读取失败",
-      meta: message || "额度读取失败。"
+      meta: message || "积分读取失败。"
     };
   }
 
@@ -157,7 +161,7 @@
     }
     if (balanceState.inFlight) return balanceState.inFlight;
     if (typeof fetchModelBalance !== "function") {
-      renderModelBalanceError(new Error("当前版本暂不能读取模型额度。"));
+      renderModelBalanceError(new Error("当前版本暂不能读取模型积分。"));
       return null;
     }
     renderModelBalanceLoading();
@@ -171,7 +175,7 @@
         return balanceState.payload;
       })
       .catch((error) => {
-        balanceState.error = error || new Error("额度读取失败。");
+        balanceState.error = error || new Error("积分读取失败。");
         balanceState.fetchedAt = Date.now();
         renderModelBalanceError(error);
         return null;

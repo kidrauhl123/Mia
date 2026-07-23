@@ -3,12 +3,12 @@
  * https://github.com/songquanpeng/one-api
  * Copyright (c) 2023 JustSong
  */
-const MICRO_USD = 1_000_000;
 const CUSTOM_UPSTREAM_MODEL_VALUE = "__custom__";
 
 const PAGE_META = {
   overview: { eyebrow: "Dashboard", title: "总览" },
-  users: { eyebrow: "Users", title: "用户用量" },
+  users: { eyebrow: "Users", title: "用户积分" },
+  activities: { eyebrow: "Promotions", title: "新用户活动" },
   logs: { eyebrow: "Logs", title: "调用日志" },
   gateway: { eyebrow: "Gateway", title: "模型网关" }
 };
@@ -17,8 +17,9 @@ const state = {
   activePage: "overview",
   status: null,
   usage: null,
+  campaigns: null,
   selectedUser: null,
-  inlineCreditUserId: ""
+  inlinePointUserId: ""
 };
 
 const els = {
@@ -40,9 +41,10 @@ const els = {
   apiKey: document.getElementById("apiKeyInput"),
   apiBase: document.getElementById("apiBaseInput"),
   apiVersion: document.getElementById("apiVersionInput"),
-  inputPrice: document.getElementById("inputPriceInput"),
-  outputPrice: document.getElementById("outputPriceInput"),
-  markup: document.getElementById("markupInput"),
+  cacheHitCost: document.getElementById("cacheHitCostInput"),
+  cacheMissCost: document.getElementById("cacheMissCostInput"),
+  outputCost: document.getElementById("outputCostInput"),
+  pointsPerCnyCost: document.getElementById("pointsPerCnyCostInput"),
   save: document.getElementById("saveModelButton"),
   test: document.getElementById("testModelButton"),
   output: document.getElementById("adminOutput"),
@@ -62,13 +64,20 @@ const els = {
   logSearch: document.getElementById("logSearchInput"),
   logStatus: document.getElementById("logStatusSelect"),
   usageLogsBody: document.getElementById("usageLogsBody"),
-  userCreditForm: document.getElementById("userCreditForm"),
+  userPointForm: document.getElementById("userPointForm"),
   userAccount: document.getElementById("userAccountInput"),
-  creditAmount: document.getElementById("creditAmountInput"),
   lookupUser: document.getElementById("lookupUserButton"),
-  grantCredit: document.getElementById("grantCreditButton"),
   selectedUserUsage: document.getElementById("selectedUserUsage"),
-  usageUsersBody: document.getElementById("usageUsersBody")
+  usageUsersBody: document.getElementById("usageUsersBody"),
+  campaignForm: document.getElementById("campaignForm"),
+  campaignName: document.getElementById("campaignNameInput"),
+  campaignPoints: document.getElementById("campaignPointsInput"),
+  campaignStartsAt: document.getElementById("campaignStartsAtInput"),
+  campaignEndsAt: document.getElementById("campaignEndsAtInput"),
+  campaignGrantExpiresAt: document.getElementById("campaignGrantExpiresAtInput"),
+  campaignMaxClaims: document.getElementById("campaignMaxClaimsInput"),
+  createCampaign: document.getElementById("createCampaignButton"),
+  campaignList: document.getElementById("campaignList")
 };
 
 function setText(element, value) {
@@ -84,8 +93,11 @@ function setNotice(text) {
 }
 
 function setBusy(busy) {
-  [els.save, els.test, els.refreshUsage, els.lookupUser, els.grantCredit].forEach((button) => {
+  [els.save, els.test, els.refreshUsage, els.lookupUser, els.createCampaign].forEach((button) => {
     if (button) button.disabled = Boolean(busy);
+  });
+  document.querySelectorAll("[data-campaign-action]").forEach((button) => {
+    button.disabled = Boolean(busy);
   });
 }
 
@@ -112,10 +124,14 @@ function formatNumber(value) {
   return new Intl.NumberFormat("zh-CN").format(Number(value || 0));
 }
 
-function formatUsdFromMicro(value) {
-  const usd = Number(value || 0) / MICRO_USD;
-  if (!usd) return "$0";
-  return `$${usd.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+function pointValue(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 }).format(number);
+}
+
+function formatPoints(value) {
+  return `${pointValue(value)} 积分`;
 }
 
 function formatTime(value) {
@@ -164,10 +180,46 @@ function setDeepSeekPickerVisible(visible, customVisible = false) {
   setText(els.upstreamCustomLabel, visible ? "自定义模型 ID" : "真实模型");
 }
 
+function selectedUpstreamModel() {
+  const pickerVisible = els.upstreamSelect && !els.upstreamSelect.parentElement.hidden;
+  const value = pickerVisible && els.upstreamSelect.value !== CUSTOM_UPSTREAM_MODEL_VALUE
+    ? els.upstreamSelect.value
+    : els.upstream.value;
+  const normalized = String(value || "").trim();
+  if (!normalized) throw new Error("请选择真实模型。");
+  return normalized;
+}
+
+function activeRateCardForModel(upstreamModel) {
+  const id = String(upstreamModel || "").trim();
+  const cards = Array.isArray(state.status?.rateCards) ? state.status.rateCards : [];
+  const found = cards.find((card) => card?.provider === "deepseek" && card?.upstreamModel === id);
+  if (found) return found;
+  const selected = state.status?.rateCard || state.status?.settings?.rateCard;
+  return selected?.upstreamModel === id ? selected : null;
+}
+
+function renderRateCard(rateCard = null) {
+  setFieldValue(els.cacheHitCost, rateCard?.cacheHitCnyPerMillion ?? "");
+  setFieldValue(els.cacheMissCost, rateCard?.cacheMissCnyPerMillion ?? "");
+  setFieldValue(els.outputCost, rateCard?.outputCnyPerMillion ?? "");
+  setFieldValue(els.pointsPerCnyCost, rateCard?.pointsPerCnyCost ?? 50);
+}
+
+function syncRateCardForSelectedModel() {
+  if (state.status?.gateway?.mode !== "deepseek") return;
+  try {
+    renderRateCard(activeRateCardForModel(selectedUpstreamModel()));
+  } catch {
+    // The custom model field is incomplete while the admin is typing.
+  }
+}
+
 function syncUpstreamCustomVisibility() {
   const custom = els.upstreamSelect?.value === CUSTOM_UPSTREAM_MODEL_VALUE;
   setDeepSeekPickerVisible(true, custom);
   if (!custom) setUpstreamRawValue(els.upstreamSelect?.value || "");
+  syncRateCardForSelectedModel();
 }
 
 function renderUpstreamModelOptions(modelOptions, selectedValue) {
@@ -200,16 +252,6 @@ function renderUpstreamModelOptions(modelOptions, selectedValue) {
   syncUpstreamCustomVisibility();
 }
 
-function selectedUpstreamModel() {
-  const pickerVisible = els.upstreamSelect && !els.upstreamSelect.parentElement.hidden;
-  const value = pickerVisible && els.upstreamSelect.value !== CUSTOM_UPSTREAM_MODEL_VALUE
-    ? els.upstreamSelect.value
-    : els.upstream.value;
-  const normalized = String(value || "").trim();
-  if (!normalized) throw new Error("请选择真实模型。");
-  return normalized;
-}
-
 function setActivePage(page) {
   const nextPage = PAGE_META[page] ? page : "overview";
   state.activePage = nextPage;
@@ -224,6 +266,7 @@ function setActivePage(page) {
   if (window.location.hash !== `#${nextPage}`) {
     history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${nextPage}`);
   }
+  if (nextPage === "activities" && !state.campaigns) loadCampaigns({ quiet: true });
 }
 
 function renderNotice() {
@@ -243,7 +286,7 @@ function renderNotice() {
   }
   setNotice(
     `网关 ${gateway.mode || "unknown"} 已接入，累计 ${formatNumber(totals.requestCount)} 次请求，` +
-    `活跃 ${formatNumber(totals.activeUserCount)} 个用户，已扣费 ${formatUsdFromMicro(totals.chargeMicrousd)}。`
+    `活跃 ${formatNumber(totals.activeUserCount)} 个用户，已消耗 ${formatPoints(totals.chargePoints)}。`
   );
 }
 
@@ -262,12 +305,11 @@ function renderDeepSeekStatus(data) {
   els.provider.value = "deepseek";
   setFieldVisible("provider", false);
   setFieldVisible("apiVersion", false);
+  setFieldVisible("pointRate", true);
   renderUpstreamModelOptions(data.modelOptions, upstreamModel);
   setFieldValue(els.publicModel, publicModel);
   setFieldValue(els.apiBase, settings.apiBase || data.gateway?.baseUrl || "https://api.deepseek.com/v1");
-  setFieldValue(els.inputPrice, settings.inputMicrousdPerMillion ?? data.pricing?.inputMicrousdPerMillion ?? 140000);
-  setFieldValue(els.outputPrice, settings.outputMicrousdPerMillion ?? data.pricing?.outputMicrousdPerMillion ?? 280000);
-  setFieldValue(els.markup, settings.markup ?? data.pricing?.markup ?? 1);
+  renderRateCard(activeRateCardForModel(upstreamModel) || data.rateCard);
   els.apiKey.required = !configured;
   els.apiKey.placeholder = configured ? "留空则保留已保存 key" : "填写 DeepSeek API Key";
   els.apiVersion.disabled = true;
@@ -276,6 +318,7 @@ function renderDeepSeekStatus(data) {
 function renderLiteLLMStatus(data) {
   setFieldVisible("provider", true);
   setFieldVisible("apiVersion", true);
+  setFieldVisible("pointRate", false);
   setDeepSeekPickerVisible(false);
   els.apiKey.required = true;
   els.apiKey.placeholder = "保存时必须填写";
@@ -312,11 +355,8 @@ function renderLiteLLMStatus(data) {
 
 function renderStatus(data) {
   state.status = data;
-  if (data.gateway?.mode === "deepseek") {
-    renderDeepSeekStatus(data);
-  } else {
-    renderLiteLLMStatus(data);
-  }
+  if (data.gateway?.mode === "deepseek") renderDeepSeekStatus(data);
+  else renderLiteLLMStatus(data);
   renderNotice();
 }
 
@@ -325,6 +365,7 @@ async function loadStatus({ quiet = false } = {}) {
     const data = await requestJson("/api/admin/model-gateway");
     renderStatus(data);
     if (!quiet) writeOutput(JSON.stringify(data, null, 2));
+    return data;
   } catch (error) {
     els.badge.textContent = "异常";
     els.summary.textContent = error.message;
@@ -332,6 +373,7 @@ async function loadStatus({ quiet = false } = {}) {
     setText(els.metricGatewayDetail, error.message);
     setNotice(`模型网关读取失败：${error.message}`);
     if (!quiet) writeOutput(error.message);
+    return null;
   }
 }
 
@@ -353,37 +395,28 @@ function userLookupParam(query) {
   return `${key}=${encodeURIComponent(value)}`;
 }
 
-function userCreditPayload(query, amountUsd) {
-  const value = String(query || "").trim();
-  return /^\d+$/.test(value)
-    ? { userId: value, amountUsd, reason: "admin_panel" }
-    : { account: value, amountUsd, reason: "admin_panel" };
-}
-
 function balanceCell(user = {}, balance = {}) {
   const userId = String(user.id || "").trim();
-  const balanceText = formatUsdFromMicro(balance.balanceMicrousd);
+  const balanceText = formatPoints(balance.balancePoints);
   if (!userId) return balanceText;
-  const active = state.inlineCreditUserId === userId;
+  const active = state.inlinePointUserId === userId;
   return `
     <div class="balance-cell">
       <span>${balanceText}</span>
-      <button class="row-credit-button" type="button" data-credit-open="${escapeHtml(userId)}" aria-label="给 ${escapeHtml(userName(user))} 发放余额">+</button>
+      <button class="row-point-button" type="button" data-point-open="${escapeHtml(userId)}" aria-label="给 ${escapeHtml(userName(user))} 发放积分">+</button>
     </div>
     ${active ? `
-      <form class="row-credit-form" data-credit-form="${escapeHtml(userId)}">
-        <input data-credit-amount="${escapeHtml(userId)}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="USD" autocomplete="off">
-        <button class="row-credit-confirm" type="submit">确认</button>
-        <button class="row-credit-cancel" type="button" data-credit-cancel="${escapeHtml(userId)}">取消</button>
+      <form class="row-point-form" data-point-form="${escapeHtml(userId)}">
+        <input data-point-amount="${escapeHtml(userId)}" type="number" min="0.001" step="0.001" inputmode="decimal" placeholder="20 积分" autocomplete="off">
+        <button class="row-point-confirm" type="submit">确认</button>
+        <button class="row-point-cancel" type="button" data-point-cancel="${escapeHtml(userId)}">取消</button>
       </form>
     ` : ""}
   `;
 }
 
 function usersTableRows(users, compact = false) {
-  if (!users.length) {
-    return `<tr><td colspan="${compact ? 4 : 6}">暂无用户用量。</td></tr>`;
-  }
+  if (!users.length) return `<tr><td colspan="${compact ? 4 : 6}">暂无用户用量。</td></tr>`;
   return users.map((entry) => {
     const user = entry.user || {};
     const usage = entry.usage || {};
@@ -394,7 +427,7 @@ function usersTableRows(users, compact = false) {
           <td><strong>${escapeHtml(userName(user))}</strong><div class="muted">${escapeHtml(userMeta(user))}</div></td>
           <td>${balanceCell(user, balance)}</td>
           <td>${formatNumber(usage.requestCount)}</td>
-          <td>${formatUsdFromMicro(usage.chargeMicrousd)}</td>
+          <td>${formatPoints(usage.chargePoints)}</td>
         </tr>
       `;
     }
@@ -404,7 +437,7 @@ function usersTableRows(users, compact = false) {
         <td>${balanceCell(user, balance)}</td>
         <td>${formatNumber(usage.requestCount)}<div class="muted">失败 ${formatNumber(usage.failedCount)}</div></td>
         <td>${formatNumber(usage.totalTokens)}<div class="muted">${formatNumber(usage.promptTokens)} / ${formatNumber(usage.completionTokens)}</div></td>
-        <td>${formatUsdFromMicro(usage.chargeMicrousd)}</td>
+        <td>${formatPoints(usage.chargePoints)}</td>
         <td>${formatTime(usage.lastUsedAt)}</td>
       </tr>
     `;
@@ -425,15 +458,8 @@ function filteredLogs() {
     if (status && log.status !== status) return false;
     if (!needle) return true;
     const user = userForUsage(log);
-    const haystack = [
-      log.modelId,
-      log.upstreamModel,
-      log.provider,
-      log.status,
-      log.error,
-      userSearchText(user)
-    ].join(" ").toLowerCase();
-    return haystack.includes(needle);
+    return [log.modelId, log.upstreamModel, log.provider, log.status, log.error, userSearchText(user)]
+      .join(" ").toLowerCase().includes(needle);
   });
 }
 
@@ -459,7 +485,7 @@ function renderLogs() {
         <td>${statusPill(log.status)}</td>
         <td>${formatNumber(log.promptTokens)}</td>
         <td>${formatNumber(log.completionTokens)}</td>
-        <td>${formatUsdFromMicro(log.chargeMicrousd)}</td>
+        <td>${formatPoints(log.chargePoints)}</td>
         <td class="error-cell">${error}</td>
       </tr>
     `;
@@ -476,7 +502,7 @@ function renderRecentUsageList(logs) {
     return `
       <div class="event-row">
         <strong>${escapeHtml(userName(user))} · ${escapeHtml(log.modelId || "-")}</strong>
-        <span>${statusPill(log.status)} ${formatNumber(log.totalTokens)} tokens · ${formatUsdFromMicro(log.chargeMicrousd)} · ${formatTime(log.createdAt)}</span>
+        <span>${statusPill(log.status)} ${formatNumber(log.totalTokens)} tokens · ${formatPoints(log.chargePoints)} · ${formatTime(log.createdAt)}</span>
         ${log.error ? `<span>${escapeHtml(log.error)}</span>` : ""}
       </div>
     `;
@@ -492,8 +518,8 @@ function renderUsageSummary(data) {
   setText(els.metricRequests, formatNumber(totals.requestCount));
   setText(els.metricSuccessText, `成功 ${formatNumber(totals.succeededCount)} / 失败 ${formatNumber(totals.failedCount)}`);
   setText(els.metricTokens, formatNumber(totals.totalTokens));
-  setText(els.metricCharge, formatUsdFromMicro(totals.chargeMicrousd));
-  setText(els.metricBalance, formatUsdFromMicro(totals.balanceMicrousd));
+  setText(els.metricCharge, formatPoints(totals.chargePoints));
+  setText(els.metricBalance, formatPoints(totals.balancePoints));
   setText(
     els.usageSummary,
     `总用户 ${formatNumber(totals.userCount)}，活跃 ${formatNumber(totals.activeUserCount)}，成功 ${formatNumber(totals.succeededCount)} 次，失败 ${formatNumber(totals.failedCount)} 次`
@@ -510,6 +536,7 @@ async function loadUsageSummary({ quiet = false } = {}) {
     const data = await requestJson("/api/admin/model-usage-summary");
     renderUsageSummary(data);
     if (!quiet) writeOutput(JSON.stringify(data, null, 2));
+    return data;
   } catch (error) {
     setText(els.usageSummary, error.message);
     els.overviewUsersBody.innerHTML = '<tr><td colspan="4">统计读取失败。</td></tr>';
@@ -518,6 +545,154 @@ async function loadUsageSummary({ quiet = false } = {}) {
     els.recentUsageList.innerHTML = `<div class="event-row">${escapeHtml(error.message)}</div>`;
     setNotice(`模型用量读取失败：${error.message}`);
     if (!quiet) writeOutput(error.message);
+    return null;
+  }
+}
+
+function campaignStatusText(campaign = {}) {
+  if (campaign.status === "active" && campaign.isLive) return "进行中";
+  if (campaign.status === "active" && Date.parse(campaign.startsAt || "") > Date.now()) return "待开始";
+  if (campaign.status === "active") return "已结束";
+  if (campaign.status === "paused") return "已暂停";
+  if (campaign.status === "ended") return "已结束";
+  return "草稿";
+}
+
+function campaignWindowText(campaign = {}) {
+  const startsAt = formatTime(campaign.startsAt);
+  const endsAt = campaign.endsAt ? formatTime(campaign.endsAt) : "长期有效";
+  return `${startsAt} 至 ${endsAt}`;
+}
+
+function campaignGrantExpiryText(campaign = {}) {
+  return campaign.grantExpiresAt ? `积分至 ${formatTime(campaign.grantExpiresAt)} 失效` : "积分长期有效";
+}
+
+function campaignLimitText(campaign = {}) {
+  const claimed = formatNumber(campaign.claimedCount);
+  if (!Number(campaign.maxClaims)) return `已发放 ${claimed} 人`;
+  return `已发放 ${claimed} / ${formatNumber(campaign.maxClaims)} 人`;
+}
+
+function campaignActions(campaign = {}) {
+  const id = escapeHtml(campaign.id);
+  if (campaign.status === "active") {
+    return `<button class="admin-secondary campaign-action" type="button" data-campaign-action="pause" data-campaign-id="${id}">暂停</button>`;
+  }
+  if (campaign.status === "draft" || campaign.status === "paused") {
+    return `<button class="admin-primary campaign-action" type="button" data-campaign-action="activate" data-campaign-id="${id}">启用</button>`;
+  }
+  return "";
+}
+
+function renderCampaigns(data = {}) {
+  const campaigns = Array.isArray(data.campaigns) ? data.campaigns : [];
+  state.campaigns = campaigns;
+  if (!els.campaignList) return;
+  if (!campaigns.length) {
+    els.campaignList.innerHTML = '<div class="event-row">还没有活动。先创建一份草稿。</div>';
+    return;
+  }
+  els.campaignList.innerHTML = campaigns.map((campaign) => `
+    <article class="campaign-row">
+      <div class="campaign-main">
+        <div class="campaign-title-row">
+          <strong>${escapeHtml(campaign.name)}</strong>
+          <span class="campaign-status ${escapeHtml(campaign.status || "draft")}">${escapeHtml(campaignStatusText(campaign))}</span>
+        </div>
+        <div class="campaign-meta">
+          <span>每人 ${formatPoints(campaign.grantPoints)}</span>
+          <span>${escapeHtml(campaignLimitText(campaign))}</span>
+          <span>${escapeHtml(campaignWindowText(campaign))}</span>
+          <span>${escapeHtml(campaignGrantExpiryText(campaign))}</span>
+        </div>
+      </div>
+      <div class="campaign-actions">${campaignActions(campaign)}</div>
+    </article>
+  `).join("");
+}
+
+async function loadCampaigns({ quiet = false } = {}) {
+  if (!els.campaignList) return null;
+  try {
+    const data = await requestJson("/api/admin/model-point-campaigns");
+    renderCampaigns(data);
+    if (!quiet) writeOutput(JSON.stringify(data, null, 2));
+    return data;
+  } catch (error) {
+    state.campaigns = [];
+    els.campaignList.innerHTML = `<div class="event-row">${escapeHtml(error.message)}</div>`;
+    if (!quiet) writeOutput(error.message);
+    return null;
+  }
+}
+
+function dateTimeInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function isoFromDateTimeInput(value, label) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const timestamp = Date.parse(text);
+  if (!Number.isFinite(timestamp)) throw new Error(`${label}无效。`);
+  return new Date(timestamp).toISOString();
+}
+
+async function createCampaign(event) {
+  event.preventDefault();
+  setBusy(true);
+  try {
+    const name = els.campaignName?.value.trim();
+    const points = Number(els.campaignPoints?.value);
+    const startsAt = isoFromDateTimeInput(els.campaignStartsAt?.value, "活动开始时间");
+    const endsAt = isoFromDateTimeInput(els.campaignEndsAt?.value, "活动结束时间");
+    const grantExpiresAt = isoFromDateTimeInput(els.campaignGrantExpiresAt?.value, "积分有效期");
+    const maxClaimsText = String(els.campaignMaxClaims?.value || "").trim();
+    if (!name) throw new Error("请填写活动名称。");
+    if (!Number.isFinite(points) || points <= 0) throw new Error("请填写正数赠送积分。");
+    if (!startsAt) throw new Error("请填写活动开始时间。");
+    const payload = { name, points, startsAt, ...(endsAt ? { endsAt } : {}), ...(grantExpiresAt ? { grantExpiresAt } : {}) };
+    if (maxClaimsText) {
+      const maxClaims = Number(maxClaimsText);
+      if (!Number.isSafeInteger(maxClaims) || maxClaims <= 0) throw new Error("总名额必须是正整数。");
+      payload.maxClaims = maxClaims;
+    }
+    const data = await requestJson("/api/admin/model-point-campaigns", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+    els.campaignForm.reset();
+    if (els.campaignStartsAt) els.campaignStartsAt.value = dateTimeInputValue();
+    writeOutput(JSON.stringify(data, null, 2));
+    await loadCampaigns({ quiet: true });
+  } catch (error) {
+    writeOutput(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function updateCampaignStatus(event) {
+  const button = event.target.closest("[data-campaign-action]");
+  if (!button) return;
+  const id = String(button.dataset.campaignId || "").trim();
+  const action = String(button.dataset.campaignAction || "").trim();
+  if (!id || !action) return;
+  setBusy(true);
+  try {
+    const status = action === "activate" ? "active" : "paused";
+    const data = await requestJson(`/api/admin/model-point-campaigns/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status })
+    });
+    writeOutput(JSON.stringify(data, null, 2));
+    await loadCampaigns({ quiet: true });
+  } catch (error) {
+    writeOutput(error.message);
+  } finally {
+    setBusy(false);
   }
 }
 
@@ -527,11 +702,11 @@ function renderUserDetail(data) {
   const usage = Array.isArray(data.recentUsage) ? data.recentUsage : [];
   state.selectedUser = user;
   const recent = usage.slice(0, 6).map((item) => (
-    `<div>${escapeHtml(item.modelId || "-")} · ${statusPill(item.status)} · ${formatNumber(item.totalTokens)} tokens · ${formatUsdFromMicro(item.chargeMicrousd)} · ${formatTime(item.createdAt)}</div>`
+    `<div>${escapeHtml(item.modelId || "-")} · ${statusPill(item.status)} · ${formatNumber(item.totalTokens)} tokens · ${formatPoints(item.chargePoints)} · ${formatTime(item.createdAt)}</div>`
   )).join("") || "<div>暂无调用记录。</div>";
   els.selectedUserUsage.hidden = false;
   els.selectedUserUsage.innerHTML = `
-    <div><strong>${escapeHtml(userName(user))}</strong> · 余额 ${formatUsdFromMicro(balance.balanceMicrousd)}</div>
+    <div><strong>${escapeHtml(userName(user))}</strong> · 积分 ${formatPoints(balance.balancePoints)}</div>
     ${recent}
   `;
 }
@@ -539,10 +714,29 @@ function renderUserDetail(data) {
 async function lookupUser({ quiet = false } = {}) {
   const account = els.userAccount.value.trim();
   if (!account) throw new Error("请填写 UID 或用户账号。");
-  const data = await requestJson(`/api/admin/model-credits?${userLookupParam(account)}`);
+  const data = await requestJson(`/api/admin/model-points?${userLookupParam(account)}`);
   renderUserDetail(data);
   if (!quiet) writeOutput(JSON.stringify(data, null, 2));
   return data;
+}
+
+function numericInputValue(element, label, { min = 0, strictPositive = false } = {}) {
+  const raw = String(element?.value || "").trim();
+  if (!raw) throw new Error(`请填写${label}。`);
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min || (strictPositive && value <= 0)) {
+    throw new Error(`${label}格式不对。`);
+  }
+  return value;
+}
+
+function pointRateCardInput() {
+  return {
+    cacheHitCnyPerMillion: numericInputValue(els.cacheHitCost, "缓存命中输入成本"),
+    cacheMissCnyPerMillion: numericInputValue(els.cacheMissCost, "缓存未命中输入成本"),
+    outputCnyPerMillion: numericInputValue(els.outputCost, "输出成本"),
+    pointsPerCnyCost: numericInputValue(els.pointsPerCnyCost, "每元成本折算积分", { strictPositive: true })
+  };
 }
 
 async function saveGateway(event) {
@@ -550,19 +744,18 @@ async function saveGateway(event) {
   setBusy(true);
   writeOutput("正在保存...");
   try {
+    const payload = {
+      modelName: els.publicModel.value,
+      provider: els.provider.value,
+      upstreamModel: selectedUpstreamModel(),
+      apiKey: els.apiKey.value,
+      apiBase: els.apiBase.value,
+      apiVersion: els.apiVersion.value
+    };
+    if (state.status?.gateway?.mode === "deepseek") payload.rateCard = pointRateCardInput();
     const data = await requestJson("/api/admin/model-gateway", {
       method: "POST",
-      body: JSON.stringify({
-        modelName: els.publicModel.value,
-        provider: els.provider.value,
-        upstreamModel: selectedUpstreamModel(),
-        apiKey: els.apiKey.value,
-        apiBase: els.apiBase.value,
-        apiVersion: els.apiVersion.value,
-        inputMicrousdPerMillion: els.inputPrice.value,
-        outputMicrousdPerMillion: els.outputPrice.value,
-        markup: els.markup.value
-      })
+      body: JSON.stringify(payload)
     });
     els.apiKey.value = "";
     writeOutput(JSON.stringify(data, null, 2));
@@ -591,7 +784,7 @@ async function refreshAll() {
   setBusy(true);
   writeOutput("正在刷新...");
   try {
-    await Promise.all([loadStatus({ quiet: true }), loadUsageSummary({ quiet: true })]);
+    await Promise.all([loadStatus({ quiet: true }), loadUsageSummary({ quiet: true }), loadCampaigns({ quiet: true })]);
     writeOutput("已刷新。");
   } catch (error) {
     writeOutput(error.message);
@@ -600,30 +793,9 @@ async function refreshAll() {
   }
 }
 
-async function grantCredit() {
-  setBusy(true);
-  try {
-    const account = els.userAccount.value.trim();
-    const amountUsd = Number(els.creditAmount.value);
-    if (!account) throw new Error("请填写 UID 或用户账号。");
-    if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("请填写正数充值金额。");
-    const data = await requestJson("/api/admin/model-credits/grant", {
-      method: "POST",
-      body: JSON.stringify(userCreditPayload(account, amountUsd))
-    });
-    writeOutput(JSON.stringify(data, null, 2));
-    await lookupUser({ quiet: true });
-    await loadUsageSummary({ quiet: true });
-  } catch (error) {
-    writeOutput(error.message);
-  } finally {
-    setBusy(false);
-  }
-}
-
-function focusInlineCreditInput(userId) {
-  const input = Array.from(document.querySelectorAll("[data-credit-amount]"))
-    .find((node) => node.dataset.creditAmount === userId);
+function focusInlinePointInput(userId) {
+  const input = Array.from(document.querySelectorAll("[data-point-amount]"))
+    .find((node) => node.dataset.pointAmount === userId);
   if (input) input.focus();
 }
 
@@ -631,16 +803,16 @@ function rerenderUsageTables() {
   if (state.usage) renderUsageSummary(state.usage);
 }
 
-async function grantInlineCredit(userId, amountUsd) {
+async function grantInlinePoints(userId, points) {
   if (!userId) throw new Error("缺少用户 UID。");
-  if (!Number.isFinite(amountUsd) || amountUsd <= 0) throw new Error("请填写正数充值金额。");
+  if (!Number.isFinite(points) || points <= 0) throw new Error("请填写正数积分。");
   setBusy(true);
   try {
-    const data = await requestJson("/api/admin/model-credits/grant", {
+    const data = await requestJson("/api/admin/model-points/grant", {
       method: "POST",
-      body: JSON.stringify({ userId, amountUsd, reason: "admin_panel" })
+      body: JSON.stringify({ userId, points, reason: "admin_panel" })
     });
-    state.inlineCreditUserId = "";
+    state.inlinePointUserId = "";
     writeOutput(JSON.stringify(data, null, 2));
     await loadUsageSummary({ quiet: true });
   } finally {
@@ -648,29 +820,29 @@ async function grantInlineCredit(userId, amountUsd) {
   }
 }
 
-function handleCreditTableClick(event) {
-  const open = event.target.closest("[data-credit-open]");
+function handlePointTableClick(event) {
+  const open = event.target.closest("[data-point-open]");
   if (open) {
-    state.inlineCreditUserId = String(open.dataset.creditOpen || "");
+    state.inlinePointUserId = String(open.dataset.pointOpen || "");
     rerenderUsageTables();
-    focusInlineCreditInput(state.inlineCreditUserId);
+    focusInlinePointInput(state.inlinePointUserId);
     return;
   }
-  const cancel = event.target.closest("[data-credit-cancel]");
+  const cancel = event.target.closest("[data-point-cancel]");
   if (cancel) {
-    state.inlineCreditUserId = "";
+    state.inlinePointUserId = "";
     rerenderUsageTables();
   }
 }
 
-async function handleCreditTableSubmit(event) {
-  const form = event.target.closest("[data-credit-form]");
+async function handlePointTableSubmit(event) {
+  const form = event.target.closest("[data-point-form]");
   if (!form) return;
   event.preventDefault();
-  const userId = String(form.dataset.creditForm || "");
-  const input = form.querySelector("[data-credit-amount]");
+  const userId = String(form.dataset.pointForm || "");
+  const input = form.querySelector("[data-point-amount]");
   try {
-    await grantInlineCredit(userId, Number(input?.value));
+    await grantInlinePoints(userId, Number(input?.value));
   } catch (error) {
     writeOutput(error.message);
   }
@@ -697,11 +869,13 @@ els.refreshUsage.addEventListener("click", refreshAll);
 els.clearOutput.addEventListener("click", () => writeOutput("等待操作。"));
 els.logSearch.addEventListener("input", renderLogs);
 els.logStatus.addEventListener("change", renderLogs);
-els.overviewUsersBody.addEventListener("click", handleCreditTableClick);
-els.usageUsersBody.addEventListener("click", handleCreditTableClick);
-els.overviewUsersBody.addEventListener("submit", handleCreditTableSubmit);
-els.usageUsersBody.addEventListener("submit", handleCreditTableSubmit);
-els.userCreditForm.addEventListener("submit", async (event) => {
+els.overviewUsersBody.addEventListener("click", handlePointTableClick);
+els.usageUsersBody.addEventListener("click", handlePointTableClick);
+els.overviewUsersBody.addEventListener("submit", handlePointTableSubmit);
+els.usageUsersBody.addEventListener("submit", handlePointTableSubmit);
+els.campaignForm?.addEventListener("submit", createCampaign);
+els.campaignList?.addEventListener("click", updateCampaignStatus);
+els.userPointForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setBusy(true);
   try {
@@ -712,9 +886,12 @@ els.userCreditForm.addEventListener("submit", async (event) => {
     setBusy(false);
   }
 });
-els.grantCredit?.addEventListener("click", grantCredit);
 
+if (els.campaignStartsAt && !els.campaignStartsAt.value) {
+  els.campaignStartsAt.value = dateTimeInputValue();
+}
 applyProviderPreset();
 setActivePage(initialPage());
 loadStatus({ quiet: true });
 loadUsageSummary({ quiet: true });
+loadCampaigns({ quiet: true });

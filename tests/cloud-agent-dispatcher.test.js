@@ -1208,7 +1208,7 @@ test("cloud-claude-code DM surfaces run failures as visible bot messages", async
     const dispatcher = makeDispatcher(ctx, {
       hermesImClient: {
         async runChat() {
-          throw new Error("Error code: 402 - {'error': '模型余额不足，请先充值。'}");
+          throw new Error("Error code: 402 - {'error': '模型积分不足，请先购买或充值。'}");
         }
       },
       broadcastPersistedEvent(userId, event) {
@@ -1228,7 +1228,7 @@ test("cloud-claude-code DM surfaces run failures as visible bot messages", async
     });
 
     assert.equal(reply.sender_ref, BOT_ID);
-    assert.match(reply.body_md, /模型调用失败：模型余额不足，请先充值。/);
+    assert.match(reply.body_md, /模型调用失败：模型积分不足，请先购买或充值。/);
     const run = ctx.cloudStore.getDb()
       .prepare("SELECT status, error_json FROM cloud_agent_runs ORDER BY created_at DESC LIMIT 1")
       .get();

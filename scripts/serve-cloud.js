@@ -208,6 +208,18 @@ try {
 } catch {
   ({ createModelBillingStore } = require("./src/cloud/model-billing-store.js"));
 }
+let createModelPointPromotionStore = null;
+try {
+  ({ createModelPointPromotionStore } = require("../src/cloud/model-point-promotion-store.js"));
+} catch {
+  ({ createModelPointPromotionStore } = require("./src/cloud/model-point-promotion-store.js"));
+}
+let createModelRateCardStore = null;
+try {
+  ({ createModelRateCardStore } = require("../src/cloud/model-rate-card-store.js"));
+} catch {
+  ({ createModelRateCardStore } = require("./src/cloud/model-rate-card-store.js"));
+}
 let modelGatewayStoreModule = null;
 try {
   modelGatewayStoreModule = require("../src/cloud/model-gateway-store.js");
@@ -1344,26 +1356,12 @@ async function listDeepSeekModelOptions(context = {}) {
   ]);
 }
 
-function modelPricing(context = {}) {
-  const inputMicrousdPerMillion = Number(
-    context.modelInputMicrousdPerMillion
-      || modelGatewaySettings(context)?.inputMicrousdPerMillion
-      || process.env.MIA_MODEL_INPUT_MICROUSD_PER_1M
-      || process.env.MIA_DEEPSEEK_INPUT_MICROUSD_PER_1M
-      || 140000
-  );
-  const outputMicrousdPerMillion = Number(
-    context.modelOutputMicrousdPerMillion
-      || modelGatewaySettings(context)?.outputMicrousdPerMillion
-      || process.env.MIA_MODEL_OUTPUT_MICROUSD_PER_1M
-      || process.env.MIA_DEEPSEEK_OUTPUT_MICROUSD_PER_1M
-      || 280000
-  );
-  return {
-    inputMicrousdPerMillion: Number.isFinite(inputMicrousdPerMillion) ? inputMicrousdPerMillion : 0,
-    outputMicrousdPerMillion: Number.isFinite(outputMicrousdPerMillion) ? outputMicrousdPerMillion : 0,
-    markup: Number(context.modelMarkup || modelGatewaySettings(context)?.markup || process.env.MIA_MODEL_MARKUP || 1)
-  };
+function modelRateCard(context = {}, upstreamModel = deepSeekUpstreamModel(context)) {
+  return context.modelRateCardStore?.getActiveRateCard?.("deepseek", upstreamModel) || null;
+}
+
+function listModelRateCards(context = {}) {
+  return context.modelRateCardStore?.listActiveRateCards?.() || [];
 }
 
 function deepSeekApiKeySource(context = {}) {
@@ -1375,14 +1373,12 @@ function deepSeekApiKeySource(context = {}) {
 
 function publicDeepSeekGatewaySettings(context = {}) {
   const settings = modelGatewaySettings(context);
-  const pricing = modelPricing(context);
+  const rateCard = modelRateCard(context);
   if (settings) {
     return {
       ...modelGatewayStoreModule.publicSettings(settings),
       apiBase: settings.apiBase || deepSeekBaseUrl(context),
-      inputMicrousdPerMillion: pricing.inputMicrousdPerMillion,
-      outputMicrousdPerMillion: pricing.outputMicrousdPerMillion,
-      markup: pricing.markup,
+      rateCard,
       hasApiKey: Boolean(settings.apiKey || deepSeekApiKey(context))
     };
   }
@@ -1392,26 +1388,14 @@ function publicDeepSeekGatewaySettings(context = {}) {
     provider: "deepseek",
     upstreamModel: deepSeekUpstreamModel(context),
     apiBase: deepSeekBaseUrl(context),
-    inputMicrousdPerMillion: pricing.inputMicrousdPerMillion,
-    outputMicrousdPerMillion: pricing.outputMicrousdPerMillion,
-    markup: pricing.markup,
+    rateCard,
     updatedAt: "",
     hasApiKey: Boolean(deepSeekApiKey(context))
   };
 }
 
-function numericGatewayValue(value, fallback, label, { integer = true, min = 0 } = {}) {
-  if (value === undefined || value === null || String(value).trim() === "") return fallback;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < min) {
-    throw new Error(`${label} 格式不对。`);
-  }
-  return integer ? Math.round(parsed) : parsed;
-}
-
 function normalizeDeepSeekAdminInput(input = {}, context = {}) {
   const existing = modelGatewaySettings(context);
-  const pricing = modelPricing(context);
   const modelName = String(input.modelId || input.modelName || existing?.modelId || "mia-auto").trim() || "mia-auto";
   if (!/^[A-Za-z0-9_.-]{2,80}$/.test(modelName)) {
     throw new Error("Mia 模型名只能包含字母、数字、点、下划线和横线。");
@@ -1438,19 +1422,29 @@ function normalizeDeepSeekAdminInput(input = {}, context = {}) {
     provider: "deepseek",
     upstreamModel,
     apiKey: String(input.apiKey || "").trim(),
-    apiBase,
-    inputMicrousdPerMillion: numericGatewayValue(
-      input.inputMicrousdPerMillion,
-      pricing.inputMicrousdPerMillion || 140000,
-      "输入 token 单价"
-    ),
-    outputMicrousdPerMillion: numericGatewayValue(
-      input.outputMicrousdPerMillion,
-      pricing.outputMicrousdPerMillion || 280000,
-      "输出 token 单价"
-    ),
-    markup: numericGatewayValue(input.markup, pricing.markup || 1, "加价倍率", { integer: false, min: 0 })
+    apiBase
   };
+}
+
+function saveDeepSeekRateCard(context = {}, input = {}, upstreamModel = "") {
+  if (!context.modelRateCardStore?.saveRateCard) return null;
+  const rateInput = input.rateCard && typeof input.rateCard === "object" ? input.rateCard : input;
+  const hasRate = [
+    "cacheHitCnyPerMillion",
+    "cacheMissCnyPerMillion",
+    "outputCnyPerMillion",
+    "cacheHitMicrocnyPerMillion",
+    "cacheMissMicrocnyPerMillion",
+    "outputMicrocnyPerMillion",
+    "pointsPerCnyCost",
+    "millipointsPerCnyCost"
+  ].some((key) => Object.prototype.hasOwnProperty.call(rateInput, key));
+  if (!hasRate) return modelRateCard(context, upstreamModel);
+  return context.modelRateCardStore.saveRateCard({
+    ...rateInput,
+    provider: "deepseek",
+    upstreamModel
+  });
 }
 
 function modelFromRequestBody(body = {}) {
@@ -1787,6 +1781,7 @@ function selectDirectDeepSeekModel(context = {}, body = {}) {
 function recordDeepSeekModelUsage(context, {
   userId,
   selected,
+  rateCard = null,
   requestPath,
   usage = {},
   status = "succeeded",
@@ -1799,10 +1794,15 @@ function recordDeepSeekModelUsage(context, {
     provider: "deepseek",
     requestPath,
     usage,
-    pricing: modelPricing(context),
+    rateCard: rateCard || selected?.rateCard || modelRateCard(context, selected.upstreamModel),
     status,
     error
   });
+}
+
+function claimEligibleModelPointCampaigns(context, userId) {
+  if (!context.modelPointPromotionStore?.claimEligibleForUser) return [];
+  return context.modelPointPromotionStore.claimEligibleForUser(userId);
 }
 
 async function fetchDeepSeekChatCompletion(context = {}, upstreamBody = {}) {
@@ -1899,15 +1899,22 @@ async function proxyDeepSeekChatCompletion(req, res, context, url, { userId, pre
     writeError(res, 400, "模型不可用。");
     return true;
   }
+  const rateCard = modelRateCard(context, selected.upstreamModel);
+  if (!rateCard) {
+    writeError(res, 503, "模型积分费率未配置，请联系管理员。");
+    return true;
+  }
+  selected.rateCard = rateCard;
+  claimEligibleModelPointCampaigns(context, userId);
   if (!context.modelBillingStore.hasPositiveBalance(userId)) {
     recordDeepSeekModelUsage(context, {
       userId,
       requestPath: proxyPath,
       selected,
       status: "failed",
-      error: "模型余额不足，请先充值。"
+      error: "模型积分不足，请先购买或充值。"
     });
-    writeError(res, 402, "模型余额不足，请先充值。");
+    writeError(res, 402, "模型积分不足，请先购买或充值。");
     return true;
   }
 
@@ -1974,6 +1981,12 @@ async function proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, 
     writeAnthropicError(res, 400, "模型不可用。", "invalid_request_error");
     return true;
   }
+  const rateCard = modelRateCard(context, selected.upstreamModel);
+  if (!rateCard) {
+    writeAnthropicError(res, 503, "模型积分费率未配置，请联系管理员。", "configuration_error");
+    return true;
+  }
+  selected.rateCard = rateCard;
   if (!deepSeekAnthropicBaseUrl(context)) {
     const error = "DeepSeek Anthropic API 未配置；Claude Code 不会回退到 OpenAI 协议。";
     recordDeepSeekModelUsage(context, {
@@ -1986,15 +1999,16 @@ async function proxyDeepSeekAnthropicMessages(req, res, context, url, { userId, 
     writeAnthropicError(res, 503, error, "configuration_error");
     return true;
   }
+  claimEligibleModelPointCampaigns(context, userId);
   if (!context.modelBillingStore.hasPositiveBalance(userId)) {
     recordDeepSeekModelUsage(context, {
       userId,
       requestPath: proxyPath,
       selected,
       status: "failed",
-      error: "模型余额不足，请先充值。"
+      error: "模型积分不足，请先购买或充值。"
     });
-    writeAnthropicError(res, 402, "模型余额不足，请先充值。", "billing_error");
+    writeAnthropicError(res, 402, "模型积分不足，请先购买或充值。", "billing_error");
     return true;
   }
 
@@ -2239,7 +2253,10 @@ async function handleAdminModelGateway(req, res, context, url) {
       ...context.modelBillingStore.adminUsageSummary(limit)
     });
   }
-  if (req.method === "GET" && url.pathname === "/api/admin/model-credits") {
+  if (req.method === "GET" && url.pathname === "/api/admin/model-points") {
+    if (!context.modelBillingStore) {
+      return writeError(res, 503, "模型积分账本未初始化。");
+    }
     const account = String(url.searchParams.get("account") || "").trim();
     const userId = String(url.searchParams.get("userId") || "").trim();
     const user = userId
@@ -2253,30 +2270,67 @@ async function handleAdminModelGateway(req, res, context, url) {
       recentUsage: context.modelBillingStore?.listRecentUsage(user.id, 50) || []
     });
   }
-  if (req.method === "POST" && url.pathname === "/api/admin/model-credits/grant") {
+  if (req.method === "POST" && url.pathname === "/api/admin/model-points/grant") {
+    if (!context.modelBillingStore) {
+      return writeError(res, 503, "模型积分账本未初始化。");
+    }
     const body = await readJson(req);
     const user = body.userId
       ? context.cloudStore.getUserPublic(String(body.userId || ""))
       : context.cloudStore.getUserByUsername(String(body.account || body.username || ""));
     if (!user) return writeError(res, 404, "user not found");
-    const hasAmountUsd = body.amountUsd !== undefined || body.usd !== undefined;
-    const hasDeltaMicrousd = body.deltaMicrousd !== undefined;
-    const amountUsd = hasAmountUsd ? Number(body.amountUsd ?? body.usd) : 0;
-    const deltaMicrousd = hasDeltaMicrousd ? Number(body.deltaMicrousd) : 0;
-    if ((!hasAmountUsd && !hasDeltaMicrousd) || !Number.isFinite(amountUsd) || !Number.isFinite(deltaMicrousd)) {
-      return writeError(res, 400, "amountUsd or deltaMicrousd is required");
-    }
-    if ((hasDeltaMicrousd ? deltaMicrousd : Math.round(amountUsd * 1_000_000)) <= 0) {
-      return writeError(res, 400, "credit amount must be positive");
-    }
+    const hasPoints = body.points !== undefined || body.grantPoints !== undefined;
+    const hasMillipoints = body.deltaMillipoints !== undefined || body.grantMillipoints !== undefined;
+    if (!hasPoints && !hasMillipoints) return writeError(res, 400, "points or deltaMillipoints is required");
     const grantArgs = {
       userId: user.id,
-      reason: body.reason || "admin_grant"
+      reason: body.reason || "admin_grant",
+      sourceType: body.sourceType || "admin",
+      sourceId: body.sourceId || "",
+      expiresAt: body.expiresAt || ""
     };
-    if (hasDeltaMicrousd) grantArgs.deltaMicrousd = deltaMicrousd;
-    else grantArgs.amountUsd = amountUsd;
-    const balance = context.modelBillingStore.grantBalance(grantArgs);
+    if (hasMillipoints) grantArgs.deltaMillipoints = body.deltaMillipoints ?? body.grantMillipoints;
+    else grantArgs.points = body.points ?? body.grantPoints;
+    let balance;
+    try {
+      balance = context.modelBillingStore.grantPoints(grantArgs);
+    } catch (error) {
+      return writeError(res, error.status || 400, error.message || "积分发放失败。");
+    }
     return writeJson(res, 200, { ok: true, user, balance });
+  }
+  if (url.pathname === "/api/admin/model-point-campaigns") {
+    if (!context.modelPointPromotionStore) {
+      return writeError(res, 503, "活动积分系统未初始化。");
+    }
+    if (req.method === "GET") {
+      return writeJson(res, 200, {
+        ok: true,
+        campaigns: context.modelPointPromotionStore.listCampaigns()
+      });
+    }
+    if (req.method === "POST") {
+      try {
+        const campaign = context.modelPointPromotionStore.createCampaign(await readJson(req));
+        return writeJson(res, 201, { ok: true, campaign });
+      } catch (error) {
+        return writeError(res, error.status || 400, error.message || "创建活动失败。");
+      }
+    }
+  }
+  const campaignMatch = url.pathname.match(/^\/api\/admin\/model-point-campaigns\/([A-Za-z0-9_-]+)$/);
+  if (campaignMatch) {
+    if (!context.modelPointPromotionStore) {
+      return writeError(res, 503, "活动积分系统未初始化。");
+    }
+    if (req.method === "PATCH") {
+      try {
+        const campaign = context.modelPointPromotionStore.updateCampaign(campaignMatch[1], await readJson(req));
+        return writeJson(res, 200, { ok: true, campaign });
+      } catch (error) {
+        return writeError(res, error.status || 400, error.message || "更新活动失败。");
+      }
+    }
   }
   if (req.method === "GET" && url.pathname === "/api/admin/model-gateway") {
     if (modelGatewayMode(context) === "deepseek") {
@@ -2294,7 +2348,8 @@ async function handleAdminModelGateway(req, res, context, url) {
         models: directDeepSeekModels(context),
         modelOptions,
         settings: publicDeepSeekGatewaySettings(context),
-        pricing: modelPricing(context)
+        rateCard: modelRateCard(context),
+        rateCards: listModelRateCards(context)
       });
     }
     const models = await listLiteLLMModels(context);
@@ -2314,7 +2369,17 @@ async function handleAdminModelGateway(req, res, context, url) {
       if (!context.modelGatewayStore) {
         return writeError(res, 503, "模型配置存储未初始化。");
       }
-      const input = normalizeDeepSeekAdminInput(await readJson(req), context);
+      const body = await readJson(req);
+      const input = normalizeDeepSeekAdminInput(body, context);
+      let rateCard;
+      try {
+        rateCard = saveDeepSeekRateCard(context, body, input.upstreamModel);
+      } catch (error) {
+        return writeError(res, error.status || 400, error.message || "模型积分费率保存失败。");
+      }
+      if (!rateCard) {
+        return writeError(res, 400, "请先为该模型配置缓存命中、未命中和输出成本。");
+      }
       const saved = context.modelGatewayStore.saveSettings(input);
       const modelOptions = await listDeepSeekModelOptions(context);
       return writeJson(res, 200, {
@@ -2330,7 +2395,8 @@ async function handleAdminModelGateway(req, res, context, url) {
         settings: publicDeepSeekGatewaySettings(context),
         models: directDeepSeekModels(context),
         modelOptions,
-        pricing: modelPricing(context),
+        rateCard,
+        rateCards: listModelRateCards(context),
         message: "模型配置已保存。"
       });
     }
@@ -3524,9 +3590,17 @@ async function handleRequest(req, res, context) {
     }
 
     if (req.method === "GET" && url.pathname === "/api/me/model-balance") {
+      const newlyClaimedPromotions = claimEligibleModelPointCampaigns(context, auth.user.id);
       const balance = context.modelBillingStore?.getBalance(auth.user.id) || null;
       const recentUsage = context.modelBillingStore?.listRecentUsage(auth.user.id, 20) || [];
-      return writeJson(res, 200, { ok: true, balance, recentUsage });
+      const promotionClaims = context.modelPointPromotionStore?.listUserClaims(auth.user.id, 10) || [];
+      return writeJson(res, 200, {
+        ok: true,
+        balance,
+        recentUsage,
+        promotionClaims,
+        newlyClaimedPromotions
+      });
     }
 
     if (req.method === "GET" && url.pathname === "/api/me/memory") {
@@ -4899,6 +4973,8 @@ function createMiaCloudServer(options = {}) {
     cloudAgentDispatcher: null,
     cloudAgentRuntime: null,
     modelBillingStore: null,
+    modelPointPromotionStore: null,
+    modelRateCardStore: null,
     modelGatewayStore: null,
     platformModelId: options.platformModelId || process.env.MIA_PLATFORM_MODEL_ID || "",
     internalModelProxyKey: options.internalModelProxyKey || process.env.MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY || "",
@@ -4950,7 +5026,11 @@ function createMiaCloudServer(options = {}) {
       normalizeBotAgentEngine: (engine) => String(engine || "").trim()
     })
     : null;
+  context.modelRateCardStore = createModelRateCardStore ? createModelRateCardStore(context.cloudStore.getDb()) : null;
   context.modelBillingStore = createModelBillingStore ? createModelBillingStore(context.cloudStore.getDb()) : null;
+  context.modelPointPromotionStore = createModelPointPromotionStore && context.modelBillingStore
+    ? createModelPointPromotionStore(context.cloudStore.getDb(), context.modelBillingStore)
+    : null;
   context.modelGatewayStore = modelGatewayStoreModule?.createModelGatewayStore
     ? modelGatewayStoreModule.createModelGatewayStore(context.cloudStore.getDb())
     : null;

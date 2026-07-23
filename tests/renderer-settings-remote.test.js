@@ -27,8 +27,8 @@ function loadSettingsRemote({ modelBalance } = {}) {
         cloudCalls.push({ path: "/api/me/model-balance" });
         if (modelBalance instanceof Error) throw modelBalance;
         return modelBalance || {
-          balance: { balanceMicrousd: 1250000 },
-          recentUsage: [{ chargeMicrousd: 2500 }]
+          balance: { balancePoints: 25 },
+          recentUsage: [{ chargePoints: 0.05 }]
         };
       }
     },
@@ -132,8 +132,8 @@ test("settings account card hides internal cloud sync details", async () => {
 test("settings account card fetches and renders the signed-in model balance", async () => {
   const { api, cloudCalls } = loadSettingsRemote({
     modelBalance: {
-      balance: { balanceMicrousd: 3456789 },
-      recentUsage: [{ chargeMicrousd: 1234 }]
+      balance: { balancePoints: 69.136 },
+      recentUsage: [{ chargePoints: 0.025 }]
     }
   });
   const state = { runtime: { cloud: {} } };
@@ -157,9 +157,41 @@ test("settings account card fetches and renders the signed-in model balance", as
   });
 
   assert.equal(cloudCalls.length, 1);
-  assert.equal(els.cloudModelBalanceAmount.textContent, "$3.456789");
-  assert.match(els.cloudModelBalanceMeta.textContent, /最近扣费 \$0\.001234/);
+  assert.equal(els.cloudModelBalanceAmount.textContent, "69.136 积分");
+  assert.match(els.cloudModelBalanceMeta.textContent, /最近消耗 0\.025 积分/);
   assert.deepEqual(els.cloudModelBalanceRow.classList.toggles.at(-1), ["hidden", false]);
+});
+
+test("settings account card identifies a claimed new-user promotion", async () => {
+  const { api } = loadSettingsRemote({
+    modelBalance: {
+      balance: { balancePoints: 20 },
+      recentUsage: [],
+      promotionClaims: [{ campaignName: "新用户欢迎积分", grantPoints: 20 }]
+    }
+  });
+  const state = { runtime: { cloud: {} } };
+  const els = {
+    cloudAccountHint: el(),
+    cloudLogout: el(),
+    cloudAccountProfile: el(),
+    cloudAccountAvatar: el(),
+    cloudAccountName: el(),
+    cloudAccountUid: el(),
+    cloudModelBalanceRow: el(),
+    cloudModelBalanceAmount: el(),
+    cloudModelBalanceMeta: el()
+  };
+  api.initSettingsRemote({ state, els });
+
+  await api.renderCloudAccount({
+    enabled: true,
+    connected: true,
+    user: { id: "100001", username: "wx_8067aabb7153" }
+  });
+
+  assert.equal(els.cloudModelBalanceAmount.textContent, "20 积分");
+  assert.equal(els.cloudModelBalanceMeta.textContent, "新用户欢迎积分已赠 20 积分");
 });
 
 test("settings account card hides model balance when signed out", async () => {
@@ -182,7 +214,7 @@ test("settings account card hides model balance when signed out", async () => {
 
   assert.equal(cloudCalls.length, 0);
   assert.equal(els.cloudModelBalanceAmount.textContent, "");
-  assert.equal(els.cloudModelBalanceMeta.textContent, "登录后可查看 Mia 模型额度。");
+  assert.equal(els.cloudModelBalanceMeta.textContent, "登录后可查看 Mia 模型积分。");
   assert.deepEqual(els.cloudModelBalanceRow.classList.toggles.at(-1), ["hidden", true]);
 });
 
@@ -264,7 +296,7 @@ test("settings account card caches stale-main IPC failures without flashing raw 
 
   assert.equal(cloudCalls.length, 1);
   assert.equal(els.cloudModelBalanceAmount.textContent, "暂不可用");
-  assert.equal(els.cloudModelBalanceMeta.textContent, "重启 Mia 后可读取模型额度。");
+  assert.equal(els.cloudModelBalanceMeta.textContent, "重启 Mia 后可读取模型积分。");
   assert.doesNotMatch(els.cloudModelBalanceMeta.textContent, /No handler registered|cloud:model-balance/);
   assert.deepEqual(els.cloudModelBalanceRow.classList.toggles.at(-1), ["hidden", false]);
 });

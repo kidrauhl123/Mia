@@ -407,8 +407,8 @@ function createCloudAgentDispatcher(deps = {}) {
 
   function userFacingRunError(error) {
     const message = String(error?.message || error || "").trim();
-    if (/模型余额不足|HTTP 402|Error code:\s*402|insufficient.*balance|quota/i.test(message)) {
-      return "模型余额不足，请先充值。";
+    if (/模型(?:余额|积分)不足|HTTP 402|Error code:\s*402|insufficient.*balance|quota/i.test(message)) {
+      return "模型积分不足，请先购买或充值。";
     }
     if (/api key|no API key|authentication|unauthorized/i.test(message)) {
       return "模型服务鉴权失败，请联系管理员检查 API Key。";

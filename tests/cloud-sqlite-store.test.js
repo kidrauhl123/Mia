@@ -337,6 +337,15 @@ test("schema v2 creates social tables and indexes", () => {
     for (const t of ["scheduled_tasks", "scheduled_task_runs"]) {
       assert.ok(tables.includes(t), `missing table: ${t}`);
     }
+    for (const t of [
+      "model_point_buckets",
+      "model_point_bucket_consumptions",
+      "model_point_campaigns",
+      "model_point_campaign_claims",
+      "model_rate_cards"
+    ]) {
+      assert.ok(tables.includes(t), `missing table: ${t}`);
+    }
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' ORDER BY name`).all().map((r) => r.name);
     for (const i of ["idx_friend_requests_to", "idx_friend_requests_code", "idx_conversation_members_user", "idx_messages_conversation_seq", "idx_conversations_public_id"]) {
       assert.ok(idx.includes(i), `missing index: ${i}`);
@@ -348,10 +357,64 @@ test("schema v2 creates social tables and indexes", () => {
     assert.ok(taskColumns.includes("fire_mode"), "missing scheduled_tasks column: fire_mode");
     assert.ok(taskColumns.includes("delivery_text"), "missing scheduled_tasks column: delivery_text");
     const version = db.prepare("SELECT MAX(version) AS v FROM schema_migrations").get().v;
-    assert.ok(version >= 19, `schema_migrations max version should be >= 19, got ${version}`);
+    assert.ok(version >= 27, `schema_migrations max version should be >= 27, got ${version}`);
   } finally {
     store.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("schema v27 converts a legacy USD balance once and seeds DeepSeek point rate cards", () => {
+  const paths = tempStore();
+  let store = createCloudStore(paths);
+  try {
+    const user = createCloudUser(store, "legacy-points");
+    const db = store.getDb();
+    db.prepare(`
+      INSERT INTO model_accounts (user_id, balance_microusd, balance_millipoints, updated_at)
+      VALUES (?, ?, 0, ?)
+    `).run(user.id, 1_000_000, new Date().toISOString());
+    db.prepare("DELETE FROM model_point_bucket_consumptions").run();
+    db.prepare("DELETE FROM model_point_buckets").run();
+    db.prepare("DELETE FROM model_balance_ledger WHERE user_id = ?").run(user.id);
+    db.prepare("DELETE FROM schema_migrations WHERE version = 27").run();
+    store.close();
+    store = createCloudStore(paths);
+
+    const migrated = store.getDb().prepare(`
+      SELECT balance_microusd, balance_millipoints
+      FROM model_accounts
+      WHERE user_id = ?
+    `).get(user.id);
+    assert.equal(migrated.balance_microusd, 1_000_000);
+    assert.equal(migrated.balance_millipoints, 360_000);
+    const bucket = store.getDb().prepare(`
+      SELECT source_type, remaining_millipoints
+      FROM model_point_buckets
+      WHERE user_id = ?
+    `).get(user.id);
+    assert.equal(bucket.source_type, "legacy");
+    assert.equal(bucket.remaining_millipoints, 360_000);
+    const rateCard = store.getDb().prepare(`
+      SELECT cache_hit_microcny_per_million, cache_miss_microcny_per_million,
+             output_microcny_per_million, millipoints_per_cny_cost
+      FROM model_rate_cards
+      WHERE provider = 'deepseek' AND upstream_model = 'deepseek-v4-flash' AND is_active = 1
+    `).get();
+    assert.deepEqual({ ...rateCard }, {
+      cache_hit_microcny_per_million: 20_000,
+      cache_miss_microcny_per_million: 1_000_000,
+      output_microcny_per_million: 2_000_000,
+      millipoints_per_cny_cost: 50_000
+    });
+
+    store.close();
+    store = createCloudStore(paths);
+    const reopened = store.getDb().prepare("SELECT balance_millipoints FROM model_accounts WHERE user_id = ?").get(user.id);
+    assert.equal(reopened.balance_millipoints, 360_000);
+  } finally {
+    store.close();
+    cleanup(paths.dataDir);
   }
 });
 

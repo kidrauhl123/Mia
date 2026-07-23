@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
 const { spawn } = require("node:child_process");
+const { DatabaseSync } = require("node:sqlite");
 const { freePort } = require("./helpers/free-port");
 const { seedCloudAccountInDataDir } = require("./helpers/cloud-auth.js");
 const { createUserModelProxyToken } = require("../src/cloud/model-proxy-auth.js");
@@ -101,7 +102,11 @@ async function startLiteLLMFake(initialModels = null) {
 async function startDeepSeekFake({ models = [
   { id: "deepseek-v4-flash", object: "model", owned_by: "deepseek" },
   { id: "deepseek-v4-pro", object: "model", owned_by: "deepseek" }
-] } = {}) {
+], chatUsage = {
+  prompt_tokens: 1000,
+  completion_tokens: 500,
+  total_tokens: 1500
+} } = {}) {
   const port = await freePort();
   const calls = [];
   const server = http.createServer((req, res) => {
@@ -135,7 +140,7 @@ async function startDeepSeekFake({ models = [
           id: "deepseek-test",
           model: "deepseek-chat",
           choices: [{ message: { role: "assistant", content: "deepseek-ok" } }],
-          usage: { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 }
+          usage: chatUsage
         }));
         return;
       }
@@ -325,47 +330,179 @@ test("admin model gateway can add a second platform alias without deleting mia-a
   }
 });
 
-test("admin model page lets operators edit the public model alias", () => {
+test("admin model page lets operators edit the public model alias and point rate cards", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.html"), "utf8");
   const js = fs.readFileSync(path.join(__dirname, "..", "src/web/admin-model.js"), "utf8");
   assert.match(html, /id="publicModelInput"/);
   assert.match(html, /id="upstreamModelSelect"/);
   assert.match(html, /id="upstreamCustomWrap"/);
   assert.match(html, /data-custom-value="__custom__"/);
-  assert.match(html, /admin-model\.css\?v=20260612-row-credit/);
+  assert.match(html, /admin-model\.css\?v=20260723-points/);
+  assert.match(html, /admin-model\.js\?v=20260723-points/);
   assert.match(html, /class="console-sidebar"/);
   assert.match(html, /data-admin-nav="overview"/);
+  assert.match(html, /data-admin-nav="activities"/);
   assert.match(html, /data-admin-nav="logs"/);
   assert.match(html, /id="overviewUsersBody"/);
   assert.match(html, /id="usageLogsBody"/);
   assert.match(html, /id="usageUsersBody"/);
-  assert.match(html, /id="userCreditForm"/);
+  assert.match(html, /id="userPointForm"/);
+  assert.match(html, /id="campaignForm"/);
+  assert.match(html, /id="campaignList"/);
+  assert.match(html, /创建草稿/);
   assert.match(html, /user-filter-form/);
   assert.match(html, /搜索 UID \/ username/);
   assert.doesNotMatch(html, /id="creditAmountInput"/);
   assert.doesNotMatch(html, /id="grantCreditButton"/);
   assert.match(html, /高级参数/);
-  assert.match(html, /id="inputPriceInput"/);
-  assert.match(html, /id="outputPriceInput"/);
-  assert.match(html, /id="markupInput"/);
+  assert.match(html, /id="cacheHitCostInput"/);
+  assert.match(html, /id="cacheMissCostInput"/);
+  assert.match(html, /id="outputCostInput"/);
+  assert.match(html, /id="pointsPerCnyCostInput"/);
+  assert.match(html, /id="campaignGrantExpiresAtInput"/);
+  assert.match(html, /赠送积分/);
   assert.match(html, /留空则保留已保存 key/);
   assert.doesNotMatch(html, /id="publicModelInput"[^>]*readonly/);
   assert.match(js, /publicModel/);
   assert.match(js, /renderUpstreamModelOptions/);
+  assert.match(js, /loadCampaigns/);
+  assert.match(js, /model-point-campaigns/);
   assert.match(js, /selectedUpstreamModel/);
   assert.match(js, /modelOptions/);
   assert.match(js, /modelName:\s*els\.publicModel\.value/);
   assert.match(js, /upstreamModel:\s*selectedUpstreamModel\(\)/);
-  assert.match(js, /inputMicrousdPerMillion:\s*els\.inputPrice\.value/);
+  assert.match(js, /payload\.rateCard\s*=\s*pointRateCardInput\(\)/);
   assert.match(js, /model-usage-summary/);
   assert.match(js, /data-admin-nav/);
   assert.match(js, /renderLogs/);
   assert.match(js, /UID \$\{user\.id\}/);
   assert.match(js, /userLookupParam/);
   assert.match(js, /userId/);
-  assert.match(js, /row-credit-button/);
-  assert.match(js, /data-credit-open/);
-  assert.match(js, /grantInlineCredit/);
+  assert.match(js, /row-point-button/);
+  assert.match(js, /data-point-open/);
+  assert.match(js, /grantInlinePoints/);
+});
+
+test("new-user point campaigns issue one bounded grant and spend event points first", async () => {
+  const deepseek = await startDeepSeekFake();
+  const cloud = await startCloud(9, {
+    MIA_MODEL_GATEWAY: "deepseek",
+    MIA_DEEPSEEK_API_KEY: "deepseek-key",
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`
+  });
+  const auth = { username: "admin", password: "secret" };
+  try {
+    const beforeCampaign = await register(cloud.port, "promotion-existing-user");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const startsAt = new Date().toISOString();
+
+    const grantExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const unauthenticated = await request(cloud.port, "GET", "/api/admin/model-point-campaigns");
+    assert.equal(unauthenticated.status, 401);
+
+    const invalidCap = await request(cloud.port, "POST", "/api/admin/model-point-campaigns", {
+      auth,
+      body: { name: "无效名额", points: 20, startsAt, maxClaims: 1.5 }
+    });
+    assert.equal(invalidCap.status, 400);
+
+    const created = await request(cloud.port, "POST", "/api/admin/model-point-campaigns", {
+      auth,
+      body: {
+        name: "新用户欢迎积分",
+        points: 20,
+        startsAt,
+        grantExpiresAt,
+        maxClaims: 1
+      }
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.campaign.status, "draft");
+    assert.equal(created.body.campaign.grantMillipoints, 20000);
+    assert.equal(created.body.campaign.grantPoints, 20);
+    assert.equal(created.body.campaign.grantExpiresAt, grantExpiresAt);
+    assert.equal(created.body.campaign.maxClaims, 1);
+
+    const activated = await request(cloud.port, "PATCH", `/api/admin/model-point-campaigns/${created.body.campaign.id}`, {
+      auth,
+      body: { status: "active" }
+    });
+    assert.equal(activated.status, 200);
+    assert.equal(activated.body.campaign.status, "active");
+    assert.equal(activated.body.campaign.isLive, true);
+
+    const oldUserBalance = await request(cloud.port, "GET", "/api/me/model-balance", { token: beforeCampaign.token });
+    assert.equal(oldUserBalance.status, 200);
+    assert.equal(oldUserBalance.body.balance.balancePoints, 0);
+    assert.deepEqual(oldUserBalance.body.promotionClaims, []);
+
+    const newUser = await register(cloud.port, "promotion-new-user");
+    const concurrentReads = await Promise.all([
+      request(cloud.port, "GET", "/api/me/model-balance", { token: newUser.token }),
+      request(cloud.port, "GET", "/api/me/model-balance", { token: newUser.token })
+    ]);
+    assert.ok(concurrentReads.every((response) => response.status === 200));
+    assert.equal(
+      concurrentReads.reduce((count, response) => count + response.body.newlyClaimedPromotions.length, 0),
+      1
+    );
+
+    const credited = await request(cloud.port, "GET", "/api/me/model-balance", { token: newUser.token });
+    assert.equal(credited.body.balance.balancePoints, 20);
+    assert.deepEqual(credited.body.promotionClaims.map((claim) => claim.campaignName), ["新用户欢迎积分"]);
+    assert.equal(credited.body.promotionClaims[0].grantPoints, 20);
+    assert.equal(credited.body.promotionClaims[0].expiresAt, grantExpiresAt);
+
+    const topup = await request(cloud.port, "POST", "/api/admin/model-points/grant", {
+      auth,
+      body: { userId: newUser.user.id, points: 100, sourceType: "topup", reason: "test_topup" }
+    });
+    assert.equal(topup.status, 200);
+    assert.equal(topup.body.balance.balancePoints, 120);
+
+    const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
+      token: newUser.token,
+      body: { model: "mia-auto", messages: [{ role: "user", content: "hello" }] }
+    });
+    assert.equal(completion.status, 200);
+    assert.equal(completion.body.choices[0].message.content, "deepseek-ok");
+    const afterUse = await request(cloud.port, "GET", "/api/me/model-balance", { token: newUser.token });
+    assert.equal(afterUse.body.balance.balancePoints, 119.9);
+    assert.equal(afterUse.body.recentUsage[0].chargePoints, 0.1);
+    const db = new DatabaseSync(path.join(cloud.tmpDir, "cloud.sqlite"));
+    try {
+      const consumption = db.prepare(`
+        SELECT b.source_type, c.consumed_millipoints
+        FROM model_point_bucket_consumptions c
+        JOIN model_point_buckets b ON b.id = c.bucket_id
+        WHERE c.usage_id = ?
+      `).get(afterUse.body.recentUsage[0].id);
+      assert.equal(consumption.source_type, "event");
+      assert.equal(consumption.consumed_millipoints, 100);
+    } finally {
+      db.close();
+    }
+
+    const cappedUser = await register(cloud.port, "promotion-capped-user");
+    const cappedBalance = await request(cloud.port, "GET", "/api/me/model-balance", { token: cappedUser.token });
+    assert.equal(cappedBalance.body.balance.balancePoints, 0);
+    assert.deepEqual(cappedBalance.body.promotionClaims, []);
+
+    const listed = await request(cloud.port, "GET", "/api/admin/model-point-campaigns", { auth });
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.campaigns[0].claimedCount, 1);
+    assert.equal(listed.body.campaigns[0].remainingClaims, 0);
+
+    const paused = await request(cloud.port, "PATCH", `/api/admin/model-point-campaigns/${created.body.campaign.id}`, {
+      auth,
+      body: { status: "paused" }
+    });
+    assert.equal(paused.status, 200);
+    assert.equal(paused.body.campaign.status, "paused");
+  } finally {
+    await stopCloud(cloud);
+    await new Promise((resolve) => deepseek.server.close(resolve));
+  }
 });
 
 test("authenticated users can list platform model aliases without provider secrets", async () => {
@@ -468,9 +605,7 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
   const cloud = await startCloud(9, {
     MIA_MODEL_GATEWAY: "deepseek",
     MIA_DEEPSEEK_API_KEY: "",
-    MIA_DEEPSEEK_BASE_URL: "",
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: ""
+    MIA_DEEPSEEK_BASE_URL: ""
   });
   const auth = { username: "admin", password: "secret" };
   try {
@@ -482,16 +617,22 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
         upstreamModel: "deepseek/deepseek-chat",
         apiKey: "deepseek-key",
         apiBase: `http://127.0.0.1:${deepseek.port}/v1`,
-        inputMicrousdPerMillion: 1000000,
-        outputMicrousdPerMillion: 1000000,
-        markup: 1
+        rateCard: {
+          cacheHitCnyPerMillion: 0.02,
+          cacheMissCnyPerMillion: 1,
+          outputCnyPerMillion: 2,
+          pointsPerCnyCost: 50
+        }
       }
     });
     assert.equal(saved.status, 200);
     assert.equal(saved.body.model.modelId, "mia-admin");
     assert.equal(saved.body.model.upstreamModel, "deepseek-chat");
     assert.equal(saved.body.model.hasApiKey, true);
+    assert.equal(saved.body.rateCard.cacheMissCnyPerMillion, 1);
+    assert.equal(saved.body.rateCard.pointsPerCnyCost, 50);
     assert.doesNotMatch(JSON.stringify(saved.body), /deepseek-key/);
+    assert.doesNotMatch(JSON.stringify(saved.body), /microusd|markup/i);
 
     const status = await request(cloud.port, "GET", "/api/admin/model-gateway", { auth });
     assert.equal(status.status, 200);
@@ -499,6 +640,7 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
     assert.equal(status.body.gateway.configuredFrom, "database");
     assert.equal(status.body.settings.modelId, "mia-admin");
     assert.equal(status.body.settings.hasApiKey, true);
+    assert.equal(status.body.rateCards.find((card) => card.upstreamModel === "deepseek-chat").outputCnyPerMillion, 2);
     assert.deepEqual(status.body.modelOptions.map((model) => model.id), [
       "deepseek-v4-flash",
       "deepseek-v4-pro",
@@ -515,9 +657,9 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
     assert.equal(tested.body.model, "mia-admin");
 
     const user = await register(cloud.port, "saved-deepseek");
-    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+    await request(cloud.port, "POST", "/api/admin/model-points/grant", {
       auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+      body: { userId: user.user.id, points: 100, reason: "test_topup" }
     });
     const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
       token: user.token,
@@ -529,7 +671,7 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
 
     const balance = await request(cloud.port, "GET", "/api/me/model-balance", { token: user.token });
     assert.equal(balance.status, 200);
-    assert.equal(balance.body.balance.balanceMicrousd, 998500);
+    assert.equal(balance.body.balance.balancePoints, 99.9);
 
     const summary = await request(cloud.port, "GET", "/api/admin/model-usage-summary", { auth });
     assert.equal(summary.status, 200);
@@ -537,10 +679,12 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
     assert.equal(summary.body.totals.activeUserCount, 1);
     assert.equal(summary.body.totals.requestCount, 1);
     assert.equal(summary.body.totals.totalTokens, 1500);
-    assert.equal(summary.body.totals.chargeMicrousd, 1500);
+    assert.equal(summary.body.totals.actualCostMicrocny, 2000);
+    assert.equal(summary.body.totals.chargeMillipoints, 100);
+    assert.equal(summary.body.totals.chargePoints, 0.1);
     assert.equal(summary.body.users[0].user.username, "saved-deepseek");
-    assert.equal(summary.body.users[0].balance.balanceMicrousd, 998500);
-    assert.equal(summary.body.users[0].usage.chargeMicrousd, 1500);
+    assert.equal(summary.body.users[0].balance.balancePoints, 99.9);
+    assert.equal(summary.body.users[0].usage.chargePoints, 0.1);
     assert.equal(summary.body.recentUsage[0].user.username, "saved-deepseek");
     assert.doesNotMatch(JSON.stringify(summary.body), /deepseek-key|api_key/);
   } finally {
@@ -550,13 +694,19 @@ test("DeepSeek gateway settings can be saved in admin without leaking the API ke
 });
 
 test("DeepSeek direct model proxy requires balance and records billable usage", async () => {
-  const deepseek = await startDeepSeekFake();
+  const deepseek = await startDeepSeekFake({
+    chatUsage: {
+      prompt_tokens: 1000,
+      completion_tokens: 500,
+      total_tokens: 1500,
+      prompt_cache_hit_tokens: 900,
+      prompt_cache_miss_tokens: 100
+    }
+  });
   const cloud = await startCloud(9, {
     MIA_MODEL_GATEWAY: "deepseek",
     MIA_DEEPSEEK_API_KEY: "deepseek-key",
-    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000"
+    MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`
   });
   const auth = { username: "admin", password: "secret" };
   try {
@@ -576,16 +726,16 @@ test("DeepSeek direct model proxy requires balance and records billable usage", 
     assert.equal(blockedSummary.status, 200);
     assert.equal(blockedSummary.body.totals.requestCount, 1);
     assert.equal(blockedSummary.body.totals.failedCount, 1);
-    assert.equal(blockedSummary.body.totals.chargeMicrousd, 0);
+    assert.equal(blockedSummary.body.totals.chargeMillipoints, 0);
     assert.equal(blockedSummary.body.recentUsage[0].status, "failed");
-    assert.match(blockedSummary.body.recentUsage[0].error, /余额不足/);
+    assert.match(blockedSummary.body.recentUsage[0].error, /积分不足/);
 
-    const grant = await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+    const grant = await request(cloud.port, "POST", "/api/admin/model-points/grant", {
       auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+      body: { userId: user.user.id, points: 100, reason: "test_topup" }
     });
     assert.equal(grant.status, 200);
-    assert.equal(grant.body.balance.balanceMicrousd, 1000000);
+    assert.equal(grant.body.balance.balancePoints, 100);
 
     const completion = await request(cloud.port, "POST", "/api/me/model-proxy/v1/chat/completions", {
       token: user.token,
@@ -597,10 +747,14 @@ test("DeepSeek direct model proxy requires balance and records billable usage", 
 
     const balance = await request(cloud.port, "GET", "/api/me/model-balance", { token: user.token });
     assert.equal(balance.status, 200);
-    assert.equal(balance.body.balance.balanceMicrousd, 998500);
+    assert.equal(balance.body.balance.balanceMillipoints, 99944);
+    assert.equal(balance.body.balance.balancePoints, 99.944);
     assert.equal(balance.body.recentUsage[0].promptTokens, 1000);
     assert.equal(balance.body.recentUsage[0].completionTokens, 500);
-    assert.equal(balance.body.recentUsage[0].chargeMicrousd, 1500);
+    assert.equal(balance.body.recentUsage[0].promptCacheHitTokens, 900);
+    assert.equal(balance.body.recentUsage[0].promptCacheMissTokens, 100);
+    assert.equal(balance.body.recentUsage[0].chargeMillipoints, 56);
+    assert.equal(balance.body.recentUsage[0].chargePoints, 0.056);
   } finally {
     await stopCloud(cloud);
     await new Promise((resolve) => deepseek.server.close(resolve));
@@ -614,16 +768,14 @@ test("internal model proxy token bills the owning Mia user", async () => {
     MIA_MODEL_GATEWAY: "deepseek",
     MIA_DEEPSEEK_API_KEY: "deepseek-key",
     MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
     MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
   });
   const auth = { username: "admin", password: "secret" };
   try {
     const user = await register(cloud.port, "worker-user");
-    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+    await request(cloud.port, "POST", "/api/admin/model-points/grant", {
       auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+      body: { userId: user.user.id, points: 100, reason: "test_topup" }
     });
     const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
     const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/chat/completions", {
@@ -633,9 +785,9 @@ test("internal model proxy token bills the owning Mia user", async () => {
     assert.equal(completion.status, 200);
     assert.equal(completion.body.choices[0].message.content, "deepseek-ok");
 
-    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-points?userId=${encodeURIComponent(user.user.id)}`, { auth });
     assert.equal(adminBalance.status, 200);
-    assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
+    assert.equal(adminBalance.body.balance.balancePoints, 99.9);
     assert.equal(adminBalance.body.recentUsage[0].provider, "deepseek");
   } finally {
     await stopCloud(cloud);
@@ -651,8 +803,6 @@ test("internal Anthropic model proxy token bills the owning Mia user", async () 
     MIA_DEEPSEEK_API_KEY: "deepseek-key",
     MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
     MIA_DEEPSEEK_ANTHROPIC_BASE_URL: `http://127.0.0.1:${deepseek.port}/anthropic`,
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
     MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
   });
   const auth = { username: "admin", password: "secret" };
@@ -670,9 +820,9 @@ test("internal Anthropic model proxy token bills the owning Mia user", async () 
     assert.equal(blocked.status, 402);
     assert.equal(deepseek.calls.length, 0);
 
-    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+    await request(cloud.port, "POST", "/api/admin/model-points/grant", {
       auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+      body: { userId: user.user.id, points: 100, reason: "test_topup" }
     });
     const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/messages", {
       token: internalToken,
@@ -691,9 +841,9 @@ test("internal Anthropic model proxy token bills the owning Mia user", async () 
     assert.equal(deepseek.calls.at(-1).path, "/anthropic/v1/messages");
     assert.equal(deepseek.calls.some((call) => call.path === "/v1/chat/completions"), false);
 
-    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-points?userId=${encodeURIComponent(user.user.id)}`, { auth });
     assert.equal(adminBalance.status, 200);
-    assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
+    assert.equal(adminBalance.body.balance.balancePoints, 99.9);
     assert.equal(adminBalance.body.recentUsage[0].provider, "deepseek");
     assert.equal(adminBalance.body.recentUsage[0].requestPath, "/messages");
   } finally {
@@ -710,16 +860,14 @@ test("DeepSeek Claude Code proxy fails closed instead of falling back to OpenAI 
     MIA_DEEPSEEK_API_KEY: "deepseek-key",
     MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
     MIA_DEEPSEEK_ANTHROPIC_BASE_URL: "",
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
     MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
   });
   const auth = { username: "admin", password: "secret" };
   try {
     const user = await register(cloud.port, "worker-anthropic-no-fallback-user");
-    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+    await request(cloud.port, "POST", "/api/admin/model-points/grant", {
       auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+      body: { userId: user.user.id, points: 100, reason: "test_topup" }
     });
     const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
     const completion = await request(cloud.port, "POST", "/api/internal/model-proxy/v1/messages", {
@@ -737,9 +885,9 @@ test("DeepSeek Claude Code proxy fails closed instead of falling back to OpenAI 
     assert.match(completion.body.error.message, /不会回退到 OpenAI 协议/);
     assert.equal(deepseek.calls.length, 0);
 
-    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-points?userId=${encodeURIComponent(user.user.id)}`, { auth });
     assert.equal(adminBalance.status, 200);
-    assert.equal(adminBalance.body.balance.balanceMicrousd, 1000000);
+    assert.equal(adminBalance.body.balance.balancePoints, 100);
     assert.equal(adminBalance.body.recentUsage[0].status, "failed");
     assert.match(adminBalance.body.recentUsage[0].error, /不会回退到 OpenAI 协议/);
   } finally {
@@ -757,16 +905,14 @@ test("DeepSeek Anthropic proxy preserves native Claude Code server tools and str
     MIA_DEEPSEEK_BASE_URL: `http://127.0.0.1:${deepseek.port}/v1`,
     MIA_DEEPSEEK_ANTHROPIC_BASE_URL: `http://127.0.0.1:${deepseek.port}/anthropic`,
     MIA_DEEPSEEK_MODEL: "deepseek-v4-pro",
-    MIA_MODEL_INPUT_MICROUSD_PER_1M: "1000000",
-    MIA_MODEL_OUTPUT_MICROUSD_PER_1M: "1000000",
     MIA_CLOUD_INTERNAL_MODEL_PROXY_KEY: internalSecret
   });
   const auth = { username: "admin", password: "secret" };
   try {
     const user = await register(cloud.port, "worker-native-anthropic-user");
-    await request(cloud.port, "POST", "/api/admin/model-credits/grant", {
+    await request(cloud.port, "POST", "/api/admin/model-points/grant", {
       auth,
-      body: { userId: user.user.id, amountUsd: 1, reason: "test_topup" }
+      body: { userId: user.user.id, points: 100, reason: "test_topup" }
     });
     const internalToken = createUserModelProxyToken(internalSecret, user.user.id);
     const serverTools = [{
@@ -806,9 +952,9 @@ test("DeepSeek Anthropic proxy preserves native Claude Code server tools and str
     assert.equal(upstreamCall.headers.userAgent, "claude-cli/test");
     assert.equal(deepseek.calls.some((call) => call.path === "/v1/chat/completions"), false);
 
-    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-credits?userId=${encodeURIComponent(user.user.id)}`, { auth });
+    const adminBalance = await request(cloud.port, "GET", `/api/admin/model-points?userId=${encodeURIComponent(user.user.id)}`, { auth });
     assert.equal(adminBalance.status, 200);
-    assert.equal(adminBalance.body.balance.balanceMicrousd, 998500);
+    assert.equal(adminBalance.body.balance.balancePoints, 99.7);
     assert.equal(adminBalance.body.recentUsage[0].promptTokens, 1000);
     assert.equal(adminBalance.body.recentUsage[0].completionTokens, 500);
     assert.equal(adminBalance.body.recentUsage[0].requestPath, "/messages");
