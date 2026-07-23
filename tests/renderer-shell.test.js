@@ -1406,7 +1406,7 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   assert.match(searchToolsSource, /sidebar-tag-filter-indicator/);
   assert.match(searchToolsSource, /syncSidebarTagFilterSelection\(activeFilterName\);/);
   assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
-  assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(specs\);[\s\S]*?return;/);
+  assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(renderedSpecs\);[\s\S]*?return;/);
   assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
   assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("pointerdown", beginConversationFolderDrag\);/);
   assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("wheel", handleConversationFolderWheel, \{ passive: false \}\);/);

@@ -746,15 +746,40 @@
     const previous = select.value;
     const cloudRuntime = cloudAgentRuntime();
     const groups = runtimeTargetGroups(current);
-    const selectedCoreOption = groups.flatMap((group) => group.options || []).find((option) => option.selected);
-    const wanted = encodeRuntimeTarget(current.runtimeKind === "cloud-claude-code"
-      ? (selectedCoreOption || { runtimeKind: "cloud-claude-code", agentEngine: current.agentEngine || cloudRuntime.agentEngine })
-      : {
-        runtimeKind: "desktop-local",
-        deviceId: selectedCoreOption?.deviceId || current.deviceId || "current-device",
-        deviceName: selectedCoreOption?.deviceName || current.deviceName || "当前设备",
-        agentEngine: current.agentEngine || state?.preferredAgentEngine || "hermes"
-      });
+    const coreOptions = groups.flatMap((group) => group.options || []);
+    const currentRuntimeKind = current.runtimeKind === "cloud-claude-code"
+      ? "cloud-claude-code"
+      : "desktop-local";
+    const currentDeviceId = currentRuntimeKind === "cloud-claude-code"
+      ? ""
+      : String(current.deviceId || current.targetDeviceId || "").trim();
+    const currentAgentEngine = currentRuntimeKind === "cloud-claude-code"
+      ? strictAgentEngine(current.agentEngine || cloudRuntime.agentEngine)
+      : String(current.agentEngine || state?.preferredAgentEngine || "hermes").trim();
+    const targetsCurrentBinding = (option) => (
+      option.runtimeKind === currentRuntimeKind
+      && (currentRuntimeKind === "cloud-claude-code"
+        || !currentDeviceId
+        || option.deviceId === currentDeviceId)
+    );
+    const matchingCoreOption = coreOptions.find((option) => (
+      targetsCurrentBinding(option)
+      && (!currentAgentEngine || option.agentEngine === currentAgentEngine)
+    ));
+    const selectedCoreOption = coreOptions.find((option) => option.selected && targetsCurrentBinding(option));
+    const wanted = encodeRuntimeTarget(matchingCoreOption || selectedCoreOption || (
+      currentRuntimeKind === "cloud-claude-code"
+        ? {
+            runtimeKind: "cloud-claude-code",
+            agentEngine: currentAgentEngine || cloudRuntime.agentEngine
+          }
+        : {
+            runtimeKind: "desktop-local",
+            deviceId: currentDeviceId || "current-device",
+            deviceName: current.deviceName || current.targetDeviceName || "当前设备",
+            agentEngine: currentAgentEngine
+          }
+    ));
     select.innerHTML = "";
     for (const group of groups) {
       const optgroup = document.createElement("optgroup");
@@ -769,7 +794,19 @@
       }
       select.appendChild(optgroup);
     }
-    const values = Array.from(select.options).map((option) => option.value);
+    let values = Array.from(select.options).map((option) => option.value);
+    if (wanted && !values.includes(wanted)) {
+      const currentGroup = document.createElement("optgroup");
+      currentGroup.label = currentRuntimeKind === "cloud-claude-code"
+        ? "Mia Cloud · 当前绑定"
+        : `${String(current.deviceName || current.targetDeviceName || currentDeviceId || "设备").trim()} · 当前绑定`;
+      const currentOption = document.createElement("option");
+      currentOption.value = wanted;
+      currentOption.textContent = engineLabel(currentAgentEngine) || "当前绑定";
+      currentGroup.appendChild(currentOption);
+      select.appendChild(currentGroup);
+      values = Array.from(select.options).map((option) => option.value);
+    }
     if (options.preservePrevious && previous && values.includes(previous)) select.value = previous;
     else if (values.includes(wanted)) select.value = wanted;
     else select.value = values[0] || "";

@@ -1,0 +1,175 @@
+.conversation-device-group {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+}
+
+.conversation-device-group + .conversation-device-group {
+  margin-top: 2px;
+}
+
+.conversation-device-group-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 16px;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 12px);
+  min-height: 34px;
+  margin: 0 6px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  cursor: default;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.conversation-device-group-header:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.conversation-device-group-header:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  outline-offset: -2px;
+}
+
+.conversation-device-group-heading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+}
+
+.conversation-device-group-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-device-group-heading small {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.conversation-device-group-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #34c759;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #34c759 14%, transparent);
+}
+
+.conversation-device-platform-icon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  opacity: 0.84;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.conversation-device-platform-icon.platform-macos {
+  -webkit-mask-image: url("../assets/platform-icons/macos.svg");
+  mask-image: url("../assets/platform-icons/macos.svg");
+}
+
+.conversation-device-platform-icon.platform-windows {
+  -webkit-mask-image: url("../assets/platform-icons/windows.svg");
+  mask-image: url("../assets/platform-icons/windows.svg");
+}
+
+.conversation-device-group[data-device-status="offline"] .conversation-device-group-dot,
+.conversation-device-group[data-device-status="unassigned"] .conversation-device-group-dot {
+  display: none;
+}
+
+.conversation-device-group-count {
+  min-width: 16px;
+  color: var(--faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.conversation-device-group-chevron {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--faint);
+  transition: transform 150ms ease;
+}
+
+.conversation-device-group-chevron svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  transform: rotate(90deg);
+}
+
+.conversation-device-group.collapsed .conversation-device-group-chevron {
+  transform: rotate(-90deg);
+}
+
+.conversation-device-group-items {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.conversation-device-group-items-clip {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 150ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.conversation-device-group.collapsed .conversation-device-group-items {
+  grid-template-rows: 0fr;
+  pointer-events: none;
+}
+
+.conversation-device-group.collapsed .conversation-device-group-items-clip {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+body.platform-win32 .conversation-device-group-header {
+  border-radius: 7px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-device-group-header,
+  .conversation-device-group-chevron,
+  .conversation-device-group-items,
+  .conversation-device-group-items-clip {
+    transition: none;
+  }
+}

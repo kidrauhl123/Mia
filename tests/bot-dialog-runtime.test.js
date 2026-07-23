@@ -607,6 +607,69 @@ test("editing a bot hydrates the runtime target from the active binding", async 
   });
 });
 
+test("editing a desktop bot ignores a selected cloud option from another runtime kind", async () => {
+  const { context } = createBotDialogContext({
+    activeBinding: {
+      botId: "7338924",
+      runtimeKind: "desktop-local",
+      enabled: true,
+      config: {
+        agentEngine: "hermes",
+        deviceId: "bound-air-9",
+        deviceName: "jungdeMacBook-Air-9"
+      }
+    },
+    runtimeTargetOptions: {
+      groups: [
+        {
+          label: "Mia Cloud",
+          options: [{
+            runtimeKind: "cloud-claude-code",
+            deviceId: "",
+            deviceName: "Mia Cloud",
+            agentEngine: "claude-code",
+            label: "Claude Code",
+            selected: true
+          }]
+        },
+        {
+          label: "jungdeMacBook-Air-9",
+          options: [{
+            runtimeKind: "desktop-local",
+            deviceId: "current-air-9",
+            deviceName: "jungdeMacBook-Air-9",
+            agentEngine: "hermes",
+            label: "Hermes",
+            selected: false
+          }]
+        }
+      ]
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog({
+    key: "7338924",
+    name: "7338924",
+    sourceKinds: ["cloud"],
+    runtimeKind: "desktop-local",
+    targetDeviceId: "bound-air-9",
+    targetDeviceName: "jungdeMacBook-Air-9",
+    agentEngine: "hermes"
+  });
+
+  await flushDialogAsyncWork();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(context.window.miaBotDialog.readSelectedRuntimeTarget())),
+    {
+      runtimeKind: "desktop-local",
+      targetDeviceId: "bound-air-9",
+      targetDeviceName: "jungdeMacBook-Air-9",
+      agentEngine: "hermes"
+    }
+  );
+});
+
 test("editing a bot hydrates a raw active binding whose runtime fields are inside config", async () => {
   const { context } = createBotDialogContext({
     engineCapabilities: {

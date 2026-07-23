@@ -2235,7 +2235,7 @@ function conversationCardSpecFromRow(row, personas) {
       && String(state.personaSearchFocus?.conversationId || "") === String(conversation.id || "")
       && String(state.personaSearchFocus?.messageId || "") === String(row.searchMessageId || "");
     const isBot = conversation.type === "bot";
-    let name, avatar, identity, statusBadge;
+    let name, avatar, identity, statusBadge, runtimeBot;
     if (isBot) {
       const botKey = sessionHistory.botId(conversation);
       const bot = identityBots.find((p) => (p.id || p.key) === botKey);
@@ -2245,6 +2245,7 @@ function conversationCardSpecFromRow(row, personas) {
         id: botKey,
         name: conversation.name || member?.identity?.displayName || member?.bot_name || botKey
       };
+      runtimeBot = botRecord;
       name = sessionHistory.botDisplayTitle(conversation, identityBots, "对话");
       avatar = botAvatarForConversation(conversation, botKey, {
         bot: botRecord,
@@ -2290,6 +2291,7 @@ function conversationCardSpecFromRow(row, personas) {
       avatar,
       identity,
       statusBadge,
+      deviceGroup: isBot ? window.miaBotManager?.botDeviceGroup?.(runtimeBot) : null,
       dataAttrs: {
         conversationId: conversation.id,
         ...(row.searchMessageId ? { searchMessageId: row.searchMessageId } : {}),
@@ -2432,6 +2434,15 @@ function sidebarCardRenderSignature(spec) {
     members: Array.isArray(spec?.members) ? spec.members : [],
     customAvatar: spec?.customAvatar || null,
     statusBadge: spec?.statusBadge || null,
+    deviceGroup: spec?.deviceGroup
+      ? {
+          key: String(spec.deviceGroup.key || ""),
+          label: String(spec.deviceGroup.label || ""),
+          meta: String(spec.deviceGroup.meta || ""),
+          status: String(spec.deviceGroup.status || ""),
+          order: Number(spec.deviceGroup.order) || 0
+        }
+      : null,
     dataAttrs: spec?.dataAttrs || null,
     tags: Array.isArray(spec?.tags)
       ? spec.tags.map((tag) => ({
@@ -2461,21 +2472,38 @@ function syncPersonaListActiveState(specs) {
 }
 
 function renderPersonaListIfChanged(specs, emptyText, activeTagFilterName) {
+  const deviceGroups = window.miaConversationDeviceGroups;
+  const groupByDevice = Boolean(deviceGroups?.isOtherDeviceFilter?.(
+    activeTagFilterName,
+    window.miaSocial?.OTHER_DEVICE_CONVERSATION_FILTER
+  ));
+  const renderedSpecs = groupByDevice && typeof deviceGroups?.orderedConversationSpecs === "function"
+    ? deviceGroups.orderedConversationSpecs(specs)
+    : specs;
   const signature = safeRenderSignature({
     emptyText,
     activeTagFilterName,
+    groupByDevice,
     rows: specs.map(sidebarCardRenderSignature)
   });
   if (personaListRenderSignature === signature) {
-    syncPersonaListActiveState(specs);
+    syncPersonaListActiveState(renderedSpecs);
     return;
   }
   personaListRenderSignature = signature;
   els.personaList.innerHTML = "";
-  for (const spec of specs) {
-    els.personaList.appendChild(createConversationCardFromSpec(spec));
+  if (groupByDevice && typeof deviceGroups?.appendGroupedConversationCards === "function") {
+    deviceGroups.appendGroupedConversationCards({
+      root: els.personaList,
+      specs,
+      createCard: createConversationCardFromSpec
+    });
+  } else {
+    for (const spec of specs) {
+      els.personaList.appendChild(createConversationCardFromSpec(spec));
+    }
   }
-  syncPersonaListActiveState(specs);
+  syncPersonaListActiveState(renderedSpecs);
   if (!specs.length && emptyText) {
     const empty = document.createElement("div");
     empty.className = "persona-empty";

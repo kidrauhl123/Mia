@@ -567,6 +567,130 @@ test("other-device grouping uses the persisted bot target before Core options lo
   }), false);
 });
 
+test("a stale bridge id with the current Mac name still belongs to this device", () => {
+  const { manager } = loadBotManager();
+  const state = {
+    runtime: {
+      localDevice: { id: "air-current", name: "jungdeMacBook-Air-9" },
+      cloud: { deviceId: "air-current", deviceName: "jungdeMacBook-Air-9" }
+    }
+  };
+  manager.initBotManager({ state });
+
+  assert.equal(manager.botRunsOnOtherDevice({
+    key: "stale-local-hermes",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "air-retired",
+    targetDeviceName: "jungdeMacBook-Air-9 · Mia Desktop"
+  }), false);
+});
+
+test("other-device conversation groups expose device name, status, and stable order", () => {
+  const { manager } = loadBotManager();
+  const state = {
+    runtime: {
+      localDevice: { id: "win-local", name: "Windows PC" },
+      cloud: {
+        deviceId: "win-local",
+        devices: [
+          {
+            id: "mac-remote",
+            deviceName: "Studio Mac · Mia Desktop",
+            status: "online",
+            capabilities: { platform: "darwin" }
+          },
+          {
+            id: "office-pc",
+            deviceName: "Office PC",
+            status: "offline",
+            capabilities: { platform: "win32" }
+          }
+        ]
+      }
+    }
+  };
+  manager.initBotManager({ state });
+
+  const online = manager.botDeviceGroup({
+    key: "remote-codex",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "mac-remote",
+    targetDeviceName: "Old Mac name"
+  });
+  assert.equal(online.key, "device-name:studio mac");
+  assert.equal(online.label, "Studio Mac");
+  assert.equal(online.meta, "在线");
+  assert.equal(online.status, "online");
+  assert.equal(online.platform, "macos");
+  assert.equal(online.order, 100);
+
+  const offline = manager.botDeviceGroup({
+    key: "remote-hermes",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "retired-device",
+    targetDeviceName: "Home Mac · 离线"
+  });
+  assert.equal(offline.key, "device-name:home mac");
+  assert.equal(offline.label, "Home Mac");
+  assert.equal(offline.meta, "离线");
+  assert.equal(offline.status, "offline");
+  assert.equal(offline.platform, "");
+  assert.equal(offline.order, 700);
+});
+
+test("device grouping infers Windows and macOS logos for old device records", () => {
+  const { manager } = loadBotManager();
+  const state = {
+    runtime: {
+      localDevice: { id: "current", name: "Current Mac" },
+      cloud: { deviceId: "current", devices: [] }
+    }
+  };
+  manager.initBotManager({ state });
+
+  assert.equal(manager.botDeviceGroup({
+    runtimeKind: "desktop-local",
+    targetDeviceId: "windows-old",
+    targetDeviceName: "LAPTOP-944FKKVR"
+  }).platform, "windows");
+  assert.equal(manager.botDeviceGroup({
+    runtimeKind: "desktop-local",
+    targetDeviceId: "mac-old",
+    targetDeviceName: "zuiyoudeMacBook-Pro-2"
+  }).platform, "macos");
+});
+
+test("reconnected device ids share one conversation group by stable device name", () => {
+  const { manager } = loadBotManager();
+  const state = {
+    runtime: {
+      localDevice: { id: "win-local", name: "Windows PC" },
+      cloud: {
+        deviceId: "win-local",
+        devices: [
+          { id: "air-current", deviceName: "jungdeMacBook-Air-9 · Mia Desktop", status: "online" }
+        ]
+      }
+    }
+  };
+  manager.initBotManager({ state });
+
+  const staleBinding = manager.botDeviceGroup({
+    key: "old-hermes",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "air-retired",
+    targetDeviceName: "jungdeMacBook-Air-9"
+  });
+  const currentBinding = manager.botDeviceGroup({
+    key: "new-hermes",
+    runtimeKind: "desktop-local",
+    targetDeviceId: "air-current",
+    targetDeviceName: "jungdeMacBook-Air-9"
+  });
+
+  assert.equal(staleBinding.key, currentBinding.key);
+});
+
 test("device refresh keeps cached bot placement until refreshed options arrive", async () => {
   let targetOptionsCalls = 0;
   let resolveRefreshedOptions;

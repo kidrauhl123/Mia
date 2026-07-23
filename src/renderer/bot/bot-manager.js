@@ -634,13 +634,168 @@
       targetIntent.deviceId,
       targetIntent.device_id
     );
+    const targetDeviceName = firstNonEmpty(
+      bot.targetDeviceName,
+      bot.target_device_name,
+      bot.deviceName,
+      bot.device_name,
+      runtimeConfig.targetDeviceName,
+      runtimeConfig.target_device_name,
+      runtimeConfig.deviceName,
+      runtimeConfig.device_name,
+      targetIntent.targetDeviceName,
+      targetIntent.target_device_name,
+      targetIntent.deviceName,
+      targetIntent.device_name,
+      runtimeTargetProjection(bot).runtimeLabel
+    );
     const currentDeviceId = firstNonEmpty(
       state?.runtime?.localDevice?.id,
       state?.runtime?.cloud?.deviceId,
       state?.runtime?.cloud?.device_id
     );
-    if (targetDeviceId && currentDeviceId) return targetDeviceId !== currentDeviceId;
+    const currentDeviceName = firstNonEmpty(
+      state?.runtime?.localDevice?.name,
+      state?.runtime?.localDevice?.deviceName,
+      state?.runtime?.localDevice?.device_name,
+      state?.runtime?.cloud?.deviceName,
+      state?.runtime?.cloud?.device_name
+    );
+    if (targetDeviceId && currentDeviceId && targetDeviceId === currentDeviceId) return false;
+    if (
+      runtimeDeviceNameKey(targetDeviceName)
+      && runtimeDeviceNameKey(targetDeviceName) === runtimeDeviceNameKey(currentDeviceName)
+    ) {
+      return false;
+    }
+    if (targetDeviceId && currentDeviceId) return true;
     return runtimeTargetProjection(bot).runsOnOtherDevice;
+  }
+
+  function compactRuntimeDeviceName(value = "") {
+    return String(value || "")
+      .trim()
+      .replace(/\s*(?:·|-)?\s*Mia\s+(?:Desktop|Bridge)(?=\s*(?:·|-|$))/gi, "")
+      .replace(/\.local(?=\s|$)/gi, "")
+      .replace(/\s*(?:·|-)\s*(?:本机|在线|离线)\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function runtimeDeviceNameKey(value = "") {
+    return compactRuntimeDeviceName(value)
+      .normalize("NFKC")
+      .toLocaleLowerCase();
+  }
+
+  function runtimeDeviceGroupKey(label = "", targetDeviceId = "") {
+    const stableName = runtimeDeviceNameKey(label);
+    return stableName
+      ? `device-name:${stableName}`
+      : `device:${String(targetDeviceId || "unassigned").trim() || "unassigned"}`;
+  }
+
+  function runtimeDevicePlatform(device = {}, fallbackName = "", bot = {}) {
+    const capabilities = device?.capabilities && typeof device.capabilities === "object"
+      ? device.capabilities
+      : {};
+    const raw = firstNonEmpty(
+      device?.platform,
+      device?.os,
+      capabilities.platform,
+      capabilities.os,
+      capabilities.operatingSystem,
+      capabilities.operating_system,
+      bot.platform,
+      bot.os
+    ).toLowerCase();
+    if (/(?:^|[^a-z])(?:win32|windows|windows_nt)(?:[^a-z]|$)/i.test(raw)) return "windows";
+    if (/(?:^|[^a-z])(?:darwin|macos|mac os|osx)(?:[^a-z]|$)/i.test(raw)) return "macos";
+
+    const name = compactRuntimeDeviceName(fallbackName);
+    if (/^(?:desktop|laptop)-[a-z0-9]+$/i.test(name)) return "windows";
+    if (/(?:macbook|imac|mac mini|mac studio|mac pro)/i.test(name)) return "macos";
+    return "";
+  }
+
+  function botDeviceGroup(bot = {}) {
+    if (!botRunsOnOtherDevice(bot)) return null;
+    const runtimeConfig = bot.runtimeConfig && typeof bot.runtimeConfig === "object"
+      ? bot.runtimeConfig
+      : (bot.runtime_config && typeof bot.runtime_config === "object" ? bot.runtime_config : {});
+    const targetIntent = bot.targetIntent && typeof bot.targetIntent === "object"
+      ? bot.targetIntent
+      : (bot.target_intent && typeof bot.target_intent === "object" ? bot.target_intent : {});
+    const targetDeviceId = firstNonEmpty(
+      bot.targetDeviceId,
+      bot.target_device_id,
+      bot.deviceId,
+      bot.device_id,
+      runtimeConfig.targetDeviceId,
+      runtimeConfig.target_device_id,
+      runtimeConfig.deviceId,
+      runtimeConfig.device_id,
+      targetIntent.targetDeviceId,
+      targetIntent.target_device_id,
+      targetIntent.deviceId,
+      targetIntent.device_id
+    );
+    const devices = Array.isArray(state?.runtime?.cloud?.devices)
+      ? state.runtime.cloud.devices
+      : [];
+    const matchedDeviceIndex = devices.findIndex((device) => {
+      const ids = [
+        device?.id,
+        device?.deviceId,
+        device?.device_id
+      ].map((value) => String(value || "").trim()).filter(Boolean);
+      return Boolean(targetDeviceId && ids.includes(targetDeviceId));
+    });
+    const matchedDevice = matchedDeviceIndex >= 0 ? devices[matchedDeviceIndex] : null;
+    const projectionLabel = firstNonEmpty(
+      runtimeTargetProjection(bot).runtimeLabel,
+      bot.runtimeLabel,
+      bot.runtime_label
+    );
+    const targetDeviceName = firstNonEmpty(
+      matchedDevice?.deviceName,
+      matchedDevice?.device_name,
+      matchedDevice?.name,
+      bot.targetDeviceName,
+      bot.target_device_name,
+      bot.deviceName,
+      bot.device_name,
+      runtimeConfig.targetDeviceName,
+      runtimeConfig.target_device_name,
+      runtimeConfig.deviceName,
+      runtimeConfig.device_name,
+      targetIntent.targetDeviceName,
+      targetIntent.target_device_name,
+      targetIntent.deviceName,
+      targetIntent.device_name,
+      projectionLabel
+    );
+    const label = compactRuntimeDeviceName(targetDeviceName) || targetDeviceId || "未分配设备";
+    const explicitStatus = String(matchedDevice?.status || "").trim().toLowerCase();
+    const status = explicitStatus === "online"
+      ? "在线"
+      : explicitStatus === "offline"
+        ? "离线"
+        : /(?:^|\s|·|-)在线(?:\s|$)/i.test(projectionLabel)
+          ? "在线"
+          : /(?:^|\s|·|-)离线(?:\s|$)/i.test(projectionLabel)
+            ? "离线"
+            : (targetDeviceId ? "离线" : "未配置");
+    return {
+      // Bridge ids are connection instances and can change after a dev restart.
+      // The human device name is the stable identity used by the web grouping.
+      key: runtimeDeviceGroupKey(targetDeviceName, targetDeviceId),
+      label,
+      meta: status,
+      status: status === "在线" ? "online" : (status === "离线" ? "offline" : "unassigned"),
+      platform: runtimeDevicePlatform(matchedDevice, targetDeviceName, bot),
+      order: matchedDeviceIndex >= 0 ? 100 + matchedDeviceIndex : 700
+    };
   }
 
   function runtimeTargetOptionsCache() {
@@ -1191,6 +1346,7 @@
     botCapabilityOptions,
     botDeviceLabel,
     botRunsOnOtherDevice,
+    botDeviceGroup,
     botPersonaText,
     engineLogoHtml,
     renderCapabilityCheckbox,
