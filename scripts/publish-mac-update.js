@@ -13,6 +13,7 @@ const os = require("node:os");
 const path = require("node:path");
 const yaml = require("js-yaml");
 const { attachDesktopReleaseNotes } = require("./desktop-release-notes.js");
+const { syncDesktopWebDownloads } = require("./publish-desktop-web-downloads.js");
 
 const root = path.resolve(__dirname, "..");
 if (!process.env.SSH_ASKPASS) {
@@ -29,6 +30,7 @@ const updateUrl = String(process.env.MIA_UPDATE_BASE_URL || pkg.build?.publish?.
 const remote = String(process.env.MIA_UPDATE_REMOTE || process.env.MIA_DEPLOY_REMOTE || "").trim();
 const remoteDir = String(process.env.MIA_UPDATE_REMOTE_DIR || "/var/www/mia-updates/").replace(/\/?$/, "/");
 const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
+const shouldSyncWebDownloads = process.env.MIA_UPDATE_SYNC_WEB_DOWNLOADS !== "0";
 
 function resolveOrThrow(name) {
   const file = path.join(releaseDir, name);
@@ -181,6 +183,20 @@ if (shouldDeploy) {
   console.log(`Deploying updates to ${remote}:${remoteDir}`);
   execFileSync("ssh", [remote, "mkdir", "-p", remoteDir], { cwd: root, stdio: "inherit" });
   execFileSync("rsync", ["-av", `${stageDir}/`, `${remote}:${remoteDir}`], { cwd: root, stdio: "inherit" });
+  if (shouldSyncWebDownloads && dmgNames.length) {
+    console.log("Syncing macOS website download aliases.");
+    syncDesktopWebDownloads({
+      remote,
+      remoteDir,
+      cwd: root,
+      artifacts: dmgNames.map((fileName) => ({
+        fileName,
+        aliases: fileName.endsWith("-Apple-Silicon.dmg")
+          ? ["mia-macos-apple-silicon-latest.dmg", "mia-macos-arm64-latest.dmg"]
+          : ["mia-macos-intel-latest.dmg", "mia-macos-x64-latest.dmg"],
+      })),
+    });
+  }
 }
 
 console.log(`Done. Generic-provider clients will check ${updateUrl}latest-mac.yml.`);

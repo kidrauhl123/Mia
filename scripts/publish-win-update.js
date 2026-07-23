@@ -11,8 +11,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const yaml = require("js-yaml");
 const { attachDesktopReleaseNotes } = require("./desktop-release-notes.js");
+const { syncDesktopWebDownloads } = require("./publish-desktop-web-downloads.js");
 
 const root = path.resolve(__dirname, "..");
+if (process.platform !== "win32" && !process.env.SSH_ASKPASS) {
+  process.env.SSH_ASKPASS = path.join(root, "scripts", "jms-askpass.sh");
+  process.env.SSH_ASKPASS_REQUIRE = "force";
+}
 const pkg = require(path.join(root, "package.json"));
 const productName = pkg.productName || "Mia";
 const version = pkg.version || "0.0.0";
@@ -22,6 +27,7 @@ const updateUrl = String(process.env.MIA_UPDATE_BASE_URL || pkg.build?.publish?.
 const remote = String(process.env.MIA_UPDATE_REMOTE || process.env.MIA_DEPLOY_REMOTE || "").trim();
 const remoteDir = String(process.env.MIA_UPDATE_REMOTE_DIR || "/var/www/mia-updates/").replace(/\/?$/, "/");
 const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
+const shouldSyncWebDownloads = process.env.MIA_UPDATE_SYNC_WEB_DOWNLOADS !== "0";
 
 const feedFiles = [
   "latest.yml",
@@ -82,6 +88,18 @@ if (shouldDeploy) {
   console.log(`Deploying updates to ${remote}:${remoteDir}`);
   execFileSync("ssh", [remote, "mkdir", "-p", remoteDir], { cwd: root, stdio: "inherit" });
   execFileSync("rsync", ["-av", `${stageDir}/`, `${remote}:${remoteDir}`], { cwd: root, stdio: "inherit" });
+  if (shouldSyncWebDownloads) {
+    console.log("Syncing Windows website download aliases.");
+    syncDesktopWebDownloads({
+      remote,
+      remoteDir,
+      cwd: root,
+      artifacts: [{
+        fileName: `${productName}-${version}-Setup.exe`,
+        aliases: ["mia-windows-latest.exe", "mia-windows-x64-latest.exe"],
+      }],
+    });
+  }
 }
 
 console.log(`Done. Generic-provider clients will check ${updateUrl}latest.yml.`);

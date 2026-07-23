@@ -171,7 +171,7 @@ npm run desktop:package:verify -- --app /path/to/Mia.app
 
 ### 桌面自动更新（in-app update）
 
-- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）暂存 `latest-mac.yml` + dmg/zip/blockmap；`npm run release:win`（= `dist:win` + `scripts/publish-win-update.js`）暂存 `latest.yml` + NSIS setup/blockmap。设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供。
+- 发布命令：`npm run release:mac`（= `dist:mac` + `scripts/publish-mac-update.js`）暂存 `latest-mac.yml` + dmg/zip/blockmap；`npm run release:win`（= `dist:win` + `scripts/publish-win-update.js`）暂存 `latest.yml` + NSIS setup/blockmap。设置 `MIA_UPDATE_DEPLOY=1` 时同步到 VPS 的 `/var/www/mia-updates/`，由 `https://mia.gifgif.cn/updates/` 提供；同一步会原子更新官网 `/downloads/` 下的带版本安装包和“latest”兼容别名。若只需更新应用内更新源，可设置 `MIA_UPDATE_SYNC_WEB_DOWNLOADS=0`。
 - 发版必须先 **bump `package.json` 的 `version`**，并新增 `docs/releases/<version>.md`。发布脚本会把这份说明写进 `latest-mac.yml` / `latest.yml` 的 `releaseNotes`，桌面更新弹窗会展示摘要；缺失时发布会直接失败，避免旧客户端版本号不变或变更说明遗漏。
 - `docs/releases/<version>.md` 面向普通用户，不是内部变更日志。只写用户能感知的体验变化和问题修复，避免服务器、脚本、临时文件名、内部架构名、发包流程等实现细节；也不要写“发布了新安装包”“更新到某版本”这类用户已经知道的空话。
 - 当前更新通道 = **generic HTTPS**（`build.publish` = `generic`, `url` = `https://mia.gifgif.cn/updates/`）；客户端用 electron-updater 在 macOS 拉 `latest-mac.yml`，在 Windows 拉 `latest.yml`。
@@ -194,7 +194,7 @@ npm run dist:mac:intel
 MIA_UPDATE_DEPLOY=1 MIA_UPDATE_REMOTE=mia-jms-deploy node scripts/publish-mac-update.js
 ```
 
-最后一步会把 `dist/mia-updates/` 中合并后的 `latest-mac.yml`、两套 zip/blockmap 和 DMG 同步到 `https://mia.gifgif.cn/updates/`。发布后必须确认线上 feed 已更新：
+最后一步会把 `dist/mia-updates/` 中合并后的 `latest-mac.yml`、两套 zip/blockmap 和 DMG 同步到 `https://mia.gifgif.cn/updates/`，并同步官网的 macOS 下载别名。发布后必须确认线上 feed 已更新：
 
 ```bash
 curl -fsSL https://mia.gifgif.cn/updates/latest-mac.yml | sed -n '1,40p'
