@@ -7370,6 +7370,13 @@ body.platform-win32 .profile-popover {
   z-index: 80;
 }
 
+/* Root-mounted context menus are independent from the chat workspace. Keep
+ * them above the raised Windows content plane so message actions remain
+ * visible and interactive. */
+body.platform-win32 .skill-context-menu {
+  z-index: 80;
+}
+
 .profile-popover-form {
   width: 100%;
   max-height: calc(100vh - 46px);
