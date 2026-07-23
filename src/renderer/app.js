@@ -4293,7 +4293,7 @@ async function maybeGenerateCloudConversationTitle(conversationId) {
       content: message.body_md
     }));
     const result = await window.mia.generateConversationTitle({
-      botKey: botKeyForConversation(conversation),
+      botId: botKeyForConversation(conversation),
       conversationId,
       messages: titleMessages
     });
@@ -4375,11 +4375,14 @@ function renderMessageHtml(message, ctx) {
   const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
       blocks: contentBlocks,
+      completed: true,
       expanded: false,
       scopeKey: `msg:${message.createdAt || ""}`,
-      renderTextBlock(block) {
-        const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentBeforeBodyHtml}${pinnedHtml}${replyHtml}`;
-        renderedFirstTextBlock = true;
+      renderTextBlock(block, _blockIndex, renderState = {}) {
+        const prefixHtml = renderedFirstTextBlock || renderState.process
+          ? ""
+          : `${attachmentBeforeBodyHtml}${pinnedHtml}${replyHtml}`;
+        if (!renderState.process) renderedFirstTextBlock = true;
         const blockBodyHtml = String(block.text || "").trim() ? window.miaMarkdown.renderMarkdown(block.text) : "";
         return `<div class="bubble${message.pinned ? " pinned" : ""}" data-message-index="${messageIndex}">${prefixHtml}${blockBodyHtml}</div>`;
       }
@@ -4390,6 +4393,7 @@ function renderMessageHtml(message, ctx) {
       reasoning: message.reasoning,
       tools: message.tools,
       content: message.content,
+      completed: true,
       expanded: false,
       scopeKey: `msg:${message.createdAt || ""}`
     })
@@ -5275,7 +5279,7 @@ function setComposerModelAvatar(entry = {}, engine = "hermes", options = {}) {
 function setComposerModelControlSummary(modelLabel = "", effortLabel = "") {
   const model = String(modelLabel || "").trim();
   const effort = String(effortLabel || "").trim();
-  setText(els.quickModelLabel, model || (effort ? "模型" : ""));
+  setText(els.quickModelLabel, [model, effort].filter(Boolean).join(" · "));
   if (els.quickModelSelect) {
     els.quickModelSelect.title = [model, effort].filter(Boolean).join(" · ");
   }
@@ -5365,11 +5369,10 @@ function syncConversationBotRuntimeControls() {
     onToggleYolo: setActiveHermesSessionYolo
   });
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
+  const fullAccessPermission = window.miaEngineContracts?.isFullAccessPermissionMode?.(els.permissionMode?.value);
   permissionSwitcher?.classList.toggle("yolo", hermesSessionYoloActive
     || (hermesPermissionMenuEnabled && els.permissionMode?.value === "off")
-    || els.permissionMode?.value === "yolo"
-    || els.permissionMode?.value === ":danger-full-access"
-    || (engine !== "claude-code" && els.permissionMode?.value === "bypassPermissions"));
+    || (fullAccessPermission && !(engine === "claude-code" && els.permissionMode?.value === "bypassPermissions")));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
   if (els.quickModelSelect) els.quickModelSelect.disabled = !(modelEntries.length || effortEntries.length);
   if (els.effortSelect) els.effortSelect.disabled = !effortEntries.length;
@@ -8033,11 +8036,18 @@ els.sendChat.addEventListener("click", async (event) => {
   }
   event.preventDefault();
   event.stopPropagation();
-  await window.mia.stopChat?.({
+  const stopped = await window.mia.stopChat?.({
     conversationId: window.miaSocial?.getActiveConversationId?.() || "",
     runId: activeRun?.runId || "",
-    turnId: activeRun?.turnId || ""
+    turnId: activeRun?.turnId || "",
+    runtimeKind: activeBotRuntimeControlContext()?.runtimeKind || ""
   });
+  if (stopped && stopped.ok !== false) {
+    window.miaSocial?.markConversationRunCancelling?.(
+      window.miaSocial?.getActiveConversationId?.() || "",
+      activeRun?.runId || ""
+    );
+  }
   renderSendButton();
 });
 els.chat.addEventListener("click", async (event) => {
@@ -8218,6 +8228,10 @@ els.chatForm.addEventListener("submit", async (event) => {
   }
   // Branch: a cloud conversation (dm / group / bot) is active → send via social.
   if (window.miaSocial?.getActiveConversationId?.()) {
+    if (isActiveConversationBusy()) {
+      renderSendButton();
+      return;
+    }
     const conversationId = window.miaSocial.getActiveConversationId();
     const composerText = els.chatInput.value;
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);

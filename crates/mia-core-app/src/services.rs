@@ -48,13 +48,23 @@ impl AppServices {
         let database = init_database(&config.database_path()).await?;
         let legacy_node_path = config.data_dir.join("mia-memory.sqlite");
         import_legacy_sources(database.pool(), Some(&legacy_node_path)).await?;
-        Ok(Self::from_database(config, database))
+        let services = Self::from_database(config, database);
+        services
+            .conversation
+            .recover_interrupted_runtime_turns()
+            .await?;
+        Ok(services)
     }
 
     pub async fn from_config_memory(config: &AppConfig) -> anyhow::Result<Self> {
         let database = init_database_memory().await?;
         import_legacy_sources(database.pool(), None).await?;
-        Ok(Self::from_database(config, database))
+        let services = Self::from_database(config, database);
+        services
+            .conversation
+            .recover_interrupted_runtime_turns()
+            .await?;
+        Ok(services)
     }
 
     pub fn from_database(config: &AppConfig, database: Database) -> Self {

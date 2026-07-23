@@ -316,13 +316,17 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
     "merged Core history must warm the visible bot conversation cache, including user messages"
   );
   assert.match(rewriteLocalBotMessageSource, /const runtime = content\.runtime/);
+  assert.match(rewriteLocalBotMessageSource, /\["cancelled",\s*"interrupted",\s*"error"\]\.includes\(normalized\.status\)/);
+  assert.match(rewriteLocalBotMessageSource, /_localRunStatus:\s*persistedRunStatus/);
   assert.match(rewriteLocalBotMessageSource, /trace:\s*runtime\.trace/);
   assert.match(rewriteLocalBotMessageSource, /contentBlocks:\s*runtime\.contentBlocks/);
   assert.match(rewriteLocalBotMessageSource, /content_blocks_json:\s*JSON\.stringify\(runtime\.contentBlocks\)/);
   assert.match(preload, /deleteConversation:\s*\(conversationId\)\s*=>\s*deleteConversationCompat\(conversationId\)/);
   assert.match(preload, /sendChatStateless:\s*\(payload\)\s*=>\s*runCoreConversationUtilityTurn\(payload\)/);
   assert.match(preload, /miaCorePost\("\/api\/conversations\/utility-turns",\s*buildCoreConversationUtilityTurnRequest\(payload\)\)/);
-  assert.match(preload, /stopChat:\s*\(payload\)\s*=>\s*cancelCoreConversationTurn\(payload\)/);
+  assert.match(preload, /stopChat:\s*\(payload\)\s*=>\s*cancelActiveConversationRun\(payload\)/);
+  assert.match(preload, /miaCorePost\("\/api\/cloud\/bridge\/cancel",\s*\{\s*runId\s*\}\)/);
+  assert.match(preload, /IpcChannel\.SocialCancelConversationRun/);
   assert.match(preload, /\/api\/conversations\/\$\{encodeURIComponent\(conversationId\)\}\/turns\/\$\{encodeURIComponent\(turnId\)\}\/cancel/);
   assert.doesNotMatch(channels, /ChatSendStateless/);
   assert.doesNotMatch(main, /IpcChannel\.ChatSendStateless|async function sendChatStateless|createBotTurnHelpers|normalizeTurnRuntimeConfig/);
@@ -355,9 +359,9 @@ test("Rust Core runtime assistant message events carry persisted created_at", ()
   const cloudBridge = read("crates/mia-core-app/src/cloud_bridge.rs");
 
   assert.match(conversationCore, /pub struct CompletedRuntimeMessage \{[\s\S]*pub created_at: i64,/);
-  assert.match(conversationCore, /CompletedRuntimeMessage \{[\s\S]*created_at: now,/);
+  assert.match(conversationCore, /CompletedRuntimeMessage \{[\s\S]*created_at,/);
   assert.match(turnExecution, /"created_at": completed\.created_at/);
-  assert.match(cloudBridge, /"created_at": completed\.created_at/);
+  assert.match(cloudBridge, /"created_at": message\.created_at/);
   assert.doesNotMatch(turnExecution, /"created_at": "",/);
   assert.doesNotMatch(cloudBridge, /"created_at": "",/);
 });

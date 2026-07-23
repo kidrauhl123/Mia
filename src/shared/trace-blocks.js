@@ -192,7 +192,7 @@
     return { glyph: "🧠", title: "记忆已更新", body: "已更新当前 Bot 的记忆。" };
   }
 
-  function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools }) {
+  function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools, completed = false }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
     const toolList = Array.isArray(tools) ? tools : [];
@@ -278,7 +278,13 @@
         `</details>`
       );
     }
-    return `<div class="trace">${rows.join("")}</div>`;
+    const traceHtml = `<div class="trace">${rows.join("")}</div>`;
+    if (!completed) return traceHtml;
+    return renderAssistantProcessDetails({
+      processKey: scopeKey ? `${scopeKey}::process` : "",
+      itemCount: rows.length,
+      render: () => traceHtml
+    });
   }
 
   function traceOpenState(key, expanded) {
@@ -312,6 +318,25 @@
       attrs.push(`style="--trace-delay:${Math.min(idx, 6) * 60}ms"`);
     }
     return attrs.length ? ` ${attrs.join(" ")}` : "";
+  }
+
+  function renderAssistantProcessDetails({ processKey, itemCount, render }) {
+    const processState = traceOpenState(processKey, false);
+    return `<div class="trace assistant-process-trace">` +
+      `<details class="trace-row assistant-process${traceAnimClass(processKey)}" data-accordion="true"${traceRowAttrs(processKey, 0, processState)}>` +
+        `<summary>` +
+          `<span class="trace-chevron">▸</span>` +
+          `<span class="trace-glyph">◇</span>` +
+          `<span class="trace-cmd">查看过程</span>` +
+          `<span class="trace-meta">${window.miaMarkdown.escapeHtml(itemCount)} 项</span>` +
+        `</summary>` +
+        traceBodyHtml({
+          key: processKey,
+          open: processState.open,
+          render: () => `<div class="assistant-process-content">${render()}</div>`
+        }) +
+      `</details>` +
+    `</div>`;
   }
 
   function renderFileEditBlock(block, { expanded, scopeKey, rowIndex }) {
@@ -510,16 +535,20 @@
     return "思考中";
   }
 
-  function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey }) {
-    const normalized = normalizeAssistantBlocks(blocks);
-    if (!normalized.length) return "";
-    const assistantContent = assistantTextFromBlocks(normalized);
+  function renderAssistantBlockEntries({
+    entries,
+    renderTextBlock,
+    expanded,
+    scopeKey,
+    assistantContent,
+    process = false
+  }) {
     const rows = [];
-    for (let idx = 0; idx < normalized.length; idx++) {
-      const block = normalized[idx];
+    for (const entry of entries) {
+      const { block, index: idx } = entry;
       if (block.type === "text") {
         if (typeof renderTextBlock === "function") {
-          rows.push(renderTextBlock(block, idx));
+          rows.push(renderTextBlock(block, idx, { process, final: false }));
         }
       } else if (block.type === "thinking") {
         rows.push(renderTraceBlocks({
@@ -553,6 +582,66 @@
       }
     }
     return rows.join("");
+  }
+
+  function renderCompletedAssistantContent({
+    normalized,
+    renderTextBlock,
+    scopeKey,
+    assistantContent
+  }) {
+    let finalTextIndex = -1;
+    for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
+      if (normalized[idx]?.type === "text" && String(normalized[idx].text || "").trim()) {
+        finalTextIndex = idx;
+        break;
+      }
+    }
+    if (finalTextIndex < 0 || normalized.length < 2) return "";
+    const entries = normalized.map((block, index) => ({ block, index }));
+    const processEntries = entries.filter((entry) => entry.index !== finalTextIndex);
+    if (!processEntries.length) return "";
+    const processKey = scopeKey ? `${scopeKey}::process` : "";
+    const processHtml = () => renderAssistantBlockEntries({
+      entries: processEntries,
+      renderTextBlock,
+      expanded: false,
+      scopeKey,
+      assistantContent,
+      process: true
+    });
+    const processDetails = renderAssistantProcessDetails({
+      processKey,
+      itemCount: processEntries.length,
+      render: processHtml
+    });
+    const finalBlock = normalized[finalTextIndex];
+    const finalHtml = typeof renderTextBlock === "function"
+      ? renderTextBlock(finalBlock, finalTextIndex, { process: false, final: true })
+      : "";
+    return `${processDetails}${finalHtml}`;
+  }
+
+  function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey, completed = false }) {
+    const normalized = normalizeAssistantBlocks(blocks);
+    if (!normalized.length) return "";
+    const assistantContent = assistantTextFromBlocks(normalized);
+    if (completed) {
+      const completedHtml = renderCompletedAssistantContent({
+        normalized,
+        renderTextBlock,
+        scopeKey,
+        assistantContent
+      });
+      if (completedHtml) return completedHtml;
+    }
+    return renderAssistantBlockEntries({
+      entries: normalized.map((block, index) => ({ block, index })),
+      renderTextBlock,
+      expanded,
+      scopeKey,
+      assistantContent
+    });
   }
 
   function markRenderedTraceBlocks(root) {

@@ -65,6 +65,30 @@ test("run approval IPC forwards the owner decision to socialApi", async () => {
   assert.deepEqual(calls, [{ conversationId: "botc_u_1_mia", runId: "car_run_1", decision: "allow_once" }]);
 });
 
+test("run cancellation IPC forwards the active run to socialApi", async () => {
+  const ipcMain = fakeIpcMain();
+  const calls = [];
+
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      cancelConversationRun: async (conversationId, runId) => {
+        calls.push({ conversationId, runId });
+        return { ok: true, status: "cancelling" };
+      }
+    }
+  });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialCancelConversationRun)(
+    null,
+    "botc_u_1_mia",
+    "car_run_1"
+  );
+
+  assert.deepEqual(result, { ok: true, data: { ok: true, status: "cancelling" } });
+  assert.deepEqual(calls, [{ conversationId: "botc_u_1_mia", runId: "car_run_1" }]);
+});
+
 test("runtime gate allows user message writes but blocks runtime social reads while cached reads stay available", async () => {
   const ipcMain = fakeIpcMain();
   let posted = false;

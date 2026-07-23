@@ -4042,6 +4042,18 @@ p {
   overflow: hidden;
 }
 
+.assistant-process-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 0 3px 12px;
+}
+
+.assistant-process-content .bubble {
+  max-width: 100%;
+}
+
 .trace-glyph {
   flex: 0 0 auto;
   width: 10px;
@@ -4114,8 +4126,8 @@ p {
   font-size: 11.5px;
   color: var(--muted, #6b7280);
   opacity: 0.85;
-  max-height: 240px;
-  overflow: auto;
+  max-height: 12em;
+  overflow: hidden;
 }
 
 .trace-link {
@@ -4147,7 +4159,7 @@ p {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #c9d1d9;
   opacity: 1;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .diff-line {
@@ -4223,7 +4235,7 @@ p {
 }
 
 .trace-row[data-auto-open="true"] .trace-body { max-height: 6.8em; }
-.trace-row[data-user-open="true"] .trace-body { max-height: 240px; }
+.trace-row[data-user-open="true"] .trace-body { max-height: 12em; }
 
 @media (prefers-reduced-motion: reduce) {
   .message.message-tail-enter {

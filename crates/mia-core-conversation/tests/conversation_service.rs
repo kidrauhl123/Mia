@@ -470,6 +470,106 @@ async fn conversation_service_persists_user_messages_with_monotonic_sequence() {
 }
 
 #[tokio::test]
+async fn conversation_service_checkpoints_and_recovers_partial_runtime_turns() {
+    let db = init_database_memory().await.unwrap();
+    let service = ConversationService::new(db.pool().clone());
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "direct".to_string(),
+            title: "Checkpoint".to_string(),
+            bot_id: None,
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+
+    let checkpoint = service
+        .checkpoint_runtime_turn(
+            &created.conversation.id,
+            "turn_checkpoint",
+            "已经显示的部分回复",
+            json!({
+                "engine": "codex",
+                "trace": {
+                    "reasoning": "检查中",
+                    "tools": []
+                },
+                "contentBlocks": [
+                    { "type": "text", "id": "text_0", "text": "已经显示的部分回复" }
+                ]
+            }),
+        )
+        .await
+        .unwrap();
+
+    let streaming = sqlx::query(
+        "SELECT id, body, status, content_json FROM messages WHERE conversation_id = ? AND role = 'assistant'",
+    )
+    .bind(&created.conversation.id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(streaming.get::<String, _>("id"), checkpoint.message_id);
+    assert_eq!(streaming.get::<String, _>("body"), "已经显示的部分回复");
+    assert_eq!(streaming.get::<String, _>("status"), "streaming");
+
+    let completed = service
+        .complete_runtime_turn(
+            &created.conversation.id,
+            "turn_checkpoint",
+            "已经显示的部分回复",
+            json!({
+                "engine": "codex",
+                "cancelled": true,
+                "trace": {
+                    "reasoning": "检查中",
+                    "tools": []
+                },
+                "contentBlocks": [
+                    { "type": "text", "id": "text_0", "text": "已经显示的部分回复" }
+                ]
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(completed.message_id, checkpoint.message_id);
+
+    let cancelled = sqlx::query(
+        "SELECT COUNT(*) AS count, status FROM messages WHERE conversation_id = ? AND role = 'assistant'",
+    )
+    .bind(&created.conversation.id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(cancelled.get::<i64, _>("count"), 1);
+    assert_eq!(cancelled.get::<String, _>("status"), "cancelled");
+
+    service
+        .checkpoint_runtime_turn(
+            &created.conversation.id,
+            "turn_interrupted",
+            "重启前已经显示",
+            json!({ "engine": "codex", "trace": {}, "contentBlocks": [] }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        service.recover_interrupted_runtime_turns().await.unwrap(),
+        1
+    );
+
+    let recovered = sqlx::query(
+        "SELECT body, status FROM messages WHERE conversation_id = ? AND json_extract(content_json, '$.turnId') = 'turn_interrupted'",
+    )
+    .bind(&created.conversation.id)
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
+    assert_eq!(recovered.get::<String, _>("body"), "重启前已经显示");
+    assert_eq!(recovered.get::<String, _>("status"), "interrupted");
+}
+
+#[tokio::test]
 async fn conversation_service_orchestrates_mock_agent_turn_inside_core() {
     let db = init_database_memory().await.unwrap();
     let service = ConversationService::new(db.pool().clone());

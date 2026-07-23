@@ -398,6 +398,7 @@
     const blocks = [];
     const toolsById = new Map();
     const toolsByName = new Map();
+    const fileEditsById = new Map();
     const thinkingBlocksByEventId = new Map();
 
     function nextId(prefix) {
@@ -548,9 +549,10 @@
       const action = normalizeFileAction(event.action || event.kind || event.data?.kind);
       const additions = nonNegativeInt(event.additions || event.data?.additions);
       const deletions = nonNegativeInt(event.deletions || event.data?.deletions);
-      blocks.push({
+      const id = eventId(event, nextId("file_edit"));
+      const next = {
         type: "file_edit",
-        id: eventId(event, nextId("file_edit")),
+        id,
         path: filePath,
         action,
         title: fileEditTitle({
@@ -565,7 +567,14 @@
         deletions,
         status: normalizeStatus(event.status || "completed"),
         error: Boolean(event.error || event.data?.error)
-      });
+      };
+      const existing = fileEditsById.get(id);
+      if (existing) {
+        Object.assign(existing, next);
+        return;
+      }
+      blocks.push(next);
+      fileEditsById.set(id, next);
     }
 
     function collect(kindOrEvent, data = {}) {

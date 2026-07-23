@@ -8,6 +8,7 @@ mod agent_engines;
 mod hermes_gateway;
 mod memory_isolation;
 mod native_acp;
+mod task_cache;
 
 use std::collections::BTreeMap;
 use std::process::Stdio;
@@ -35,7 +36,8 @@ use mia_core_api_types::MemoryMode;
 
 const POLLUTED_ENV_KEYS: [&str; 4] = ["NODE_OPTIONS", "NODE_INSPECT", "NODE_DEBUG", "CLAUDECODE"];
 const MIA_MEMORY_BUDGET_ENV: &str = "MIA_MEMORY_BUDGET";
-const MIA_NODE_MEMORY_FLAGS: &str = "--max-old-space-size=32 --max-semi-space-size=1 --optimize-for-size";
+const MIA_NODE_MEMORY_FLAGS: &str =
+    "--max-old-space-size=32 --max-semi-space-size=1 --optimize-for-size";
 pub const EVENT_RUNTIME_STARTED: &str = "conversation.runtimeStarted";
 pub const EVENT_RUNTIME_CANCEL_REQUESTED: &str = "conversation.runtimeCancelRequested";
 pub const EVENT_RUNTIME_STDOUT: &str = "conversation.runtimeStdout";
@@ -1047,10 +1049,8 @@ mod tests {
             Some(MIA_NODE_MEMORY_FLAGS)
         );
 
-        let unbounded = runtime_environment_for_engine(
-            "claude-code",
-            [("NODE_OPTIONS", "--inspect")],
-        );
+        let unbounded =
+            runtime_environment_for_engine("claude-code", [("NODE_OPTIONS", "--inspect")]);
         assert!(!unbounded.contains_key("NODE_OPTIONS"));
     }
 

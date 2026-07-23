@@ -131,16 +131,18 @@
       reasoning: trace.reasoning,
       tools: trace.tools,
       content,
+      completed: true,
       expanded: false,
       scopeKey: `cloud-msg:${msg.id || ""}`
     });
   }
 
-  function renderOrderedAssistantBlocks({ blocks, expanded, scopeKey, renderTextBlock }) {
+  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
     return renderer.renderAssistantContentBlocks({
       blocks,
+      completed,
       expanded,
       scopeKey,
       renderTextBlock
@@ -269,11 +271,14 @@
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
         blocks: contentBlocks,
+        completed: true,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
-        renderTextBlock(block) {
-          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentBeforeBodyHtml}${senderTitleHtml}`;
-          renderedFirstTextBlock = true;
+        renderTextBlock(block, _blockIndex, renderState = {}) {
+          const prefixHtml = renderedFirstTextBlock || renderState.process
+            ? ""
+            : `${attachmentBeforeBodyHtml}${senderTitleHtml}`;
+          if (!renderState.process) renderedFirstTextBlock = true;
           const rawBlockHtml = renderMsgBody(block.text || "");
           const blockHtml = global.miaMentionRender
             ? global.miaMentionRender.highlightMentions(rawBlockHtml, members || [])

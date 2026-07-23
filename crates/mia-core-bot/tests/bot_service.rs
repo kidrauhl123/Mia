@@ -396,6 +396,72 @@ async fn bot_service_owns_runtime_control_intent_normalization() {
 }
 
 #[tokio::test]
+async fn external_runtime_sync_preserves_saved_permission_and_effort_controls() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let created = service
+        .create_bot(CreateBotRequest {
+            display_name: "Codex Runtime".to_string(),
+            identity: json!({}),
+            capabilities: json!({}),
+        })
+        .await
+        .unwrap();
+
+    service
+        .save_runtime(
+            &created.bot.id,
+            SaveBotRuntimeRequest {
+                runtime_kind: "desktop-local".to_string(),
+                provider_connection_id: None,
+                model_profile_id: None,
+                model: None,
+                target_intent: None,
+                sync_intent: None,
+                control_intent: None,
+                config: json!({
+                    "agentEngine": "codex",
+                    "effortLevel": "xhigh",
+                    "permissionMode": "agent-full-access"
+                }),
+            },
+        )
+        .await
+        .unwrap();
+
+    let synced = service
+        .save_runtime(
+            &created.bot.id,
+            SaveBotRuntimeRequest {
+                runtime_kind: "desktop-local".to_string(),
+                provider_connection_id: None,
+                model_profile_id: None,
+                model: None,
+                target_intent: None,
+                sync_intent: Some(BotRuntimeSyncIntent {
+                    agent_engine: Some("codex".to_string()),
+                    device_id: Some("device_mac".to_string()),
+                    device_name: Some("Office Mac.local".to_string()),
+                    model: None,
+                    effort_level: None,
+                    permission_mode: None,
+                    model_entries: vec![],
+                }),
+                control_intent: None,
+                config: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(synced.binding["config"]["effortLevel"], "xhigh");
+    assert_eq!(
+        synced.binding["config"]["permissionMode"],
+        "agent-full-access"
+    );
+}
+
+#[tokio::test]
 async fn bot_service_owns_runtime_control_options_selection() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());
@@ -1106,7 +1172,7 @@ async fn bot_service_owns_runtime_sync_intent_normalization() {
         "codex:gpt-5.3-codex"
     );
     assert_eq!(external.binding["config"]["effortLevel"], "xhigh");
-    assert!(external.binding["config"].get("permissionMode").is_none());
+    assert_eq!(external.binding["config"]["permissionMode"], "readOnly");
     assert_eq!(
         external.binding["config"]["modelEntries"][0],
         json!({"id":"gpt-5.3-codex","label":"GPT-5.3 Codex","model":"gpt-5.3-codex","provider":"codex","modelProfileId":"codex:gpt-5.3-codex"})

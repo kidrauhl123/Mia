@@ -1539,7 +1539,9 @@
 
   function runActivityLabel(run, options = {}) {
     const status = String(run?._localRunStatus || run?.status || "").trim();
-    if (status === "cancelled") return firstText(run?._localRunStatusText, "已中断");
+    if (status === "cancelled" || status === "interrupted") {
+      return firstText(run?._localRunStatusText, "已中断");
+    }
     if (status === "cancelling") return "正在中断";
     if (status === "error") return "运行失败";
     if (Array.isArray(run?.pendingPermissions) && run.pendingPermissions.length) {
@@ -1558,7 +1560,7 @@
     const elapsed = formatRunElapsed(elapsedMs);
     const goalText = runGoalStatusText(run);
     const isLoading = status === "running" || status === "cancelling";
-    const statusClass = status === "cancelled"
+    const statusClass = status === "cancelled" || status === "interrupted"
       ? " is-interrupted"
       : (status === "error" ? " is-error" : ` is-running${status === "cancelling" ? " is-cancelling" : ""} is-loading`);
     return {
@@ -1822,9 +1824,21 @@
     return message;
   }
 
+  function messageWithPersistedRunStatus(message) {
+    if (!message || message.sender_kind !== conversationKinds().SenderKind.Bot) return message;
+    const status = String(message.status || "").trim();
+    if (!["cancelled", "interrupted", "error"].includes(status)) return message;
+    return {
+      ...message,
+      _localRunStatus: status,
+      _localRunStatusText: status === "error" ? "运行失败" : "已中断"
+    };
+  }
+
   function messageWithFallbackRunTrace(conversationId, message) {
     const { SenderKind } = conversationKinds();
     if (!message || message.sender_kind !== SenderKind.Bot) return message;
+    message = messageWithPersistedRunStatus(message);
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     const existingBlocks = contentBlocksFromMessage(message);
     const existingTrace = parseTraceJson(message.trace_json || message.trace);
@@ -1845,23 +1859,25 @@
     return merged;
   }
 
-  function renderTraceFor({ reasoning, tools, content, expanded, scopeKey }) {
+  function renderTraceFor({ reasoning, tools, content, completed, expanded, scopeKey }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderTraceBlocks !== "function") return "";
     return renderer.renderTraceBlocks({
       reasoning,
       tools,
       content,
+      completed,
       expanded,
       scopeKey
     });
   }
 
-  function renderOrderedAssistantBlocks({ blocks, expanded, scopeKey, renderTextBlock }) {
+  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
     return renderer.renderAssistantContentBlocks({
       blocks,
+      completed,
       expanded,
       scopeKey,
       renderTextBlock
@@ -2769,6 +2785,14 @@
 
   function conversationRunIsBusy(conversationId) {
     return isConversationRunBusy(conversationRun(conversationId));
+  }
+
+  function markConversationRunCancelling(conversationId, runId = "") {
+    const run = conversationRun(conversationId);
+    if (!run || (runId && String(run.runId || "") !== String(runId))) return false;
+    if (run.status !== "running" && run.status !== "cancelling") return false;
+    applyCloudAgentRunEvent(run, { type: "run.cancelling" });
+    return true;
   }
 
   function conversationRunIsTyping(conversationId) {
@@ -3757,6 +3781,7 @@
       }
       const entry = moduleState.messageCache.get(conversationId);
       if (_reconcileEchoedConversationMessage(conversationId, cachedMessage)) return;
+      if (_reconcilePersistedCancelledRun(conversationId, cachedMessage)) return;
       if (_reconcileCloudBridgeBotMirror(conversationId, cachedMessage)) return;
       // De-dup by id
       const fresh = !entry.messages.find((m) => m.id === cachedMessage.id);
@@ -4239,11 +4264,14 @@
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
         blocks: contentBlocks,
+        completed: true,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
-        renderTextBlock(block) {
-          const prefixHtml = renderedFirstTextBlock ? "" : `${attachmentBeforeBodyHtml}${senderHtml}${skillsHtml}`;
-          renderedFirstTextBlock = true;
+        renderTextBlock(block, _blockIndex, renderState = {}) {
+          const prefixHtml = renderedFirstTextBlock || renderState.process
+            ? ""
+            : `${attachmentBeforeBodyHtml}${senderHtml}${skillsHtml}`;
+          if (!renderState.process) renderedFirstTextBlock = true;
           return `<div class="bubble" data-message-index="${messageIndex}" data-message-source="cloud-conversation" data-message-id="${escapeHtml(msg.id || "")}">${prefixHtml}${_renderMsgBody(block.text || "")}</div>`;
         }
       })
@@ -4257,6 +4285,7 @@
         reasoning: trace.reasoning,
         tools: trace.tools,
         content: bodyMd,
+        completed: true,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`
       })
@@ -4743,6 +4772,38 @@
       merged.content_blocks_json = localMsg.content_blocks_json;
     }
     return merged;
+  }
+
+  function _reconcilePersistedCancelledRun(conversationId, sentMsg) {
+    if (!conversationId || !sentMsg || sentMsg.sender_kind !== conversationKinds().SenderKind.Bot) {
+      return false;
+    }
+    const runId = String(sentMsg._cloudBridgeRunId || sentMsg._cloud_bridge_run_id || "").trim();
+    if (!runId) return false;
+    const entry = moduleState.messageCache.get(conversationId);
+    if (!entry) return false;
+    const localIdx = entry.messages.findIndex((message) => (
+      message
+      && message._localRunStatus === "cancelled"
+      && String(message._localRunId || "").trim() === runId
+    ));
+    if (localIdx < 0) return false;
+    const previousId = entry.messages[localIdx].id;
+    const mergedMsg = _mergeCloudBridgeMirrorFields(entry.messages[localIdx], sentMsg);
+    entry.messages[localIdx] = mergedMsg;
+    sortMessagesByTimelineSeq(entry.messages);
+    if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
+    if (conversationId === moduleState.activeConversationId) {
+      const didSilentReconcile = syncActiveChatAfterSilentMessageReconcile(
+        conversationId,
+        previousId,
+        mergedMsg,
+        entry
+      );
+      if (!didSilentReconcile) _reRenderActiveChat();
+    }
+    if (deps && typeof deps.render === "function") deps.render();
+    return true;
   }
 
   function _reconcileCloudBridgeBotMirror(conversationId, sentMsg) {
@@ -5550,6 +5611,9 @@
       clearLastActiveConversationId(conversationId);
       setActiveConversationId(null);
       return { ok: false, error: "当前会话不可用" };
+    }
+    if (conversationRunIsBusy(conversationId)) {
+      return { ok: false, error: "当前回复尚未结束" };
     }
     const conversationType = conversationTypeFor(conversation, conversationId);
     const members = _conversationMembersCache.get(conversationId) || [];
@@ -6633,6 +6697,7 @@
     conversationRun,
     conversationRunIsRunning,
     conversationRunIsBusy,
+    markConversationRunCancelling,
     conversationRunIsTyping,
     activeConversationRunIsTyping,
     activeConversationCanSend,

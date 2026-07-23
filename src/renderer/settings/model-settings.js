@@ -238,6 +238,7 @@
     if (mode === ":workspace") return "Workspace";
     if (mode === ":read-only") return "Read Only";
     if (mode === ":danger-full-access") return "Full Access";
+    if (mode === "agent-full-access") return "Full Access";
     return String(mode || "");
   }
 
@@ -268,7 +269,11 @@
     els.permissionMode.disabled = !options || !entries.length;
     const engine = options?.agentEngine || "hermes";
     const switcher = els.permissionMode.closest(".permission-switcher");
-    switcher?.classList.toggle("yolo", els.permissionMode.value === "yolo" || els.permissionMode.value === "off" || els.permissionMode.value === ":danger-full-access" || (engine !== "claude-code" && els.permissionMode.value === "bypassPermissions"));
+    const fullAccess = window.miaEngineContracts?.isFullAccessPermissionMode?.(els.permissionMode.value)
+      || els.permissionMode.value === "yolo"
+      || els.permissionMode.value === "off"
+      || els.permissionMode.value === ":danger-full-access";
+    switcher?.classList.toggle("yolo", fullAccess && !(engine === "claude-code" && els.permissionMode.value === "bypassPermissions"));
     switcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode.value === "bypassPermissions");
   }
 

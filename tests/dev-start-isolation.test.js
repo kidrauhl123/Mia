@@ -6,6 +6,7 @@ const {
   DEFAULT_DEV_PORT,
   DEFAULT_MULTI_PORT,
   appDataRoot,
+  electronLaunchEnv,
   resolveDevLaunchConfig,
   resolveDevUserDataDir,
   validPort
@@ -48,4 +49,18 @@ test("dev launcher has separate default ports for the first and second profile",
   assert.match(appDataRoot({ platform: "linux", home: "/home/tester", env: {} }), /\.config$/);
   assert.equal(validPort("27963"), 27963);
   assert.equal(validPort("not-a-port"), 0);
+});
+
+test("dev launcher removes Electron's inherited Node mode before opening the desktop app", () => {
+  const source = {
+    ELECTRON_RUN_AS_NODE: "1",
+    MIA_CORE_PORT: "27963",
+    PATH: "/usr/bin"
+  };
+  const env = electronLaunchEnv(source);
+
+  assert.equal(env.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(env.MIA_CORE_PORT, "27963");
+  assert.equal(env.PATH, "/usr/bin");
+  assert.equal(source.ELECTRON_RUN_AS_NODE, "1");
 });

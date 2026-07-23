@@ -1410,6 +1410,11 @@ test("src/web/app.js delegates trace row toggles to state.openTraceKeys", () => 
     /els\.chat\.addEventListener\("toggle"[\s\S]*?details\.trace-row\[data-trace-key\][\s\S]*?openTraceKeys\.add/,
     "chat container must remember trace expansion via openTraceKeys"
   );
+  assert.match(
+    source,
+    /els\.chat\.addEventListener\("toggle"[\s\S]*?hydrateTraceRow[\s\S]*?releaseTraceRow/,
+    "web trace toggles must hydrate collapsed process bodies and release them again"
+  );
 });
 
 test("src/web/app.js initialises miaTraceBlocks with the web state on bootstrap", () => {

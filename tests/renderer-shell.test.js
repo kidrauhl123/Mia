@@ -86,20 +86,23 @@ test("cloud conversation composer sends pending attachments and clears the tray"
   assert.match(appSource, /window\.miaComposer\.renderComposerAttachments\(\);/);
 });
 
-test("cloud conversation composer keeps accepting sends even while the active run is busy", () => {
+test("cloud conversation composer preserves the draft while the active run is busy", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const submitStart = appSource.indexOf('els.chatForm.addEventListener("submit"');
   const submitEnd = appSource.indexOf("// Cloud-only:", submitStart);
   const submitBody = appSource.slice(submitStart, submitEnd);
+  const busyGuard = submitBody.indexOf("if (isActiveConversationBusy())");
   const clearDraft = submitBody.indexOf('els.chatInput.value = "";');
 
   assert.ok(submitStart >= 0, "chat submit handler should exist");
   assert.ok(submitEnd > submitStart, "cloud conversation branch should be extractable");
+  assert.ok(busyGuard >= 0, "cloud conversation branch should reject sends while a run is busy");
   assert.ok(clearDraft >= 0, "cloud conversation branch should clear the draft after accepting a send");
-  assert.doesNotMatch(submitBody, /if \(isActiveConversationBusy\(\)\) \{[\s\S]*?return;[\s\S]*?\}/);
+  assert.ok(busyGuard < clearDraft, "busy guard must run before the draft and attachments are cleared");
+  assert.match(submitBody, /if \(isActiveConversationBusy\(\)\) \{[\s\S]*?renderSendButton\(\);[\s\S]*?return;[\s\S]*?\}/);
 });
 
-test("active conversation stop passes Core turn context through preload", () => {
+test("active conversation stop passes runtime ownership through the unified preload adapter", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
@@ -114,25 +117,32 @@ test("active conversation stop passes Core turn context through preload", () => 
   assert.match(clickBody, /window\.mia\.stopChat\?\.\(\{\s*conversationId:\s*window\.miaSocial\?\.getActiveConversationId\?\.\(\)/);
   assert.match(clickBody, /runId:\s*activeRun\?\.runId \|\| ""/);
   assert.match(clickBody, /turnId:\s*activeRun\?\.turnId \|\| ""/);
-  assert.match(preloadSource, /function cancelCoreConversationTurn\(payload = \{\}\)/);
-  assert.match(preloadSource, /\/api\/conversations\/\$\{encodeURIComponent\(conversationId\)\}\/turns\/\$\{encodeURIComponent\(turnId\)\}\/cancel/);
-  assert.match(preloadSource, /Core turn id is required to cancel an active conversation/);
+  assert.match(clickBody, /runtimeKind:\s*activeBotRuntimeControlContext\(\)\?\.runtimeKind \|\| ""/);
+  assert.match(preloadSource, /function cancelActiveConversationRun\(payload = \{\}\)/);
+  assert.match(preloadSource, /runtimeKind === "desktop-local"/);
+  assert.match(preloadSource, /miaCorePost\("\/api\/cloud\/bridge\/cancel",\s*\{\s*runId\s*\}\)/);
+  assert.match(preloadSource, /IpcChannel\.SocialCancelConversationRun/);
+  assert.match(ipcChannelsSource, /SocialCancelConversationRun/);
   assert.doesNotMatch(preloadSource, /return ipcRenderer\.invoke\(IpcChannel\.ChatStop,\s*payload\)/);
   assert.doesNotMatch(mainSource, /IpcChannel\.ChatStop/);
   assert.doesNotMatch(ipcChannelsSource, /ChatStop/);
 });
 
-test("foreground active conversation stop posts Core turn cancellation and rejects missing turn context", () => {
+test("foreground active conversation stop routes local bridge and hosted runs to their owners", () => {
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
-  const stopStart = preloadSource.indexOf("function cancelCoreConversationTurn");
+  const stopStart = preloadSource.indexOf("function cancelActiveConversationRun");
   const stopEnd = preloadSource.indexOf("function legacyTriggerFromCoreSchedule", stopStart);
   const stopBody = preloadSource.slice(stopStart, stopEnd);
 
   assert.ok(stopStart >= 0, "preload should own the UI adapter stop intent");
   assert.match(stopBody, /const conversationId = String/);
+  assert.match(stopBody, /const runId = String/);
   assert.match(stopBody, /const turnId = String/);
+  assert.match(stopBody, /if \(runtimeKind === "desktop-local" && runId\)/);
+  assert.match(stopBody, /\/api\/cloud\/bridge\/cancel/);
+  assert.match(stopBody, /if \(conversationId && runId\)/);
+  assert.match(stopBody, /SocialCancelConversationRun/);
   assert.match(stopBody, /if \(conversationId && turnId\)/);
-  assert.match(stopBody, /miaCorePost\(/);
   assert.match(stopBody, /ok:\s*false/);
   assert.doesNotMatch(stopBody, /IpcChannel\.ChatStop/);
 });
@@ -2674,7 +2684,7 @@ test("composer runtime controls hide values Core did not observe", () => {
   assert.match(contactControls, /class="model-avatar\$\{hasSelectedModelEntry \? "" : " hidden"\}"/);
 });
 
-test("composer model menu groups reasoning while keeping the compact label model-only", () => {
+test("composer model menu groups reasoning and shows the selected reasoning strength in the compact label", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const menuSource = extractFunctionSource(appSource, "composerSelectMenuContent");
   const summarySource = extractFunctionSource(appSource, "setComposerModelControlSummary");
@@ -2707,7 +2717,7 @@ test("composer model menu groups reasoning while keeping the compact label model
   ]);
 
   context.setSummary("Auto", "中");
-  assert.equal(quickModelLabel.textContent, "Auto");
+  assert.equal(quickModelLabel.textContent, "Auto · 中");
   assert.equal(modelSelect.title, "Auto · 中");
 });
 

@@ -122,6 +122,14 @@ function createSocialApi({ getSettings, normalizeUrl }) {
         body: { decision }
       });
     },
+    async cancelConversationRun(conversationId, runId) {
+      return jsonFetch({
+        ...ctx(),
+        method: "POST",
+        path: `/api/conversations/${conversationId}/runs/${encodeURIComponent(runId)}/cancel`,
+        body: {}
+      });
+    },
     async deleteConversationMessage(conversationId, messageId) {
       return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
     },

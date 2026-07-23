@@ -145,6 +145,10 @@ test("engine contract owns external model and mode options for browser clients",
     ]
   );
   assert.deepEqual(contract.externalPermissionOptions("openclaw"), []);
+  assert.equal(contract.permissionLabel("agent-full-access"), "Full Access");
+  assert.equal(contract.isFullAccessPermissionMode("agent-full-access"), true);
+  assert.equal(contract.isFullAccessPermissionMode(":danger-full-access"), true);
+  assert.equal(contract.isFullAccessPermissionMode("agent"), false);
   assert.deepEqual(contract.effortOptions("codex", {
     engineCapabilities: {
       engines: {

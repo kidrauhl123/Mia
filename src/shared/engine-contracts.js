@@ -52,6 +52,7 @@
   });
 
   const EXTERNAL_PERMISSION_LABELS = Object.freeze({
+    "agent-full-access": "Full Access",
     default: "Ask",
     acceptEdits: "Accept Edits",
     auto: "Auto",
@@ -61,6 +62,16 @@
     readOnly: "Read",
     yolo: "YOLO"
   });
+
+  const FULL_ACCESS_PERMISSION_MODES = new Set([
+    ":danger-full-access",
+    "agent-full-access",
+    "bypassPermissions",
+    "danger-full-access",
+    "never",
+    "off",
+    "yolo"
+  ]);
 
   const DEFAULT_EFFORT_LABELS = Object.freeze({
     off: "Off",
@@ -95,6 +106,18 @@
       .replace(/[-_]+/g, " ")
       .replace(/\b\w/g, (ch) => ch.toUpperCase())
       .trim();
+  }
+
+  function permissionLabel(value = "") {
+    const mode = String(value || "").trim();
+    return CODEX_PERMISSION_PROFILE_LABELS[mode]
+      || EXTERNAL_PERMISSION_LABELS[mode]
+      || titleCaseWords(mode)
+      || mode;
+  }
+
+  function isFullAccessPermissionMode(value = "") {
+    return FULL_ACCESS_PERMISSION_MODES.has(String(value || "").trim());
   }
 
   function isExternalEngine(value) {
@@ -332,6 +355,8 @@
     adapterForEngine,
     engineLabel,
     isExternalEngine,
+    permissionLabel,
+    isFullAccessPermissionMode,
     platformModelDisplayLabel,
     miaModelEntries,
     externalModelEntries,

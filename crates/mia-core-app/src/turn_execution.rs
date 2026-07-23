@@ -168,6 +168,7 @@ pub async fn execute_and_complete_runtime_turn(
                 "sender_kind": "bot",
                 "sender_ref": runtime_plan.bot_id.clone().unwrap_or_else(|| "mia".to_string()),
                 "body_md": completed.body,
+                "status": completed.status,
                 "turn_id": runtime_plan.turn_id,
                 "trace": runtime.get("trace").cloned().unwrap_or_else(|| json!({})),
                 "contentBlocks": runtime.get("contentBlocks").cloned().unwrap_or_else(|| json!([])),

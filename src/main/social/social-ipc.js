@@ -383,6 +383,9 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialRespondRunApproval, cloudCall((conversationId, runId, decision) => (
     socialApi.respondRunApproval(conversationId, runId, decision)
   )));
+  ipcMain.handle(IpcChannel.SocialCancelConversationRun, cloudCall((conversationId, runId) => (
+    socialApi.cancelConversationRun(conversationId, runId)
+  )));
   ipcMain.handle(IpcChannel.SocialDeleteConversationMessage, cloudCall(async (conversationId, messageId) => {
     const result = await socialApi.deleteConversationMessage(conversationId, messageId);
     if (messageCache && typeof messageCache.deleteMessage === "function") {

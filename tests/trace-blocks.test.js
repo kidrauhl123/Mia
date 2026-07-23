@@ -107,6 +107,27 @@ test("renderTraceBlocks exposes trace bodies as managed accordions", () => {
   );
 });
 
+test("completed legacy trace is grouped behind one manually expandable process row", () => {
+  const { traceBlocks, state } = loadTraceBlocks();
+  const input = {
+    reasoning: "checking project files",
+    tools: [{ id: "tool_1", name: "shell", status: "completed", preview: "git status" }],
+    content: "最终回复",
+    completed: true,
+    scopeKey: "msg:m_legacy"
+  };
+
+  const collapsed = traceBlocks.renderTraceBlocks(input);
+  assert.match(collapsed, /class="trace-row assistant-process/);
+  assert.match(collapsed, /data-trace-key="msg:m_legacy::process"/);
+  assert.doesNotMatch(collapsed, /checking project files|git status/);
+
+  state.openTraceKeys.add("msg:m_legacy::process");
+  const expanded = traceBlocks.renderTraceBlocks(input);
+  assert.match(expanded, /checking project files/);
+  assert.match(expanded, /git status/);
+});
+
 test("collapsed trace bodies are hydrated only when the row opens", () => {
   const { traceBlocks } = loadTraceBlocks();
   const key = "msg:m_lazy::tool::tool_1";
@@ -222,6 +243,38 @@ test("renderAssistantContentBlocks keeps thinking, text, tool, text render order
   assert.ok(secondTextIdx > toolIdx);
   assert.match(html, /data-trace-key="msg:m1::block::0::reasoning"/);
   assert.match(html, /data-trace-key="msg:m1::block::2::tool::tool_1"/);
+});
+
+test("completed assistant content collapses prior text and trace while keeping the final reply visible", () => {
+  const { traceBlocks, state } = loadTraceBlocks();
+  const input = {
+    blocks: [
+      { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
+      { type: "text", id: "text_1", text: "我先看一下目录。" },
+      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" },
+      { type: "text", id: "text_2", text: "最终结论：开发态已修复。" }
+    ],
+    completed: true,
+    scopeKey: "msg:m_completed",
+    renderTextBlock(block) {
+      return `<div class="bubble assistant-text-block">${escapeHtml(block.text)}</div>`;
+    }
+  };
+
+  const collapsed = traceBlocks.renderAssistantContentBlocks(input);
+  assert.match(collapsed, /class="trace-row assistant-process/);
+  assert.match(collapsed, /data-trace-key="msg:m_completed::process"/);
+  assert.match(collapsed, /<span class="trace-cmd">查看过程<\/span>/);
+  assert.match(collapsed, /最终结论：开发态已修复。/);
+  assert.doesNotMatch(collapsed, /我先看一下目录。|检查上下文|pwd/);
+
+  state.openTraceKeys.add("msg:m_completed::process");
+  const expanded = traceBlocks.renderAssistantContentBlocks(input);
+  assert.match(expanded, /class="trace-row assistant-process[^"]*"[^>]*open/);
+  assert.match(expanded, /我先看一下目录。/);
+  assert.match(expanded, /检查上下文/);
+  assert.match(expanded, /pwd/);
+  assert.ok(expanded.indexOf("最终结论：开发态已修复。") > expanded.indexOf("我先看一下目录。"));
 });
 
 test("renderAssistantContentBlocks displays agent-provided recap blocks", () => {
@@ -378,6 +431,19 @@ test("trace CSS supports accordion height transitions", () => {
       css,
       /\.trace-row\.accordion-closing\s*>\s*summary\s*>\s*\.trace-chevron\s*\{[\s\S]*?transform:\s*rotate\(0deg\);/
     );
+  }
+});
+
+test("trace bodies are clipped instead of creating nested scroll containers", () => {
+  const rendererCss = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "styles", "chat.css"), "utf8");
+  const webCss = fs.readFileSync(path.join(__dirname, "..", "src", "web", "styles.css"), "utf8");
+  for (const css of [rendererCss, webCss]) {
+    const traceBodyRule = css.match(/\.trace-body\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+    const diffBodyRule = css.match(/\.trace-body\.diff-body\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+    assert.match(traceBodyRule, /overflow:\s*hidden;/);
+    assert.doesNotMatch(traceBodyRule, /overflow:\s*(?:auto|scroll);/);
+    assert.match(diffBodyRule, /overflow:\s*hidden;/);
+    assert.doesNotMatch(diffBodyRule, /overflow:\s*(?:auto|scroll);/);
   }
 });
 

@@ -170,6 +170,7 @@ pub struct CompletedRuntimeMessage {
     pub message_id: String,
     pub seq: i64,
     pub body: String,
+    pub status: String,
     pub created_at: i64,
 }
 
@@ -1678,8 +1679,8 @@ impl ConversationService {
             .await?;
         let turn_plan = planned_turn.runtime_plan;
         let turn_id = turn_plan.turn_id.clone();
-        let assistant_message_id = if let Some(mock_response) = turn_plan.mock_response.as_deref() {
-            let assistant_message_id = format!("msg_{}", Uuid::now_v7().simple());
+        let assistant_message_id = assistant_message_id_for_turn(&turn_id);
+        if let Some(mock_response) = turn_plan.mock_response.as_deref() {
             insert_message(
                 &self.pool,
                 InsertMessage {
@@ -1698,10 +1699,7 @@ impl ConversationService {
                 },
             )
             .await?;
-            Some(assistant_message_id)
-        } else {
-            None
-        };
+        }
         sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
             .bind(now)
             .bind(conversation_id)
@@ -1710,7 +1708,7 @@ impl ConversationService {
         let response = SendConversationMessageResponse {
             message_id,
             turn_id,
-            assistant_message_id,
+            assistant_message_id: Some(assistant_message_id),
             accepted: true,
         };
         Ok(AcceptedConversationTurn {
@@ -1994,33 +1992,13 @@ impl ConversationService {
         body: &str,
         runtime: Value,
     ) -> Result<CompletedRuntimeMessage, sqlx::Error> {
-        let next_seq: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE conversation_id = ?",
-        )
-        .bind(conversation_id)
-        .fetch_one(&self.pool)
-        .await?;
-        let message_id = format!("msg_{}", Uuid::now_v7().simple());
+        let status = terminal_runtime_message_status(&runtime);
+        let completed = self
+            .persist_runtime_turn_message(conversation_id, turn_id, body, runtime.clone(), status)
+            .await?;
         let now = now_ms();
         let runtime_session_metadata =
             runtime_session_metadata_from_runtime(conversation_id, &runtime, now);
-        insert_message(
-            &self.pool,
-            InsertMessage {
-                id: &message_id,
-                conversation_id,
-                role: "assistant",
-                body,
-                content: json!({
-                    "turnId": turn_id,
-                    "runtime": runtime,
-                }),
-                status: "complete",
-                seq: next_seq,
-                now,
-            },
-        )
-        .await?;
         if let Some(runtime_session_metadata) = runtime_session_metadata {
             persist_runtime_session_metadata(
                 &self.pool,
@@ -2036,12 +2014,151 @@ impl ConversationService {
                 .execute(&self.pool)
                 .await?;
         }
+        Ok(completed)
+    }
+
+    pub async fn checkpoint_runtime_turn(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        body: &str,
+        runtime: Value,
+    ) -> Result<CompletedRuntimeMessage, sqlx::Error> {
+        self.persist_runtime_turn_message(conversation_id, turn_id, body, runtime, "streaming")
+            .await
+    }
+
+    pub async fn interrupt_runtime_turn(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        body: &str,
+        runtime: Value,
+    ) -> Result<CompletedRuntimeMessage, sqlx::Error> {
+        self.persist_runtime_turn_message(conversation_id, turn_id, body, runtime, "interrupted")
+            .await
+    }
+
+    pub async fn recover_interrupted_runtime_turns(&self) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE messages SET status = 'interrupted', updated_at = ? \
+             WHERE role = 'assistant' AND status = 'streaming'",
+        )
+        .bind(now_ms())
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    async fn persist_runtime_turn_message(
+        &self,
+        conversation_id: &str,
+        turn_id: &str,
+        body: &str,
+        runtime: Value,
+        status: &str,
+    ) -> Result<CompletedRuntimeMessage, sqlx::Error> {
+        let message_id = assistant_message_id_for_turn(turn_id);
+        let now = now_ms();
+        let content = json!({
+            "turnId": turn_id,
+            "runtime": runtime,
+        })
+        .to_string();
+        let mut transaction = self.pool.begin().await?;
+        let existing = sqlx::query(
+            "SELECT seq, created_at FROM messages \
+             WHERE id = ? AND conversation_id = ? AND role = 'assistant'",
+        )
+        .bind(&message_id)
+        .bind(conversation_id)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let (seq, created_at) = if let Some(existing) = existing {
+            sqlx::query(
+                "UPDATE messages SET body = ?, content_json = ?, status = ?, updated_at = ? \
+                 WHERE id = ? AND conversation_id = ? AND role = 'assistant'",
+            )
+            .bind(body)
+            .bind(&content)
+            .bind(status)
+            .bind(now)
+            .bind(&message_id)
+            .bind(conversation_id)
+            .execute(&mut *transaction)
+            .await?;
+            (
+                existing.get::<i64, _>("seq"),
+                existing.get::<i64, _>("created_at"),
+            )
+        } else {
+            let next_seq: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE conversation_id = ?",
+            )
+            .bind(conversation_id)
+            .fetch_one(&mut *transaction)
+            .await?;
+            sqlx::query(
+                "INSERT INTO messages \
+                 (id, conversation_id, role, body, content_json, status, seq, created_at, updated_at) \
+                 VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&message_id)
+            .bind(conversation_id)
+            .bind(body)
+            .bind(&content)
+            .bind(status)
+            .bind(next_seq)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *transaction)
+            .await?;
+            (next_seq, now)
+        };
+        sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
+            .bind(now)
+            .bind(conversation_id)
+            .execute(&mut *transaction)
+            .await?;
+        transaction.commit().await?;
         Ok(CompletedRuntimeMessage {
             message_id,
-            seq: next_seq,
+            seq,
             body: body.to_string(),
-            created_at: now,
+            status: status.to_string(),
+            created_at,
         })
+    }
+}
+
+fn assistant_message_id_for_turn(turn_id: &str) -> String {
+    let suffix = turn_id
+        .trim()
+        .strip_prefix("turn_")
+        .unwrap_or(turn_id.trim());
+    format!("msg_{suffix}")
+}
+
+fn terminal_runtime_message_status(runtime: &Value) -> &'static str {
+    if runtime
+        .get("cancelled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return "cancelled";
+    }
+    let has_error = runtime
+        .get("error")
+        .and_then(Value::as_str)
+        .is_some_and(|error| !error.trim().is_empty());
+    let failed_exit = runtime
+        .get("exitCode")
+        .and_then(Value::as_i64)
+        .is_some_and(|exit_code| exit_code != 0);
+    if has_error || failed_exit {
+        "error"
+    } else {
+        "complete"
     }
 }
 

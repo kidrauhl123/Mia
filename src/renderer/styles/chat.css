@@ -1401,6 +1401,18 @@
   overflow: hidden;
 }
 
+.assistant-process-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 3px 0 3px 12px;
+}
+
+.assistant-process-content .bubble {
+  max-width: 100%;
+}
+
 .trace-glyph {
   flex: 0 0 auto;
   width: 10px;
@@ -1490,8 +1502,8 @@
   font-size: 11.5px;
   color: var(--floor-muted);
   opacity: 1;
-  max-height: 240px;
-  overflow: auto;
+  max-height: 12em;
+  overflow: hidden;
 }
 
 .trace-link {
@@ -1522,7 +1534,7 @@
   word-break: normal;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: #c9d1d9;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .diff-line {
@@ -1602,7 +1614,7 @@
 }
 
 .trace-row[data-user-open="true"] .trace-body {
-  max-height: 240px;
+  max-height: 12em;
 }
 
 @media (prefers-reduced-motion: reduce) {

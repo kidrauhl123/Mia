@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mia_core_api_types::{
@@ -14,13 +15,14 @@ use mia_core_conversation::{
 use mia_core_realtime::EventBus;
 use mia_core_runtime::{
     EVENT_RUNTIME_CANCEL_REQUESTED, EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STDERR,
-    EVENT_RUNTIME_STDOUT, RuntimeEventSink, RuntimeProtocol, RuntimeSessionManager,
-    RuntimeTurnPlan, apply_memory_isolation_to_plan,
+    EVENT_RUNTIME_STDOUT, RuntimeEventSink, RuntimeProcessEvent, RuntimeProtocol,
+    RuntimeSessionManager, RuntimeTurnPlan, apply_memory_isolation_to_plan,
 };
 use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
+use tokio::task::JoinHandle;
 
 use crate::claude_code_mia_proxy::{
     ClaudeCodeMiaProxyConfig, RunningClaudeCodeMiaProxy, start_claude_code_mia_proxy,
@@ -126,6 +128,174 @@ pub struct StartedCloudBridgeRun {
     turn: AcceptedConversationTurn,
     runtime_plan: RuntimeTurnPlan,
     runtime_claim: ConversationRuntimeClaim,
+}
+
+const RUNTIME_EVENT_CHECKPOINT_DELAY: Duration = Duration::from_millis(50);
+
+struct CloudRuntimeEventState {
+    structured_output: RuntimeDisplayOutput,
+    actual_session_id: Option<String>,
+}
+
+struct CloudRuntimeEventProcessor {
+    sender: mpsc::UnboundedSender<RuntimeProcessEvent>,
+    task: JoinHandle<Result<CloudRuntimeEventState, CloudError>>,
+}
+
+impl CloudRuntimeEventProcessor {
+    fn spawn(
+        conversation: ConversationService,
+        realtime: EventBus,
+        local_conversation_id: String,
+        turn_id: String,
+        engine: String,
+        cloud_conversation_id: String,
+        cloud_run_id: String,
+        cloud_bot_id: String,
+    ) -> Self {
+        let (sender, mut receiver) = mpsc::unbounded_channel::<RuntimeProcessEvent>();
+        let task = tokio::spawn(async move {
+            let mut collector = CloudRunCollector::default();
+            let mut actual_session_id = None;
+            while let Some(first) = receiver.recv().await {
+                let mut batch = vec![first];
+                let mut channel_closed = false;
+                let delay = tokio::time::sleep(RUNTIME_EVENT_CHECKPOINT_DELAY);
+                tokio::pin!(delay);
+                loop {
+                    tokio::select! {
+                        event = receiver.recv() => {
+                            match event {
+                                Some(event) => batch.push(event),
+                                None => {
+                                    channel_closed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        _ = &mut delay => break,
+                    }
+                }
+
+                let mut outbound = Vec::new();
+                let mut checkpoint_changed = false;
+                for event in batch {
+                    let name = event.name;
+                    let data = event.data;
+                    if name == EVENT_RUNTIME_FINISHED
+                        && data.get("ok").and_then(Value::as_bool) == Some(true)
+                        && let Some(session_id) = data
+                            .get("sessionId")
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                    {
+                        actual_session_id = Some(session_id.to_string());
+                    }
+                    if name == EVENT_RUNTIME_STDOUT {
+                        let run_events = data
+                            .get("event")
+                            .filter(|event| event.is_object())
+                            .cloned()
+                            .map(|event| vec![event])
+                            .unwrap_or_else(|| {
+                                cloud_run_events_from_stdout(
+                                    &engine,
+                                    data.get("text").and_then(Value::as_str).unwrap_or(""),
+                                )
+                            });
+                        for run_event in run_events {
+                            checkpoint_changed |= run_event_updates_persisted_output(&run_event);
+                            collector.apply_run_event(&run_event);
+                            outbound.push((
+                                "cloud_agent_run_event".to_string(),
+                                json!({
+                                    "conversationId": cloud_conversation_id,
+                                    "runId": cloud_run_id,
+                                    "botId": cloud_bot_id,
+                                    "event": run_event,
+                                }),
+                            ));
+                        }
+                    } else if name == EVENT_RUNTIME_STDERR {
+                        let text = data.get("text").and_then(Value::as_str).unwrap_or("");
+                        if let Some(text) = clean_runtime_stderr_status(&engine, text) {
+                            outbound.push((
+                                "cloud_agent_run_event".to_string(),
+                                json!({
+                                    "conversationId": cloud_conversation_id,
+                                    "runId": cloud_run_id,
+                                    "botId": cloud_bot_id,
+                                    "event": {
+                                        "type": "status",
+                                        "text": text,
+                                    },
+                                }),
+                            ));
+                        }
+                    }
+                    outbound.push((name, data));
+                }
+
+                if checkpoint_changed {
+                    let output = collector.display_output();
+                    conversation
+                        .checkpoint_runtime_turn(
+                            &local_conversation_id,
+                            &turn_id,
+                            &output.text,
+                            json!({
+                                "engine": engine,
+                                "cloudBridgeRunId": cloud_run_id,
+                                "trace": output.trace,
+                                "contentBlocks": output.content_blocks,
+                            }),
+                        )
+                        .await?;
+                }
+                for (name, data) in outbound {
+                    realtime.emit(name, data);
+                }
+                if channel_closed {
+                    break;
+                }
+            }
+            Ok(CloudRuntimeEventState {
+                structured_output: collector.display_output(),
+                actual_session_id,
+            })
+        });
+        Self { sender, task }
+    }
+
+    async fn finish(self) -> Result<CloudRuntimeEventState, CloudError> {
+        drop(self.sender);
+        self.task
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()))?
+    }
+}
+
+fn run_event_updates_persisted_output(event: &Value) -> bool {
+    matches!(
+        event.get("type").and_then(Value::as_str).unwrap_or(""),
+        "message.delta"
+            | "text_delta"
+            | "message.complete"
+            | "message.completed"
+            | "run.completed"
+            | "reasoning_delta"
+            | "reasoning.available"
+            | "tool.started"
+            | "tool_call_started"
+            | "tool.delta"
+            | "tool_call_delta"
+            | "tool.completed"
+            | "tool_call_completed"
+            | "file_edit"
+            | "file.edit"
+            | "file_edit.completed"
+    )
 }
 
 impl StartedCloudBridgeRun {
@@ -249,91 +419,31 @@ pub async fn complete_started_cloud_bridge_run(
     let text = if runtime_plan_uses_session_manager(&runtime_plan) {
         let cancellation_key = cloud_bridge_runtime_key(&prepared.run_id);
         let cancellation = runtime.register(cancellation_key.clone());
-        let event_realtime = realtime.clone();
-        let cloud_conversation_id = prepared.cloud_conversation_id.clone();
-        let cloud_run_id = prepared.run_id.clone();
         let cloud_bot_id = bot_id_from_metadata(&prepared.metadata).unwrap_or_else(|| {
             runtime_plan
                 .bot_id
                 .clone()
                 .unwrap_or_else(|| "mia".to_string())
         });
-        let runtime_event_engine = runtime_plan.engine.clone();
-        let trace_collector = Arc::new(StdMutex::new(CloudRunCollector::default()));
-        let trace_collector_for_sink = trace_collector.clone();
-        let actual_session_id = Arc::new(StdMutex::new(None::<String>));
-        let actual_session_id_for_sink = actual_session_id.clone();
+        let event_processor = CloudRuntimeEventProcessor::spawn(
+            conversation.clone(),
+            realtime.clone(),
+            runtime_plan.conversation_id.clone(),
+            runtime_plan.turn_id.clone(),
+            runtime_plan.engine.clone(),
+            prepared.cloud_conversation_id.clone(),
+            prepared.run_id.clone(),
+            cloud_bot_id.clone(),
+        );
+        let event_sender = event_processor.sender.clone();
         let execution = execute_runtime_with_cron(
             runtime_sessions,
             tasks,
             runtime_plan.clone(),
             move |_| {
-                let event_realtime = event_realtime.clone();
-                let cloud_conversation_id = cloud_conversation_id.clone();
-                let cloud_run_id = cloud_run_id.clone();
-                let cloud_bot_id = cloud_bot_id.clone();
-                let runtime_event_engine = runtime_event_engine.clone();
-                let trace_collector_for_sink = trace_collector_for_sink.clone();
-                let actual_session_id_for_sink = actual_session_id_for_sink.clone();
+                let event_sender = event_sender.clone();
                 RuntimeEventSink::new(move |event| {
-                    let name = event.name.clone();
-                    let data = event.data.clone();
-                    if name == EVENT_RUNTIME_FINISHED
-                        && data.get("ok").and_then(Value::as_bool) == Some(true)
-                        && let Some(session_id) = data
-                            .get("sessionId")
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())
-                    {
-                        *actual_session_id_for_sink.lock().unwrap() = Some(session_id.to_string());
-                    }
-                    if name == EVENT_RUNTIME_STDOUT {
-                        let run_events = data
-                            .get("event")
-                            .filter(|event| event.is_object())
-                            .cloned()
-                            .map(|event| vec![event])
-                            .unwrap_or_else(|| {
-                                cloud_run_events_from_stdout(
-                                    &runtime_event_engine,
-                                    data.get("text").and_then(Value::as_str).unwrap_or(""),
-                                )
-                            });
-                        for run_event in run_events {
-                            trace_collector_for_sink
-                                .lock()
-                                .unwrap()
-                                .apply_run_event(&run_event);
-                            event_realtime.emit(
-                                "cloud_agent_run_event",
-                                json!({
-                                    "conversationId": cloud_conversation_id,
-                                    "runId": cloud_run_id,
-                                    "botId": cloud_bot_id,
-                                    "event": run_event,
-                                }),
-                            );
-                        }
-                    } else if name == EVENT_RUNTIME_STDERR {
-                        let text = data.get("text").and_then(Value::as_str).unwrap_or("");
-                        if let Some(text) = clean_runtime_stderr_status(&runtime_event_engine, text)
-                        {
-                            event_realtime.emit(
-                                "cloud_agent_run_event",
-                                json!({
-                                    "conversationId": cloud_conversation_id,
-                                    "runId": cloud_run_id,
-                                    "botId": cloud_bot_id,
-                                    "event": {
-                                        "type": "status",
-                                        "text": text,
-                                    },
-                                }),
-                            );
-                        }
-                    }
-                    event_realtime.emit(name, data);
+                    let _ = event_sender.send(event);
                 })
             },
             Some(cancellation),
@@ -341,9 +451,44 @@ pub async fn complete_started_cloud_bridge_run(
         .await
         .map_err(|error| CloudError::Runtime(error.to_string()));
         runtime.remove(&cancellation_key);
+        let mut event_state = match event_processor.finish().await {
+            Ok(event_state) => event_state,
+            Err(error) => {
+                runtime_claim.release();
+                return Err(error);
+            }
+        };
         let cron_result = match execution {
             Ok(result) => result,
             Err(error) => {
+                let body = if event_state.structured_output.text.trim().is_empty() {
+                    format!("Runtime execution interrupted: {error}")
+                } else {
+                    event_state.structured_output.text.trim().to_string()
+                };
+                let interrupted = conversation
+                    .interrupt_runtime_turn(
+                        &runtime_plan.conversation_id,
+                        &runtime_plan.turn_id,
+                        &body,
+                        json!({
+                            "engine": runtime_plan.engine,
+                            "cancelled": false,
+                            "interrupted": true,
+                            "error": error.to_string(),
+                            "cloudBridgeRunId": prepared.run_id,
+                            "trace": event_state.structured_output.trace.clone(),
+                            "contentBlocks": event_state.structured_output.content_blocks.clone(),
+                        }),
+                    )
+                    .await?;
+                emit_persisted_assistant_message(
+                    realtime,
+                    &prepared,
+                    &runtime_plan,
+                    &interrupted,
+                    &event_state.structured_output,
+                );
                 runtime_claim.release();
                 return Err(error);
             }
@@ -351,17 +496,19 @@ pub async fn complete_started_cloud_bridge_run(
         let result = cron_result.execution;
         let runtime_session = runtime_session_with_actual_id(
             &runtime_plan.runtime_session,
-            actual_session_id.lock().unwrap().as_deref(),
+            event_state.actual_session_id.as_deref(),
         );
-        let mut structured_output = trace_collector.lock().unwrap().display_output();
         if cron_result.continuation_count > 0 {
-            replace_collected_text(&mut structured_output, &cron_result.visible_text);
+            replace_collected_text(
+                &mut event_state.structured_output,
+                &cron_result.visible_text,
+            );
         }
         let output = runtime_output_with_collected_events(
             &runtime_plan.engine,
             &cron_result.visible_text,
             &result.stderr,
-            structured_output,
+            event_state.structured_output,
         );
         response_trace = output.trace.clone();
         response_content_blocks = output.content_blocks.clone();
@@ -394,6 +541,13 @@ pub async fn complete_started_cloud_bridge_run(
             .await?;
         runtime_claim.release();
         assistant_message_id = Some(completed.message_id.clone());
+        let run_event_type = if result.cancelled {
+            "run.cancelled"
+        } else if result.exit_code == Some(0) {
+            "run.completed"
+        } else {
+            "run.failed"
+        };
         realtime.emit(
             "cloud_agent_run_event",
             json!({
@@ -402,35 +556,12 @@ pub async fn complete_started_cloud_bridge_run(
                 "botId": bot_id_from_metadata(&prepared.metadata)
                     .unwrap_or_else(|| runtime_plan.bot_id.clone().unwrap_or_else(|| "mia".to_string())),
                 "event": {
-                    "type": "run.completed",
+                    "type": run_event_type,
                     "final_response": body,
                 },
             }),
         );
-        realtime.emit(
-            EVENT_CONVERSATION_MESSAGE_CREATED,
-            json!({
-                "conversationId": runtime_plan.conversation_id,
-                "messageId": completed.message_id,
-                "turnId": runtime_plan.turn_id,
-                "role": "assistant",
-                "accepted": true,
-                "cloudConversationId": prepared.cloud_conversation_id,
-                "cloudBridgeRunId": prepared.run_id,
-                "message": {
-                    "id": completed.message_id,
-                    "conversation_id": runtime_plan.conversation_id,
-                    "seq": completed.seq,
-                    "sender_kind": "bot",
-                    "sender_ref": runtime_plan.bot_id.clone().unwrap_or_else(|| "mia".to_string()),
-                    "body_md": completed.body,
-                    "turn_id": runtime_plan.turn_id,
-                    "trace": output.trace,
-                    "contentBlocks": output.content_blocks,
-                    "created_at": completed.created_at,
-                },
-            }),
-        );
+        emit_persisted_assistant_message(realtime, &prepared, &runtime_plan, &completed, &output);
         body
     } else {
         runtime_claim.release();
@@ -449,6 +580,40 @@ pub async fn complete_started_cloud_bridge_run(
         trace: response_trace,
         content_blocks: response_content_blocks,
     })
+}
+
+fn emit_persisted_assistant_message(
+    realtime: &EventBus,
+    prepared: &PreparedCloudBridgeRun,
+    runtime_plan: &RuntimeTurnPlan,
+    message: &mia_core_conversation::CompletedRuntimeMessage,
+    output: &RuntimeDisplayOutput,
+) {
+    realtime.emit(
+        EVENT_CONVERSATION_MESSAGE_CREATED,
+        json!({
+            "conversationId": runtime_plan.conversation_id,
+            "messageId": message.message_id,
+            "turnId": runtime_plan.turn_id,
+            "role": "assistant",
+            "accepted": true,
+            "cloudConversationId": prepared.cloud_conversation_id,
+            "cloudBridgeRunId": prepared.run_id,
+            "message": {
+                "id": message.message_id,
+                "conversation_id": runtime_plan.conversation_id,
+                "seq": message.seq,
+                "sender_kind": "bot",
+                "sender_ref": runtime_plan.bot_id.clone().unwrap_or_else(|| "mia".to_string()),
+                "body_md": message.body,
+                "status": message.status,
+                "turn_id": runtime_plan.turn_id,
+                "trace": output.trace,
+                "contentBlocks": output.content_blocks,
+                "created_at": message.created_at,
+            },
+        }),
+    );
 }
 
 pub async fn cancel_cloud_bridge_run(
@@ -1474,6 +1639,10 @@ struct CloudRunCollector {
     content_blocks: Vec<Value>,
 }
 
+const MAX_RUNTIME_REASONING_CHARS: usize = 128 * 1024;
+const MAX_RUNTIME_TOOL_PREVIEW_CHARS: usize = 16 * 1024;
+const MAX_RUNTIME_FILE_DIFF_CHARS: usize = 128 * 1024;
+
 impl CloudRunCollector {
     fn apply_claude_json_line(&mut self, value: &Value) {
         if value.get("type").and_then(Value::as_str) == Some("assistant") {
@@ -1514,14 +1683,16 @@ impl CloudRunCollector {
                 let text = event_text(event);
                 if !text.is_empty() {
                     self.reasoning.push_str(&text);
+                    truncate_middle(&mut self.reasoning, MAX_RUNTIME_REASONING_CHARS);
                     self.append_thinking_block(event, &text);
                 }
             }
             "tool.started" | "tool_call_started" => {
+                let preview = truncated_text(&event_text(event), MAX_RUNTIME_TOOL_PREVIEW_CHARS);
                 let tool = json!({
                     "id": string_field(event, &["id"]).unwrap_or_else(|| format!("tool_{}", self.tools.len())),
                     "name": string_field(event, &["name", "tool"]).unwrap_or_else(|| "tool".to_string()),
-                    "preview": event_text(event),
+                    "preview": preview,
                     "status": "running",
                     "duration": null,
                     "error": false,
@@ -1569,7 +1740,59 @@ impl CloudRunCollector {
                     Some("completed"),
                 );
             }
+            "file_edit" | "file.edit" | "file_edit.completed" => {
+                self.upsert_file_edit_block(event);
+            }
             _ => {}
+        }
+    }
+
+    fn upsert_file_edit_block(&mut self, event: &Value) {
+        let path = string_field(event, &["path", "file", "file_path"]).unwrap_or_default();
+        if path.is_empty() {
+            return;
+        }
+        let id = string_field(event, &["id"])
+            .unwrap_or_else(|| format!("file_edit_{}", self.content_blocks.len()));
+        let tool_call_id = string_field(event, &["toolCallId", "tool_call_id"]).unwrap_or_default();
+        if !tool_call_id.is_empty() {
+            self.content_blocks.retain(|block| {
+                if block.get("type").and_then(Value::as_str) != Some("tool")
+                    || block.get("id").and_then(Value::as_str) != Some(tool_call_id.as_str())
+                {
+                    return true;
+                }
+                let name = block
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let preview = block.get("preview").and_then(Value::as_str).unwrap_or("");
+                !preview.trim().is_empty() && !name.contains("edit")
+            });
+        }
+        let block = json!({
+            "type": "file_edit",
+            "id": id,
+            "path": path,
+            "action": string_field(event, &["action", "kind"]).unwrap_or_else(|| "update".to_string()),
+            "title": string_field(event, &["title", "name"]).unwrap_or_default(),
+            "diff": truncated_text(
+                &string_field(event, &["diff", "preview"]).unwrap_or_default(),
+                MAX_RUNTIME_FILE_DIFF_CHARS,
+            ),
+            "additions": event.get("additions").and_then(Value::as_u64).unwrap_or(0),
+            "deletions": event.get("deletions").and_then(Value::as_u64).unwrap_or(0),
+            "status": string_field(event, &["status"]).unwrap_or_else(|| "completed".to_string()),
+            "error": event.get("error").and_then(Value::as_bool).unwrap_or(false),
+        });
+        if let Some(existing) = self.content_blocks.iter_mut().find(|item| {
+            item.get("type").and_then(Value::as_str) == Some("file_edit")
+                && item.get("id").and_then(Value::as_str) == Some(id.as_str())
+        }) {
+            *existing = block;
+        } else {
+            self.content_blocks.push(block);
         }
     }
 
@@ -1584,7 +1807,10 @@ impl CloudRunCollector {
                 .unwrap_or("")
                 .to_string()
                 + text;
-            object.insert("text".into(), json!(next));
+            object.insert(
+                "text".into(),
+                json!(truncated_text(&next, MAX_RUNTIME_REASONING_CHARS)),
+            );
             return;
         }
         self.content_blocks.push(json!({
@@ -1605,13 +1831,16 @@ impl CloudRunCollector {
                 .unwrap_or("")
                 .to_string()
                 + text;
-            object.insert("text".into(), json!(next));
+            object.insert(
+                "text".into(),
+                json!(truncated_text(&next, MAX_RUNTIME_REASONING_CHARS)),
+            );
             return;
         }
         self.content_blocks.push(json!({
             "type": "thinking",
             "id": string_field(event, &["id"]).unwrap_or_else(|| format!("thinking_{}", self.content_blocks.len())),
-            "text": text,
+            "text": truncated_text(text, MAX_RUNTIME_REASONING_CHARS),
             "status": "running",
             "duration": null,
         }));
@@ -1706,7 +1935,34 @@ fn update_tool_record(
         object.insert("duration".into(), json!(duration));
     }
     if let Some(preview) = preview {
-        object.insert("preview".into(), json!(preview));
+        object.insert(
+            "preview".into(),
+            json!(truncated_text(preview, MAX_RUNTIME_TOOL_PREVIEW_CHARS)),
+        );
+    }
+}
+
+fn truncated_text(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let head_chars = max_chars.saturating_mul(3) / 4;
+    let tail_chars = max_chars.saturating_sub(head_chars);
+    let head = text.chars().take(head_chars).collect::<String>();
+    let tail = text
+        .chars()
+        .rev()
+        .take(tail_chars)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>();
+    format!("{head}\n… output truncated …\n{tail}")
+}
+
+fn truncate_middle(text: &mut String, max_chars: usize) {
+    if text.chars().count() > max_chars {
+        *text = truncated_text(text, max_chars);
     }
 }
 
@@ -1897,7 +2153,11 @@ fn first_string(source: &Value, keys: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use mia_core_api_types::CreateConversationRequest;
+    use mia_core_db::init_database_memory;
     use mia_core_runtime::{RuntimeBuilder, RuntimeProtocol, RuntimeTurnInput};
+    use sqlx::Row;
+    use tokio::time::timeout;
 
     use super::*;
 
@@ -1930,6 +2190,65 @@ mod tests {
 
         assert!(runtime_plan_uses_session_manager(&native_acp));
         assert!(!runtime_plan_uses_session_manager(&mock));
+    }
+
+    #[tokio::test]
+    async fn cloud_runtime_events_are_checkpointed_before_they_are_displayed() {
+        let database = init_database_memory().await.unwrap();
+        let conversation = ConversationService::new(database.pool().clone());
+        let created = conversation
+            .create_conversation(CreateConversationRequest {
+                kind: "direct".into(),
+                title: "Durable stream".into(),
+                bot_id: None,
+                metadata: json!({}),
+            })
+            .await
+            .unwrap();
+        let realtime = EventBus::default();
+        let mut events = realtime.subscribe();
+        let processor = CloudRuntimeEventProcessor::spawn(
+            conversation,
+            realtime,
+            created.conversation.id.clone(),
+            "turn_durable".into(),
+            "codex".into(),
+            "cloud:durable".into(),
+            "run_durable".into(),
+            "mia".into(),
+        );
+
+        processor
+            .sender
+            .send(RuntimeProcessEvent {
+                name: EVENT_RUNTIME_STDOUT.into(),
+                data: json!({
+                    "event": {
+                        "type": "message.delta",
+                        "text": "先持久化，再显示"
+                    }
+                }),
+            })
+            .unwrap();
+
+        let displayed = timeout(Duration::from_secs(2), events.recv())
+            .await
+            .expect("stream event")
+            .expect("realtime event");
+        assert_eq!(displayed.name, "cloud_agent_run_event");
+        let persisted = sqlx::query(
+            "SELECT body, status FROM messages \
+             WHERE conversation_id = ? AND role = 'assistant'",
+        )
+        .bind(&created.conversation.id)
+        .fetch_one(database.pool())
+        .await
+        .unwrap();
+        assert_eq!(persisted.get::<String, _>("body"), "先持久化，再显示");
+        assert_eq!(persisted.get::<String, _>("status"), "streaming");
+
+        let state = processor.finish().await.unwrap();
+        assert_eq!(state.structured_output.text, "先持久化，再显示");
     }
 
     #[cfg(unix)]
@@ -2083,6 +2402,81 @@ mod tests {
         assert_eq!(output.content_blocks[0]["type"], "thinking");
         assert_eq!(output.content_blocks[1]["type"], "tool");
         assert_eq!(output.content_blocks[2]["type"], "text");
+    }
+
+    #[test]
+    fn cloud_run_collector_bounds_large_tool_previews_for_checkpoints() {
+        let oversized = "x".repeat(MAX_RUNTIME_TOOL_PREVIEW_CHARS * 4);
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "tool.started",
+            "id": "tool_large",
+            "name": "shell",
+            "preview": oversized
+        }));
+
+        let output = collector.display_output();
+        let trace_preview = output.trace["tools"][0]["preview"].as_str().unwrap();
+        let block_preview = output.content_blocks[0]["preview"].as_str().unwrap();
+
+        assert!(trace_preview.chars().count() <= MAX_RUNTIME_TOOL_PREVIEW_CHARS + 32);
+        assert_eq!(trace_preview, block_preview);
+        assert!(trace_preview.contains("output truncated"));
+    }
+
+    #[test]
+    fn cloud_run_collector_bounds_large_reasoning_blocks_for_checkpoints() {
+        let oversized = "x".repeat(MAX_RUNTIME_REASONING_CHARS * 4);
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "reasoning_delta",
+            "text": oversized
+        }));
+
+        let output = collector.display_output();
+        let trace_reasoning = output.trace["reasoning"].as_str().unwrap();
+        let block_reasoning = output.content_blocks[0]["text"].as_str().unwrap();
+
+        assert!(trace_reasoning.chars().count() <= MAX_RUNTIME_REASONING_CHARS + 32);
+        assert!(block_reasoning.chars().count() <= MAX_RUNTIME_REASONING_CHARS + 32);
+        assert!(trace_reasoning.contains("output truncated"));
+        assert!(block_reasoning.contains("output truncated"));
+    }
+
+    #[test]
+    fn native_acp_file_edits_survive_final_message_collection() {
+        let mut collector = CloudRunCollector::default();
+        collector.apply_run_event(&json!({
+            "type": "file_edit",
+            "id": "tool_edit_1:file_edit:0",
+            "toolCallId": "tool_edit_1",
+            "path": "src/app.js",
+            "action": "update",
+            "diff": "@@\n-old\n+draft",
+            "additions": 1,
+            "deletions": 1,
+            "status": "running"
+        }));
+        collector.apply_run_event(&json!({
+            "type": "file_edit",
+            "id": "tool_edit_1:file_edit:0",
+            "toolCallId": "tool_edit_1",
+            "path": "src/app.js",
+            "action": "update",
+            "diff": "@@\n-old\n+final",
+            "additions": 1,
+            "deletions": 1,
+            "status": "completed"
+        }));
+
+        let output = collector.display_output();
+        let blocks = output.content_blocks.as_array().unwrap();
+
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0]["type"], "file_edit");
+        assert_eq!(blocks[0]["path"], "src/app.js");
+        assert_eq!(blocks[0]["diff"], "@@\n-old\n+final");
+        assert_eq!(blocks[0]["status"], "completed");
     }
 
     #[test]

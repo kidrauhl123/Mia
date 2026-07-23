@@ -1634,7 +1634,7 @@ mod tests {
         );
         assert_eq!(target_options["runtimeLabel"], "本机运行");
         assert_eq!(target_options["runsOnOtherDevice"], false);
-        assert_eq!(target_options["groups"][0]["label"], "本机");
+        assert_eq!(target_options["groups"][0]["label"], "Office Mac");
         assert_eq!(
             target_options["groups"][0]["options"][1]["agentEngine"],
             "codex"
@@ -2452,7 +2452,11 @@ mod tests {
             .await
             .unwrap();
         let message: Value = serde_json::from_slice(&message_body).unwrap();
-        assert!(message["assistantMessageId"].is_null());
+        assert!(
+            message["assistantMessageId"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("msg_"))
+        );
 
         let stdout = next_named_event(&mut events, EVENT_RUNTIME_STDOUT).await;
         assert_eq!(stdout.data["conversationId"], conversation_id);
@@ -2729,6 +2733,14 @@ mod tests {
         let content: Value =
             serde_json::from_str(&assistant.get::<String, _>("content_json")).unwrap();
         assert_eq!(content["runtime"]["cancelled"], true);
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY seq DESC LIMIT 1",
+        )
+        .bind(conversation_id)
+        .fetch_one(services.database.pool())
+        .await
+        .unwrap();
+        assert_eq!(status, "cancelled");
     }
 
     #[tokio::test]
@@ -3913,6 +3925,110 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
         let stdout = next_named_event(&mut events, EVENT_RUNTIME_STDOUT).await;
         assert_eq!(stdout.data["text"], "started\n");
         let _ = next_named_event(&mut events, EVENT_RUNTIME_FINISHED).await;
+    }
+
+    #[tokio::test]
+    async fn cloud_bridge_cancel_keeps_the_checkpointed_partial_assistant_message() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let mut services = AppServices::from_config(&config).await.unwrap();
+        services.conversation = ConversationService::with_runtime(
+            services.database.pool().clone(),
+            RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
+                "hermes",
+                long_running_start_command(
+                    "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"已经显示的部分回复\"}]}}\n",
+                    10,
+                ),
+            ),
+        );
+        let app = create_router(&services);
+        let connect_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/connect")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"url":"https://mia.example","token":"test-token","user":{"id":"u1"}}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(connect_response.status(), StatusCode::OK);
+        let mut events = services.realtime.subscribe();
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/bridge/run-async")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{
+                          "runId":"run_cancel_checkpoint",
+                          "conversationId":"cloud:cancel-checkpoint",
+                          "text":"long task",
+                          "runtimeConfig":{
+                            "agentEngine":"hermes",
+                            "providerConnectionId":"mia",
+                            "model":"mia-auto"
+                          }
+                        }"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let accepted: Value = serde_json::from_slice(&body).unwrap();
+        let assistant_message_id = accepted["assistantMessageId"].as_str().unwrap();
+
+        let stdout = next_named_event(&mut events, EVENT_RUNTIME_STDOUT).await;
+        assert!(
+            stdout.data["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("已经显示的部分回复"))
+        );
+        let streaming_status: String =
+            sqlx::query_scalar("SELECT status FROM messages WHERE id = ?")
+                .bind(assistant_message_id)
+                .fetch_one(services.database.pool())
+                .await
+                .unwrap();
+        assert_eq!(streaming_status, "streaming");
+
+        let cancel_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/bridge/cancel")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"runId":"run_cancel_checkpoint"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancel_response.status(), StatusCode::OK);
+        let _ = next_named_event(&mut events, EVENT_RUNTIME_FINISHED).await;
+        let assistant_event =
+            next_named_event(&mut events, EVENT_CONVERSATION_MESSAGE_CREATED).await;
+        assert_eq!(assistant_event.data["messageId"], assistant_message_id);
+        assert_eq!(assistant_event.data["message"]["status"], "cancelled");
+
+        let persisted = sqlx::query("SELECT body, status FROM messages WHERE id = ?")
+            .bind(assistant_message_id)
+            .fetch_one(services.database.pool())
+            .await
+            .unwrap();
+        assert_eq!(persisted.get::<String, _>("body"), "已经显示的部分回复");
+        assert_eq!(persisted.get::<String, _>("status"), "cancelled");
     }
 
     #[tokio::test]

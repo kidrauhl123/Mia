@@ -15,13 +15,17 @@ function fallbackConversationTitle(messages = []) {
   return cleanConversationTitle(firstUser?.content || "新对话") || "新对话";
 }
 
+function isRuntimePlaceholderTitle(value) {
+  return /^Mia Rust Core (?:mock response|received an empty turn)\b/i.test(String(value || "").trim());
+}
+
 function createConversationTitleService({
   randomUUID = () => crypto.randomUUID(),
   runUtilityTurn
 } = {}) {
   if (typeof runUtilityTurn !== "function") throw new Error("runUtilityTurn dependency is required.");
 
-  async function generateTitle({ botId, personaKey, conversationId, sessionId, messages } = {}) {
+  async function generateTitle({ botId, botKey, personaKey, conversationId, sessionId, messages } = {}) {
     const clipped = (Array.isArray(messages) ? messages : [])
       .filter((message) => ["user", "assistant"].includes(message.role) && String(message.content || "").trim())
       .slice(0, 4);
@@ -30,7 +34,7 @@ function createConversationTitleService({
     const titleRunId = conversationId || sessionId || randomUUID();
     try {
       const response = await runUtilityTurn({
-        botId: botId || personaKey,
+        botId: botId || botKey || personaKey,
         conversationId: titleRunId,
         purpose: "conversation-title",
         systemPrompt: "",
@@ -43,6 +47,7 @@ function createConversationTitleService({
         ].join("\n")
       });
       const content = response?.content || "";
+      if (isRuntimePlaceholderTitle(content)) return { title: fallbackConversationTitle(clipped) };
       return { title: cleanConversationTitle(content) || fallbackConversationTitle(clipped) };
     } catch {
       return { title: fallbackConversationTitle(clipped) };
@@ -55,5 +60,6 @@ function createConversationTitleService({
 module.exports = {
   cleanConversationTitle,
   fallbackConversationTitle,
+  isRuntimePlaceholderTitle,
   createConversationTitleService
 };

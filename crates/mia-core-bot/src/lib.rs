@@ -1208,6 +1208,20 @@ fn runtime_config_from_sync_intent(
         .or_else(|| map_string(&existing, "agent_engine"))
         .unwrap_or_else(|| default_agent_engine(&kind).to_string());
     let engine = normalize_agent_engine(&engine);
+    let previous_engine = first_map_string(&existing, &["agentEngine", "agent_engine", "engine"])
+        .map(|value| normalize_agent_engine(&value));
+    let preserves_existing_controls = previous_engine.as_deref() == Some(engine.as_str());
+    let existing_effort = preserves_existing_controls
+        .then(|| {
+            map_string(&existing, "effortLevel").or_else(|| map_string(&existing, "effort_level"))
+        })
+        .flatten();
+    let existing_permission = preserves_existing_controls
+        .then(|| {
+            map_string(&existing, "permissionMode")
+                .or_else(|| map_string(&existing, "permission_mode"))
+        })
+        .flatten();
     let mut config = Map::new();
     config.insert("agentEngine".to_string(), json!(engine.clone()));
     if let Some(device_id) = clean_optional(&intent.device_id) {
@@ -1234,8 +1248,13 @@ fn runtime_config_from_sync_intent(
             &model_entries,
             true,
         );
-        if let Some(effort_level) = clean_optional(&intent.effort_level) {
+        if let Some(effort_level) = clean_optional(&intent.effort_level).or(existing_effort) {
             config.insert("effortLevel".to_string(), json!(effort_level));
+        }
+        if let Some(permission_mode) =
+            clean_optional(&intent.permission_mode).or(existing_permission)
+        {
+            config.insert("permissionMode".to_string(), json!(permission_mode));
         }
     } else {
         let has_saved_selection = has_non_empty(&existing, "model")

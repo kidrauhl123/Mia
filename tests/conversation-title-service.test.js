@@ -34,3 +34,20 @@ test("generateTitle delegates title chat and falls back safely", async () => {
     messages: [{ role: "user", content: "一个很长的开头，用来回退标题" }]
   }), { title: "一个很长的开头，用来回退标题" });
 });
+
+test("generateTitle preserves the renderer botKey alias and rejects Rust Core mock output", async () => {
+  const calls = [];
+  const service = createConversationTitleService({
+    runUtilityTurn: async (payload) => {
+      calls.push(payload);
+      return { content: "Mia Rust Core mock response: 请给下面这段对话生成一个简短标题" };
+    }
+  });
+
+  assert.deepEqual(await service.generateTitle({
+    botKey: "codex",
+    conversationId: "botc_1",
+    messages: [{ role: "user", content: "帮我排查开发态为什么打不开" }]
+  }), { title: "帮我排查开发态为什么打不开" });
+  assert.equal(calls[0].botId, "codex");
+});

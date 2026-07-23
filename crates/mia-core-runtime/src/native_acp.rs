@@ -15,7 +15,7 @@ use agent_client_protocol::schema::{
     SessionConfigOptionCategory, SessionConfigSelectOption, SessionConfigSelectOptions, SessionId,
     SessionModeState, SessionModelState, SessionNotification, SessionUpdate,
     SetSessionConfigOptionRequest, SetSessionModeRequest, SetSessionModelRequest, StopReason,
-    TextContent, ToolCallStatus,
+    TextContent, ToolCallContent, ToolCallStatus,
 };
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo, JsonRpcRequest, on_receive_notification,
@@ -38,6 +38,7 @@ use tokio::task::JoinHandle;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use uuid::Uuid;
 
+use crate::task_cache::BoundedTaskCache;
 use crate::{
     EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STARTED, RuntimeCancellation, RuntimeCommand,
     RuntimeEventSink, RuntimeExecutionResult, RuntimeInitialPromptProvider, RuntimeProcessEvent,
@@ -127,12 +128,23 @@ pub(crate) fn runtime_events_from_session_notification(
             .collect(),
         SessionUpdate::ToolCall(tool_call) => {
             let status = canonical_tool_status(tool_call.status);
+            let tool_call_id = tool_call.tool_call_id.to_string();
+            let file_edits = file_edit_events_from_tool_content(
+                turn_id,
+                conversation_id,
+                engine,
+                &session_id,
+                &tool_call_id,
+                status,
+                matches!(tool_call.status, ToolCallStatus::Failed),
+                &tool_call.content,
+            );
             let preview = tool_preview(
                 tool_call.raw_input.as_ref(),
                 tool_call.raw_output.as_ref(),
                 Some(&tool_call.content),
             );
-            vec![runtime_stdout_event(
+            let mut events = vec![runtime_stdout_event(
                 turn_id,
                 conversation_id,
                 engine,
@@ -147,7 +159,9 @@ pub(crate) fn runtime_events_from_session_notification(
                     "sessionId": session_id,
                     "toolCall": tool_call,
                 }),
-            )]
+            )];
+            events.extend(file_edits);
+            events
         }
         SessionUpdate::ToolCallUpdate(tool_call_update) => {
             let status = tool_call_update
@@ -159,12 +173,27 @@ pub(crate) fn runtime_events_from_session_notification(
                 Some(ToolCallStatus::Completed | ToolCallStatus::Failed) => "tool.completed",
                 _ => "tool.delta",
             };
+            let tool_call_id = tool_call_update.tool_call_id.to_string();
+            let file_edits = file_edit_events_from_tool_content(
+                turn_id,
+                conversation_id,
+                engine,
+                &session_id,
+                &tool_call_id,
+                status,
+                matches!(tool_call_update.fields.status, Some(ToolCallStatus::Failed)),
+                tool_call_update
+                    .fields
+                    .content
+                    .as_deref()
+                    .unwrap_or_default(),
+            );
             let preview = tool_preview(
                 tool_call_update.fields.raw_input.as_ref(),
                 tool_call_update.fields.raw_output.as_ref(),
                 tool_call_update.fields.content.as_ref(),
             );
-            vec![runtime_stdout_event(
+            let mut events = vec![runtime_stdout_event(
                 turn_id,
                 conversation_id,
                 engine,
@@ -179,7 +208,9 @@ pub(crate) fn runtime_events_from_session_notification(
                     "sessionId": session_id,
                     "toolCall": tool_call_update,
                 }),
-            )]
+            )];
+            events.extend(file_edits);
+            events
         }
         SessionUpdate::Plan(plan) => vec![runtime_stdout_event(
             turn_id,
@@ -259,6 +290,69 @@ fn canonical_tool_status(status: ToolCallStatus) -> &'static str {
         ToolCallStatus::Failed => "failed",
         _ => "pending",
     }
+}
+
+fn file_edit_events_from_tool_content(
+    turn_id: &str,
+    conversation_id: &str,
+    engine: &str,
+    session_id: &str,
+    tool_call_id: &str,
+    status: &str,
+    error: bool,
+    content: &[ToolCallContent],
+) -> Vec<RuntimeProcessEvent> {
+    content
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            let ToolCallContent::Diff(diff) = item else {
+                return None;
+            };
+            let path = diff.path.to_string_lossy().to_string();
+            let old_text = diff.old_text.as_deref().unwrap_or_default();
+            let new_text = diff.new_text.as_str();
+            let action = if diff.old_text.is_none() {
+                "add"
+            } else if new_text.is_empty() {
+                "delete"
+            } else {
+                "update"
+            };
+            let deletions = old_text.lines().count();
+            let additions = new_text.lines().count();
+            let mut display_diff = format!("--- a/{path}\n+++ b/{path}\n@@\n");
+            for line in old_text.lines() {
+                display_diff.push('-');
+                display_diff.push_str(line);
+                display_diff.push('\n');
+            }
+            for line in new_text.lines() {
+                display_diff.push('+');
+                display_diff.push_str(line);
+                display_diff.push('\n');
+            }
+            Some(runtime_stdout_event(
+                turn_id,
+                conversation_id,
+                engine,
+                "",
+                json!({
+                    "type": "file_edit",
+                    "id": format!("{tool_call_id}:file_edit:{index}"),
+                    "toolCallId": tool_call_id,
+                    "path": path,
+                    "action": action,
+                    "diff": display_diff,
+                    "additions": additions,
+                    "deletions": deletions,
+                    "status": status,
+                    "error": error,
+                    "sessionId": session_id,
+                }),
+            ))
+        })
+        .collect()
 }
 
 fn tool_preview<T: serde::Serialize>(
@@ -428,7 +522,7 @@ impl NativeAcpSessionManager {
 
 #[derive(Default)]
 pub struct RealNativeAcpBackend {
-    tasks: DashMap<String, Arc<Mutex<NativeAcpTask>>>,
+    tasks: BoundedTaskCache<NativeAcpTask>,
     permissions: NativeAcpPermissionBroker,
     initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
 }
@@ -577,6 +671,19 @@ impl RealNativeAcpBackend {
         }
     }
 
+    #[cfg(test)]
+    fn with_task_capacity_for_tests(capacity: usize) -> Self {
+        Self {
+            tasks: BoundedTaskCache::with_capacity(capacity),
+            ..Self::default()
+        }
+    }
+
+    #[cfg(test)]
+    fn cached_task_count(&self) -> usize {
+        self.tasks.len()
+    }
+
     async fn send_message_inner(
         &self,
         plan: RuntimeTurnPlan,
@@ -624,31 +731,17 @@ impl RealNativeAcpBackend {
         key: &str,
         plan: &RuntimeTurnPlan,
     ) -> Result<Arc<Mutex<NativeAcpTask>>> {
-        if let Some(task) = self.tasks.get(key) {
-            return Ok(task.value().clone());
-        }
-
         let logical_key = native_acp_logical_task_key(plan);
-        let stale_keys = self
-            .tasks
-            .iter()
-            .filter(|entry| entry.key().starts_with(&format!("{logical_key}:")))
-            .map(|entry| entry.key().clone())
-            .collect::<Vec<_>>();
-        for stale_key in stale_keys {
-            self.tasks.remove(&stale_key);
-        }
-
-        let task = Arc::new(Mutex::new(
-            NativeAcpTask::spawn(
-                plan,
-                self.permissions.clone(),
-                self.initial_prompt_provider.clone(),
-            )
-            .await?,
-        ));
-        let entry = self.tasks.entry(key.to_string()).or_insert(task);
-        Ok(entry.clone())
+        self.tasks
+            .get_or_try_insert_with(key, &format!("{logical_key}:"), || async {
+                NativeAcpTask::spawn(
+                    plan,
+                    self.permissions.clone(),
+                    self.initial_prompt_provider.clone(),
+                )
+                .await
+            })
+            .await
     }
 }
 
@@ -683,6 +776,40 @@ fn desired_control_value<'a>(plan: &'a RuntimeTurnPlan, category: &str) -> Optio
         .find_map(|key| plan.provider.get(*key).and_then(Value::as_str))
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+fn permission_mode_family(value: &str) -> &str {
+    match value.trim() {
+        ":danger-full-access"
+        | "agent-full-access"
+        | "bypassPermissions"
+        | "danger-full-access"
+        | "never"
+        | "off"
+        | "yolo" => "full-access",
+        ":workspace" | "acceptEdits" | "agent" | "default" | "workspace" => "workspace",
+        ":read-only" | "read-only" | "readOnly" => "read-only",
+        other => other,
+    }
+}
+
+fn matching_control_value(control: &RuntimeControl, desired: &str) -> Option<String> {
+    if let Some(exact) = control
+        .options
+        .iter()
+        .find(|choice| choice.value == desired)
+    {
+        return Some(exact.value.clone());
+    }
+    if control.category != "permission" {
+        return None;
+    }
+    let desired_family = permission_mode_family(desired);
+    control
+        .options
+        .iter()
+        .find(|choice| permission_mode_family(&choice.value) == desired_family)
+        .map(|choice| choice.value.clone())
 }
 
 fn absolute_workspace_dir_lossy(workspace_dir: &str) -> String {
@@ -1621,7 +1748,7 @@ impl NativeAcpTask {
             if control.current_value == desired {
                 continue;
             }
-            if !control.options.iter().any(|choice| choice.value == desired) {
+            let Some(selected) = matching_control_value(control, desired) else {
                 tracing::warn!(
                     engine = %plan.engine,
                     conversation_id = %plan.conversation_id,
@@ -1630,8 +1757,8 @@ impl NativeAcpTask {
                     "ignoring stale ACP control selection not advertised by the active session"
                 );
                 continue;
-            }
-            self.set_control(plan, &control.id, desired).await?;
+            };
+            self.set_control(plan, &control.id, &selected).await?;
         }
         Ok(())
     }
@@ -2510,11 +2637,12 @@ mod tests {
     use super::*;
     use crate::{RuntimeProtocol, RuntimeSendMessage, RuntimeSessionState};
     use agent_client_protocol::schema::{
-        ConfigOptionUpdate, ContentBlock, ContentChunk, CurrentModeUpdate, ModelInfo,
+        ConfigOptionUpdate, ContentBlock, ContentChunk, CurrentModeUpdate, Diff, ModelInfo,
         NewSessionResponse, PermissionOption, PermissionOptionKind, SessionCapabilities,
         SessionConfigOption, SessionConfigOptionCategory, SessionConfigSelectOption, SessionMode,
         SessionModeState, SessionModelState, SessionNotification, SessionResumeCapabilities,
-        SessionUpdate, TextContent, ToolCall, ToolCallStatus, ToolCallUpdate, ToolCallUpdateFields,
+        SessionUpdate, TextContent, ToolCall, ToolCallContent, ToolCallStatus, ToolCallUpdate,
+        ToolCallUpdateFields,
     };
 
     fn native_acp_test_plan() -> RuntimeTurnPlan {
@@ -2644,6 +2772,48 @@ mod tests {
         assert_eq!(completed_events[0].data["event"]["id"], "tool_1");
         assert_eq!(completed_events[0].data["event"]["status"], "completed");
         assert_eq!(completed_events[0].data["event"]["error"], false);
+    }
+
+    #[test]
+    fn native_acp_translates_structured_diff_content_to_file_edit_events() {
+        let notification = SessionNotification::new(
+            "acp-session-1",
+            SessionUpdate::ToolCallUpdate(ToolCallUpdate::new(
+                "tool_edit_1",
+                ToolCallUpdateFields::new()
+                    .title("Editing files")
+                    .status(ToolCallStatus::Completed)
+                    .content(vec![ToolCallContent::Diff(
+                        Diff::new("src/app.js", "const answer = 42;\n")
+                            .old_text("const answer = 41;\n"),
+                    )]),
+            )),
+        );
+
+        let events =
+            runtime_events_from_session_notification("turn_1", "conv_1", "codex", &notification);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].data["event"]["type"], "file_edit");
+        assert_eq!(events[1].data["event"]["id"], "tool_edit_1:file_edit:0");
+        assert_eq!(events[1].data["event"]["toolCallId"], "tool_edit_1");
+        assert_eq!(events[1].data["event"]["path"], "src/app.js");
+        assert_eq!(events[1].data["event"]["action"], "update");
+        assert_eq!(events[1].data["event"]["status"], "completed");
+        assert_eq!(events[1].data["event"]["additions"], 1);
+        assert_eq!(events[1].data["event"]["deletions"], 1);
+        assert!(
+            events[1].data["event"]["diff"]
+                .as_str()
+                .unwrap()
+                .contains("-const answer = 41;")
+        );
+        assert!(
+            events[1].data["event"]["diff"]
+                .as_str()
+                .unwrap()
+                .contains("+const answer = 42;")
+        );
     }
 
     #[tokio::test]
@@ -2971,6 +3141,58 @@ lines.on("line", (line) => {
         );
     }
 
+    #[tokio::test]
+    async fn native_acp_cache_evicts_idle_processes_at_capacity() {
+        let root = std::env::temp_dir().join(format!(
+            "mia-native-acp-cache-{}-{}",
+            std::process::id(),
+            current_time_ms()
+        ));
+        let workspace = root.join("workspace");
+        let script = root.join("fake-acp.js");
+        std::fs::create_dir_all(&workspace).unwrap();
+        std::fs::write(
+            &script,
+            r#"const readline = require("readline");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+let nextSession = 0;
+lines.on("line", (line) => {
+  const request = JSON.parse(line);
+  let result;
+  if (request.method === "initialize") {
+    result = {
+      protocolVersion: request.params.protocolVersion,
+      agentCapabilities: {}
+    };
+  } else if (request.method === "session/new") {
+    result = { sessionId: `cache-session-${++nextSession}` };
+  } else {
+    result = {};
+  }
+  process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+});
+"#,
+        )
+        .unwrap();
+
+        let backend = RealNativeAcpBackend::with_task_capacity_for_tests(2);
+        for index in 0..3 {
+            let mut plan = native_acp_test_plan();
+            plan.conversation_id = format!("cache-conversation-{index}");
+            plan.workspace_dir = workspace.to_string_lossy().into_owned();
+            plan.command = Some(RuntimeCommand {
+                program: "node".into(),
+                args: vec![script.to_string_lossy().into_owned()],
+            });
+            plan.environment
+                .insert("PATH".into(), std::env::var("PATH").unwrap_or_default());
+            backend.prepare_session(plan).await.unwrap();
+        }
+
+        assert_eq!(backend.cached_task_count(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn native_acp_empty_output_includes_stderr_tail() {
         let message =
@@ -3204,6 +3426,37 @@ lines.on("line", (line) => {
         assert_eq!(desired_control_value(&plan, "model"), None);
         assert_eq!(desired_control_value(&plan, "thought_level"), None);
         assert_eq!(desired_control_value(&plan, "permission"), None);
+    }
+
+    #[test]
+    fn native_acp_maps_persisted_permission_aliases_to_advertised_modes() {
+        let control = RuntimeControl {
+            id: "mode".into(),
+            category: "permission".into(),
+            current_value: "agent".into(),
+            source: "config_option".into(),
+            options: vec![
+                RuntimeControlChoice {
+                    value: "agent".into(),
+                    label: "Agent".into(),
+                    description: String::new(),
+                },
+                RuntimeControlChoice {
+                    value: "agent-full-access".into(),
+                    label: "Agent (full access)".into(),
+                    description: String::new(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            matching_control_value(&control, ":danger-full-access"),
+            Some("agent-full-access".into())
+        );
+        assert_eq!(
+            matching_control_value(&control, ":workspace"),
+            Some("agent".into())
+        );
     }
 
     #[test]

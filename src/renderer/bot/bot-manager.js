@@ -291,7 +291,11 @@
           const timeDiff = sortableConversationTime(b.row.pinnedAt) - sortableConversationTime(a.row.pinnedAt);
           if (timeDiff) return timeDiff;
         }
-        const lastMessageDiff = sortableConversationTime(b.row.lastMessageAt) - sortableConversationTime(a.row.lastMessageAt);
+        const aLastMessageAt = sortableConversationTime(a.row.lastMessageAt);
+        const bLastMessageAt = sortableConversationTime(b.row.lastMessageAt);
+        const emptyDiff = Number(aLastMessageAt > 0) - Number(bLastMessageAt > 0);
+        if (emptyDiff) return emptyDiff;
+        const lastMessageDiff = bLastMessageAt - aLastMessageAt;
         if (lastMessageDiff) return lastMessageDiff;
         return a.index - b.index;
       })

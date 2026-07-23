@@ -137,6 +137,25 @@ test("sidebar conversation sorting uses lastMessageAt instead of metadata update
   assert.deepEqual(rows.map((row) => row.key), ["new-message", "old-message"]);
 });
 
+test("sidebar conversation sorting keeps pinned rows first and places empty conversations above messaged rows", () => {
+  const { manager } = loadBotManager();
+  const rows = manager.sortMessageCardsForSidebar([
+    { key: "older-message", lastMessageAt: Date.parse("2026-01-01T10:00:00.000Z") },
+    { key: "empty-first", lastMessageAt: null },
+    { key: "newer-message", lastMessageAt: Date.parse("2026-01-01T11:00:00.000Z") },
+    { key: "pinned", pinned: true, pinnedAt: Date.parse("2026-01-01T09:00:00.000Z"), lastMessageAt: null },
+    { key: "empty-second", lastMessageAt: "" }
+  ]);
+
+  assert.deepEqual(rows.map((row) => row.key), [
+    "pinned",
+    "empty-first",
+    "empty-second",
+    "newer-message",
+    "older-message"
+  ]);
+});
+
 test("renderContacts groups bot contacts by alphabetical initial", () => {
   const { manager, window } = loadBotManager();
   const contactList = mockEl();

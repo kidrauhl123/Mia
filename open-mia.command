@@ -79,64 +79,23 @@ for dir in "${PATH_CANDIDATES[@]}"; do
   fi
 done
 
-if ! command -v npm >/dev/null 2>&1; then
-  echo "npm not found. Install Node.js/npm or make npm available in PATH, then run this again."
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "Node.js/npm not found. Install Node.js or make node and npm available in PATH, then run this again."
   exit 127
 fi
 
-if [ ! -d "node_modules/electron" ]; then
+electron_ready() {
+  node -e 'const fs = require("node:fs"); const electron = require("electron"); if (typeof electron !== "string" || !fs.existsSync(electron)) process.exit(1);' >/dev/null 2>&1
+}
+
+if ! electron_ready; then
   echo "Installing Mia dependencies..."
-  npm install
+  npm install --include=dev
 fi
 
-CORE_PLATFORM="$(node -p "process.platform" 2>/dev/null || echo darwin)"
-CORE_ARCH="$(node -p "process.arch" 2>/dev/null || echo arm64)"
-CORE_EXE="mia-core"
-if [ "$CORE_PLATFORM" = "win32" ]; then
-  CORE_EXE="mia-core.exe"
+if ! electron_ready; then
+  echo "Electron is unavailable after npm install. Check the npm output above, then try again."
+  exit 1
 fi
 
-CORE_CANDIDATES=(
-  "resources/bundled-mia-core/${CORE_PLATFORM}-${CORE_ARCH}/${CORE_EXE}"
-  "target/debug/${CORE_EXE}"
-  "target/release/${CORE_EXE}"
-)
-
-core_ready() {
-  for core_candidate in "${CORE_CANDIDATES[@]}"; do
-    if [ -x "$core_candidate" ]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-build_mia_core_locally() {
-  if ! command -v cargo >/dev/null 2>&1; then
-    echo "cargo not found. Install Rust or publish the prebuilt Mia Core release first."
-    return 127
-  fi
-  echo "Building Mia Core locally for development..."
-  CARGO_REGISTRIES_CRATES_IO_PROTOCOL="${CARGO_REGISTRIES_CRATES_IO_PROTOCOL:-sparse}" \
-  CARGO_HTTP_TIMEOUT="${CARGO_HTTP_TIMEOUT:-60}" \
-  cargo build -p mia-core-app --bin mia-core
-}
-
-if ! core_ready; then
-  echo "Preparing Mia Core prebuilt binary..."
-  if ! npm run core:prepare || ! core_ready; then
-    echo
-    echo "Prebuilt Mia Core is unavailable; trying a local development build."
-    if ! build_mia_core_locally || ! core_ready; then
-      echo
-      echo "Mia Core binary is not ready."
-      echo "Run one of these, then open Mia again:"
-      echo "  npm run core:prepare"
-      echo "  MIA_CORE_RS_BIN=/path/to/mia-core npm run core:prepare"
-      echo "  cargo build -p mia-core-app --bin mia-core"
-      exit 1
-    fi
-  fi
-fi
-
-npm run open
+exec npm run open

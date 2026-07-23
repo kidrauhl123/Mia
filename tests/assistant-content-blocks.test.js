@@ -170,6 +170,44 @@ test("collector preserves file edit blocks in the same ordered stream", () => {
   ]);
 });
 
+test("collector updates repeated ACP file edit snapshots instead of duplicating or losing the diff", () => {
+  const collector = createAssistantContentBlockCollector();
+
+  collector.collect("file_edit", {
+    id: "tool_1:file_edit:0",
+    toolCallId: "tool_1",
+    path: "src/web/app.js",
+    action: "update",
+    diff: "@@\n-old\n+draft",
+    additions: 1,
+    deletions: 1,
+    status: "running"
+  });
+  collector.collect("file_edit", {
+    id: "tool_1:file_edit:0",
+    toolCallId: "tool_1",
+    path: "src/web/app.js",
+    action: "update",
+    diff: "@@\n-old\n+final",
+    additions: 1,
+    deletions: 1,
+    status: "completed"
+  });
+
+  assert.deepEqual(collector.payload(), [{
+    type: "file_edit",
+    id: "tool_1:file_edit:0",
+    path: "src/web/app.js",
+    action: "update",
+    title: "Edited src/web/app.js (+1 -1)",
+    diff: "@@\n-old\n+final",
+    additions: 1,
+    deletions: 1,
+    status: "completed",
+    error: false
+  }]);
+});
+
 test("collector replaces empty Editing files tool rows with the file edit block", () => {
   const collector = createAssistantContentBlockCollector();
 

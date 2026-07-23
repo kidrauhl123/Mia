@@ -2995,15 +2995,14 @@ test("sendInActiveConversation keeps later pending messages after an earlier ser
   assert.deepEqual(entry.messages.map((m) => m.body_md), ["first", "second"]);
 });
 
-test("sendInActiveConversation still posts and previews user messages while the active bot run is running", async () => {
+test("sendInActiveConversation rejects new messages while the active bot run is running", async () => {
   const s = loadSocial();
-  const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
     postConversationMessage: async (conversationId, body) => {
       posted.push({ conversationId, body });
-      return post.promise;
+      return { ok: true };
     }
   };
   s.moduleState.activeConversationId = "g_busy";
@@ -3016,34 +3015,23 @@ test("sendInActiveConversation still posts and previews user messages while the 
     status: "running"
   });
 
-  const sendPromise = s.sendInActiveConversation("too soon");
+  const result = await s.sendInActiveConversation("too soon");
   const entry = s.moduleState.messageCache.get("g_busy");
 
-  assert.equal(posted.length, 1);
-  assert.equal(posted[0].conversationId, "g_busy");
-  assert.equal(posted[0].body.bodyMd, "too soon");
-  assert.equal(entry.messages.length, 1);
-  assert.equal(entry.messages[0].status, "sending");
-  assert.equal(entry.messages[0].body_md, "too soon");
-
-  post.resolve({
-    ok: true,
-    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "too soon" } }
-  });
-  await sendPromise;
-
-  assert.deepEqual(entry.messages.map((message) => message.id), ["m_server"]);
+  assert.equal(result?.ok, false);
+  assert.equal(result?.error, "当前回复尚未结束");
+  assert.equal(posted.length, 0);
+  assert.equal(entry.messages.length, 0);
 });
 
-test("sendInActiveConversation still posts and previews user messages while the active bot run is cancelling", async () => {
+test("sendInActiveConversation rejects new messages while the active bot run is cancelling", async () => {
   const s = loadSocial();
-  const post = deferred();
   const posted = [];
   s.moduleState.myUserId = "u_me";
   s.__mockWindow.mia.social = {
     postConversationMessage: async (conversationId, body) => {
       posted.push({ conversationId, body });
-      return post.promise;
+      return { ok: true };
     }
   };
   s.moduleState.activeConversationId = "g_cancelling";
@@ -3056,23 +3044,13 @@ test("sendInActiveConversation still posts and previews user messages while the 
     status: "cancelling"
   });
 
-  const sendPromise = s.sendInActiveConversation("too soon");
+  const result = await s.sendInActiveConversation("too soon");
   const entry = s.moduleState.messageCache.get("g_cancelling");
 
-  assert.equal(posted.length, 1);
-  assert.equal(posted[0].conversationId, "g_cancelling");
-  assert.equal(posted[0].body.bodyMd, "too soon");
-  assert.equal(entry.messages.length, 1);
-  assert.equal(entry.messages[0].status, "sending");
-  assert.equal(entry.messages[0].body_md, "too soon");
-
-  post.resolve({
-    ok: true,
-    data: { message: { id: "m_server", seq: 1, sender_kind: "user", sender_ref: "u_me", body_md: "too soon" } }
-  });
-  await sendPromise;
-
-  assert.deepEqual(entry.messages.map((message) => message.id), ["m_server"]);
+  assert.equal(result?.ok, false);
+  assert.equal(result?.error, "当前回复尚未结束");
+  assert.equal(posted.length, 0);
+  assert.equal(entry.messages.length, 0);
 });
 
 test("sendInActiveConversation posts and previews attachment-only messages", async () => {
@@ -5960,6 +5938,47 @@ test("run status labels ignore generic local engine startup status", () => {
   assert.ok(pools.general.includes(compactLabel));
 });
 
+test("persisted interrupted runtime messages keep an interrupted status label", () => {
+  const s = loadSocial();
+
+  assert.equal(
+    s._internalCtx.runActivityLabel({
+      runId: "turn_interrupted",
+      _localRunStatus: "interrupted",
+      _localRunStatusText: "已中断"
+    }),
+    "已中断"
+  );
+});
+
+test("persisted interrupted assistant events are materialized as durable interrupted messages", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia" }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: {
+        id: "msg_interrupted",
+        seq: 1,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "保留下来的部分回复",
+        status: "interrupted"
+      }
+    }
+  });
+
+  const message = s.moduleState.messageCache.get("botc_u_a_mia").messages[0];
+  assert.equal(message.body_md, "保留下来的部分回复");
+  assert.equal(message._localRunStatus, "interrupted");
+  assert.equal(message._localRunStatusText, "已中断");
+});
+
 test("run status labels stay sticky when the run phase changes briefly", () => {
   const s = loadSocial();
   const pools = s._internalCtx.agentRunStatusPhrasePools;
@@ -6489,6 +6508,49 @@ test("handleCloudEvent materializes a cancelled cloud run before the next outgoi
 
   assert.deepEqual(entry.messages.map((msg) => msg.body_md), ["上一个问题", "我先检查。", "新的问题"]);
   assert.equal(entry.messages[1]._localRunStatus, "cancelled");
+});
+
+test("durable cancelled assistant replaces the temporary cancelled run message", () => {
+  const s = loadSocial();
+  installCloudConversationSource(s.__mockWindow);
+  s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.myUserId = "u_a";
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", name: "Mia", decorations: { botId: "mia" } }];
+  s.moduleState.messageCache.set("botc_u_a_mia", { messages: [], maxSeq: 0 });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "botc_u_a_mia", runId: "run_durable_cancel", botId: "mia" },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "run_durable_cancel", event: { type: "message.delta", text: "保留我" } },
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_event",
+    payload: { conversationId: "botc_u_a_mia", runId: "run_durable_cancel", event: { type: "run.cancelled" } },
+  });
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "botc_u_a_mia",
+      message: {
+        id: "msg_durable_cancel",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "mia",
+        body_md: "保留我",
+        status: "cancelled",
+        _cloudBridgeRunId: "run_durable_cancel"
+      }
+    }
+  });
+
+  const messages = s.moduleState.messageCache.get("botc_u_a_mia").messages;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].id, "msg_durable_cancel");
+  assert.equal(messages[0].body_md, "保留我");
+  assert.equal(messages[0]._localRunStatus, "cancelled");
 });
 
 test("handleCloudEvent bot reply replaces the active streaming bubble", () => {

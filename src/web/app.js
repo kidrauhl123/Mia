@@ -3291,11 +3291,12 @@ function buildConversationMessageArticle(msg, conversation) {
   const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
       blocks: contentBlocks,
+      completed: true,
       expanded: false,
       scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
-      renderTextBlock(block) {
-        const prefixHtml = renderedFirstTextBlock ? "" : senderTitleHtml;
-        renderedFirstTextBlock = true;
+      renderTextBlock(block, _blockIndex, renderState = {}) {
+        const prefixHtml = renderedFirstTextBlock || renderState.process ? "" : senderTitleHtml;
+        if (!renderState.process) renderedFirstTextBlock = true;
         const renderedBlock = block.text ? renderMarkdown(block.text) : "";
         const highlightedBlock = renderedBlock && window.miaMentionRender
           ? window.miaMentionRender.highlightMentions(renderedBlock, members || [])
@@ -3315,6 +3316,7 @@ function buildConversationMessageArticle(msg, conversation) {
       reasoning: trace.reasoning,
       tools: trace.tools,
       content: spec.bodyMd || "",
+      completed: true,
       expanded: false,
       scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
     })
@@ -4769,11 +4771,13 @@ els.chat.addEventListener("toggle", (event) => {
   const key = row.dataset.traceKey;
   if (!key) return;
   if (row.open) {
+    window.miaTraceBlocks?.hydrateTraceRow?.(row);
     state.openTraceKeys.add(key);
     state.openTraceKeys.delete(`!${key}`);
     row.dataset.userOpen = "true";
     delete row.dataset.autoOpen;
   } else {
+    window.miaTraceBlocks?.releaseTraceRow?.(row);
     state.openTraceKeys.delete(key);
     state.openTraceKeys.add(`!${key}`);
     delete row.dataset.userOpen;

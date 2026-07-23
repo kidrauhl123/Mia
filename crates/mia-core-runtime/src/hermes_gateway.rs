@@ -25,6 +25,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use uuid::Uuid;
 
+use crate::task_cache::BoundedTaskCache;
 use crate::{
     EVENT_RUNTIME_FINISHED, EVENT_RUNTIME_STARTED, EVENT_RUNTIME_STDOUT, RuntimeCancellation,
     RuntimeCommand, RuntimeEventSink, RuntimeExecutionResult, RuntimeInitialPromptProvider,
@@ -222,7 +223,7 @@ impl HermesGatewayBackend for UnavailableHermesGatewayBackend {
 
 #[derive(Default)]
 struct RealHermesGatewayBackend {
-    tasks: DashMap<String, Arc<Mutex<HermesGatewayTask>>>,
+    tasks: BoundedTaskCache<HermesGatewayTask>,
     permissions: HermesGatewayPermissionBroker,
     initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
 }
@@ -238,7 +239,6 @@ impl RealHermesGatewayBackend {
     async fn task_for_plan(&self, plan: &RuntimeTurnPlan) -> Result<Arc<Mutex<HermesGatewayTask>>> {
         let key = hermes_gateway_task_key(plan);
         if let Some(task) = self.tasks.get(&key) {
-            let task = task.value().clone();
             if task.lock().await.process.is_connected().await {
                 return Ok(task);
             }
@@ -246,21 +246,11 @@ impl RealHermesGatewayBackend {
         }
 
         let logical_key = hermes_gateway_logical_task_key(plan);
-        let stale_keys = self
-            .tasks
-            .iter()
-            .filter(|entry| entry.key().starts_with(&format!("{logical_key}:")))
-            .map(|entry| entry.key().clone())
-            .collect::<Vec<_>>();
-        for stale_key in stale_keys {
-            self.tasks.remove(&stale_key);
-        }
-
-        let task = Arc::new(Mutex::new(
-            HermesGatewayTask::spawn(plan, self.initial_prompt_provider.clone()).await?,
-        ));
-        let entry = self.tasks.entry(key).or_insert(task);
-        Ok(entry.clone())
+        self.tasks
+            .get_or_try_insert_with(&key, &format!("{logical_key}:"), || async {
+                HermesGatewayTask::spawn(plan, self.initial_prompt_provider.clone()).await
+            })
+            .await
     }
 
     async fn send_message_inner(

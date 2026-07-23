@@ -848,6 +848,9 @@ function rewriteLocalBotMessageConversation(message = {}, conversationId = "", l
   const runtime = content.runtime && typeof content.runtime === "object" && !Array.isArray(content.runtime)
     ? content.runtime
     : {};
+  const persistedRunStatus = ["cancelled", "interrupted", "error"].includes(normalized.status)
+    ? normalized.status
+    : "";
   content.localConversationId = localConversationId;
   content.local_conversation_id = localConversationId;
   return {
@@ -856,6 +859,12 @@ function rewriteLocalBotMessageConversation(message = {}, conversationId = "", l
     conversationId,
     local_conversation_id: localConversationId,
     _localCoreConversationId: localConversationId,
+    ...(persistedRunStatus
+      ? {
+          _localRunStatus: persistedRunStatus,
+          _localRunStatusText: persistedRunStatus === "error" ? "运行失败" : "已中断"
+        }
+      : {}),
     ...(runtime.trace && !normalized.trace && !normalized.trace_json
       ? { trace: runtime.trace }
       : {}),
@@ -983,10 +992,18 @@ function runCoreConversationUtilityTurn(payload = {}) {
   return coreOk(miaCorePost("/api/conversations/utility-turns", buildCoreConversationUtilityTurnRequest(payload)));
 }
 
-function cancelCoreConversationTurn(payload = {}) {
+function cancelActiveConversationRun(payload = {}) {
   const input = payload && typeof payload === "object" ? payload : {};
   const conversationId = String(input.conversationId || input.conversation_id || input.sessionId || "").trim();
+  const runId = String(input.runId || input.run_id || "").trim();
   const turnId = String(input.turnId || input.turn_id || "").trim();
+  const runtimeKind = String(input.runtimeKind || input.runtime_kind || "").trim();
+  if (runtimeKind === "desktop-local" && runId) {
+    return coreOk(miaCorePost("/api/cloud/bridge/cancel", { runId }));
+  }
+  if (conversationId && runId) {
+    return ipcRenderer.invoke(IpcChannel.SocialCancelConversationRun, conversationId, runId);
+  }
   if (conversationId && turnId) {
     return coreOk(miaCorePost(
       `/api/conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/cancel`,
@@ -995,7 +1012,7 @@ function cancelCoreConversationTurn(payload = {}) {
   }
   return Promise.resolve({
     ok: false,
-    error: "Core turn id is required to cancel an active conversation."
+    error: "Active conversation run context is required to stop a response."
   });
 }
 
@@ -1254,7 +1271,7 @@ contextBridge.exposeInMainWorld("mia", {
   cancelProviderOAuth: () => ipcRenderer.invoke(IpcChannel.AuthProviderCancel),
   sendChat: (payload) => ipcRenderer.invoke(IpcChannel.ChatSend, payload),
   sendChatStateless: (payload) => runCoreConversationUtilityTurn(payload),
-  stopChat: (payload) => cancelCoreConversationTurn(payload),
+  stopChat: (payload) => cancelActiveConversationRun(payload),
   respondChatPermission: (payload) => ipcRenderer.invoke(IpcChannel.ChatPermissionRespond, payload),
   listChatPermissions: (payload) => ipcRenderer.invoke(IpcChannel.ChatPermissionList, payload),
   saveAttachment: (payload) => ipcRenderer.invoke(IpcChannel.ChatAttachmentSave, payload),

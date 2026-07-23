@@ -80,6 +80,12 @@ function electronBinary() {
   return resolved;
 }
 
+function electronLaunchEnv(env = process.env) {
+  const launchEnv = { ...env };
+  delete launchEnv.ELECTRON_RUN_AS_NODE;
+  return launchEnv;
+}
+
 async function main(argv = process.argv.slice(2)) {
   const multi = argv.includes("--multi");
   const config = await resolveDevLaunchConfig({ multi });
@@ -96,7 +102,7 @@ async function main(argv = process.argv.slice(2)) {
 
   const electron = childProcess.spawn(electronBinary(), [root], {
     cwd: root,
-    env: config.env,
+    env: electronLaunchEnv(config.env),
     stdio: "inherit"
   });
   electron.once("error", (error) => {
@@ -119,6 +125,7 @@ module.exports = {
   DEFAULT_DEV_PORT,
   DEFAULT_MULTI_PORT,
   appDataRoot,
+  electronLaunchEnv,
   findAvailablePort,
   resolveDevLaunchConfig,
   resolveDevUserDataDir,
