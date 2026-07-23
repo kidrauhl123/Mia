@@ -100,8 +100,8 @@ function loadSocialGroups(options = {}) {
       }
     },
     miaTraceBlocks: {
-      renderTraceBlocks({ reasoning, tools }) {
-        return `<div class="trace"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
+      renderTraceBlocks({ reasoning, tools, durationSeconds }) {
+        return `<div class="trace" data-duration="${Number(durationSeconds) || 0}"><span>${String(reasoning || "")}</span>${(tools || []).map((tool) => `<span>${tool.name}</span>`).join("")}</div>`;
       }
     },
   };
@@ -162,13 +162,15 @@ test("buildGroupMessageArticle renders persisted bot trace_json", () => {
     body_md: "done",
     trace_json: JSON.stringify({
       reasoning: "分析需求",
-      tools: [{ name: "search", status: "completed" }]
+      tools: [{ name: "search", status: "completed" }],
+      duration: 212
     })
   }, "#5e5ce6", []);
 
   assert.match(article.innerHTML, /trace/);
   assert.match(article.innerHTML, /分析需求/);
   assert.match(article.innerHTML, /search/);
+  assert.match(article.innerHTML, /data-duration="212"/);
 });
 
 test("fetchAndCacheConversationMembers rerenders after sidebar member cache fills", async () => {

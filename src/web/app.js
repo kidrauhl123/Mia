@@ -1788,6 +1788,8 @@ function parseTraceJson(value) {
   }
   if (!parsed || typeof parsed !== "object") return null;
   const reasoning = String(parsed.reasoning || "").trim();
+  const rawDuration = Number(parsed.duration ?? parsed.durationSeconds);
+  const durationSeconds = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
   const tools = Array.isArray(parsed.tools)
     ? parsed.tools.map((tool, idx) => {
       if (!tool || typeof tool !== "object") return null;
@@ -1803,8 +1805,8 @@ function parseTraceJson(value) {
       };
     }).filter(Boolean)
     : [];
-  if (!reasoning && !tools.length) return null;
-  return { reasoning, tools };
+  if (!reasoning && !tools.length && !durationSeconds) return null;
+  return { reasoning, tools, durationSeconds };
 }
 
 function parseContentBlocksJson(value) {
@@ -3287,6 +3289,7 @@ function buildConversationMessageArticle(msg, conversation) {
     ? window.miaMentionRender.highlightMentions(renderedBody, members || [])
     : renderedBody;
   const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
+  const persistedTrace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
   let renderedFirstTextBlock = false;
   const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
@@ -3294,6 +3297,7 @@ function buildConversationMessageArticle(msg, conversation) {
       completed: true,
       expanded: false,
       scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
+      durationSeconds: persistedTrace?.durationSeconds || 0,
       renderTextBlock(block, _blockIndex, renderState = {}) {
         const prefixHtml = renderedFirstTextBlock || renderState.process ? "" : senderTitleHtml;
         if (!renderState.process) renderedFirstTextBlock = true;
@@ -3310,7 +3314,7 @@ function buildConversationMessageArticle(msg, conversation) {
   const attachmentBlockHtml = !spec.bodyMd && !orderedBlocksHtml
     ? renderStandaloneAttachmentBlock(attachmentHtml)
     : attachmentHtml;
-  const trace = !isOwn ? (orderedBlocksHtml ? "" : parseTraceJson(msg.trace_json || msg.trace)) : null;
+  const trace = !isOwn ? (orderedBlocksHtml ? null : persistedTrace) : null;
   const traceHtml = trace
     ? window.miaTraceBlocks.renderTraceBlocks({
       reasoning: trace.reasoning,
@@ -3319,6 +3323,7 @@ function buildConversationMessageArticle(msg, conversation) {
       completed: true,
       expanded: false,
       scopeKey: `web-msg:${msg.id || msg.seq || ""}`,
+      durationSeconds: trace.durationSeconds,
     })
     : "";
   return `

@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use mia_core_conversation::{
     CompletedRuntimeMessage, ConversationService, EVENT_CONVERSATION_MESSAGE_CREATED,
@@ -11,7 +12,7 @@ use mia_core_runtime::{
 use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
 
-use crate::cloud_bridge::normalize_runtime_output;
+use crate::cloud_bridge::{attach_process_duration, normalize_runtime_output};
 use crate::cron_turn::execute_runtime_with_cron;
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ pub async fn execute_and_complete_runtime_turn(
     let event_realtime = realtime.clone();
     let actual_session_id = Arc::new(Mutex::new(None::<String>));
     let actual_session_id_for_sink = actual_session_id.clone();
+    let execution_started = Instant::now();
     let execution = execute_runtime_with_cron(
         sessions,
         tasks,
@@ -81,11 +83,12 @@ pub async fn execute_and_complete_runtime_turn(
                 &runtime_plan.runtime_session,
                 actual_session_id.lock().unwrap().as_deref(),
             );
-            let output = normalize_runtime_output(
+            let mut output = normalize_runtime_output(
                 &runtime_plan.engine,
                 &cron_result.visible_text,
                 &result.stderr,
             );
+            attach_process_duration(&mut output, execution_started.elapsed());
             let body = if output.text.trim().is_empty() && result.exit_code != Some(0) {
                 result.stderr.trim().to_string()
             } else {

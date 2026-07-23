@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use mia_core_api_types::{
@@ -436,6 +436,7 @@ pub async fn complete_started_cloud_bridge_run(
             cloud_bot_id.clone(),
         );
         let event_sender = event_processor.sender.clone();
+        let execution_started = Instant::now();
         let execution = execute_runtime_with_cron(
             runtime_sessions,
             tasks,
@@ -461,6 +462,10 @@ pub async fn complete_started_cloud_bridge_run(
         let cron_result = match execution {
             Ok(result) => result,
             Err(error) => {
+                attach_process_duration(
+                    &mut event_state.structured_output,
+                    execution_started.elapsed(),
+                );
                 let body = if event_state.structured_output.text.trim().is_empty() {
                     format!("Runtime execution interrupted: {error}")
                 } else {
@@ -504,12 +509,13 @@ pub async fn complete_started_cloud_bridge_run(
                 &cron_result.visible_text,
             );
         }
-        let output = runtime_output_with_collected_events(
+        let mut output = runtime_output_with_collected_events(
             &runtime_plan.engine,
             &cron_result.visible_text,
             &result.stderr,
             event_state.structured_output,
         );
+        attach_process_duration(&mut output, execution_started.elapsed());
         response_trace = output.trace.clone();
         response_content_blocks = output.content_blocks.clone();
         let body = if output.text.trim().is_empty() && result.exit_code != Some(0) {
@@ -1335,6 +1341,26 @@ pub(crate) struct RuntimeDisplayOutput {
     pub(crate) text: String,
     pub(crate) trace: Value,
     pub(crate) content_blocks: Value,
+}
+
+pub(crate) fn attach_process_duration(output: &mut RuntimeDisplayOutput, duration: Duration) {
+    let has_trace = output
+        .trace
+        .as_object()
+        .is_some_and(|trace| !trace.is_empty());
+    let has_content_blocks = output
+        .content_blocks
+        .as_array()
+        .is_some_and(|blocks| !blocks.is_empty());
+    if !has_trace && !has_content_blocks {
+        return;
+    }
+    if !output.trace.is_object() {
+        output.trace = json!({});
+    }
+    if let Some(trace) = output.trace.as_object_mut() {
+        trace.insert("duration".into(), json!(duration.as_secs_f64()));
+    }
 }
 
 pub(crate) fn normalize_runtime_output(
@@ -2612,5 +2638,31 @@ mod tests {
         );
 
         assert_eq!(output.text, "Hi. What do you want to work on in Mia?");
+    }
+
+    #[test]
+    fn process_duration_is_attached_to_structured_runtime_output() {
+        let mut output = RuntimeDisplayOutput {
+            text: "done".into(),
+            trace: json!({}),
+            content_blocks: json!([{ "type": "thinking", "text": "checking" }]),
+        };
+
+        attach_process_duration(&mut output, Duration::from_secs(212));
+
+        assert_eq!(output.trace["duration"], 212.0);
+    }
+
+    #[test]
+    fn process_duration_is_not_attached_to_plain_text_output() {
+        let mut output = RuntimeDisplayOutput {
+            text: "done".into(),
+            trace: json!({}),
+            content_blocks: json!([]),
+        };
+
+        attach_process_duration(&mut output, Duration::from_secs(212));
+
+        assert_eq!(output.trace, json!({}));
     }
 }

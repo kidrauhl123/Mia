@@ -4042,16 +4042,118 @@ p {
   overflow: hidden;
 }
 
+.assistant-process-trace {
+  width: 100%;
+  margin: 2px 0 8px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted, #6b7280);
+  opacity: 1;
+}
+
+.assistant-process-trace > .assistant-process {
+  width: 100%;
+}
+
+.assistant-process > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 0 8px;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  color: color-mix(in srgb, var(--muted, #6b7280) 74%, transparent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 430;
+  line-height: 18px;
+  cursor: default;
+  transition: color 140ms ease, border-color 160ms ease;
+}
+
+.assistant-process > summary:hover {
+  color: var(--muted, #6b7280);
+}
+
+.assistant-process[open] > summary {
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom-color: var(--border, rgba(120, 120, 130, 0.22));
+}
+
+.assistant-process > summary > .trace-chevron {
+  width: 7px;
+  height: 7px;
+  margin: 0 0 0 2px;
+  border: 0;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transform-origin: center;
+  transition: transform 140ms ease;
+}
+
+.assistant-process[open] > summary > .trace-chevron {
+  transform: rotate(45deg);
+}
+
+.assistant-process.accordion-closing > summary > .trace-chevron {
+  transform: rotate(-45deg);
+}
+
+.assistant-process-duration {
+  font-variant-numeric: tabular-nums;
+}
+
 .assistant-process-content {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
-  padding: 3px 0 3px 12px;
+  padding: 0 0 5px;
 }
 
 .assistant-process-content .bubble {
+  width: 100%;
   max-width: 100%;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.assistant-process-content .trace {
+  font-family: inherit;
+}
+
+.assistant-process-content .trace-row.reasoning > summary {
+  display: none;
+}
+
+.assistant-process-content .trace-row.reasoning .trace-accordion-body {
+  overflow: visible;
+}
+
+.assistant-process-content .trace-row.reasoning .trace-body {
+  max-height: none;
+  margin: 0 0 8px;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  color: var(--muted, #6b7280);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.assistant-process-content .trace-row.tool > summary {
+  padding: 3px 0;
+  font-family: inherit;
 }
 
 .trace-glyph {

@@ -276,13 +276,15 @@ test("appendMessage round-trips assistant trace data", () => {
       bodyMd: "done",
       trace: {
         reasoning: "检查输入",
-        tools: [{ id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: 1.2 }]
+        tools: [{ id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: 1.2 }],
+        duration: 212
       }
     });
 
     assert.deepEqual(JSON.parse(message.trace_json), {
       reasoning: "检查输入",
-      tools: [{ id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: 1.2, error: false }]
+      tools: [{ id: "tool_1", name: "shell", preview: "ls", status: "completed", duration: 1.2, error: false }],
+      duration: 212
     });
   } finally { teardown(ctx); }
 });
@@ -296,6 +298,7 @@ test("appendMessage round-trips ordered assistant content blocks", () => {
       senderRef: "codex",
       senderOwnerId: ctx.alice.id,
       bodyMd: "我先看目录。\n\n结论是已确认。",
+      trace: { duration: 212 },
       contentBlocks: [
         { type: "thinking", id: "think_1", text: "检查上下文", status: "completed", duration: 0.8 },
         { type: "text", id: "text_1", text: "我先看目录。" },
@@ -318,6 +321,7 @@ test("appendMessage round-trips ordered assistant content blocks", () => {
       },
       { type: "text", id: "text_2", text: "结论是已确认。" }
     ]);
+    assert.deepEqual(JSON.parse(message.trace_json), { duration: 212 });
 
     const listed = ctx.messages.listMessagesSince("r-msg", 0);
     assert.equal(listed[0].content_blocks_json, message.content_blocks_json);

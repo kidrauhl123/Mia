@@ -1091,11 +1091,13 @@
       shouldSyncDisplay = false;
     } else if (name === "run.completed" || name === "complete") {
       run.text = eventText(event) || run.text;
+      run._localRunElapsedMs = runElapsedMs(run);
       run.status = "complete";
       clearRunPermissions(run);
       flushRunDisplayText(run);
       shouldSyncDisplay = false;
     } else if (name === "run.failed" || name === "error") {
+      run._localRunElapsedMs = runElapsedMs(run);
       run.status = "error";
       clearRunPermissions(run);
       flushRunDisplayText(run);
@@ -1107,6 +1109,7 @@
       run.status = "cancelling";
       clearRunPermissions(run);
     } else if (name === "run.cancelled") {
+      run._localRunElapsedMs = runElapsedMs(run);
       run.status = "cancelled";
       clearRunPermissions(run);
       flushRunDisplayText(run);
@@ -1148,6 +1151,8 @@
     }
     if (!parsed || typeof parsed !== "object") return null;
     const reasoning = String(parsed.reasoning || "").trim();
+    const rawDuration = Number(parsed.duration ?? parsed.durationSeconds);
+    const durationSeconds = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
     const tools = Array.isArray(parsed.tools)
       ? parsed.tools.map((tool, idx) => {
         if (!tool || typeof tool !== "object") return null;
@@ -1168,8 +1173,8 @@
         };
       }).filter(Boolean)
       : [];
-    if (!reasoning && !tools.length) return null;
-    return { reasoning, tools };
+    if (!reasoning && !tools.length && !durationSeconds) return null;
+    return { reasoning, tools, durationSeconds };
   }
 
   function parseContentBlocksJson(value) {
@@ -1201,6 +1206,11 @@
   function tracePayloadFromRun(run) {
     if (!run || typeof run !== "object") return null;
     const reasoning = String(run.reasoning || "").trim();
+    const terminal = ["complete", "error", "cancelled"].includes(String(run.status || ""));
+    const elapsedMs = Number(run._localRunElapsedMs);
+    const duration = terminal || (Number.isFinite(elapsedMs) && elapsedMs > 0)
+      ? runElapsedMs(run) / 1000
+      : 0;
     const tools = Array.isArray(run.tools)
       ? run.tools.map((tool, idx) => {
         if (!tool || typeof tool !== "object") return null;
@@ -1216,10 +1226,11 @@
         };
       }).filter(Boolean)
       : [];
-    if (!reasoning && !tools.length) return null;
+    if (!reasoning && !tools.length && !duration) return null;
     return {
       ...(reasoning ? { reasoning } : {}),
-      ...(tools.length ? { tools } : {})
+      ...(tools.length ? { tools } : {}),
+      ...(duration ? { duration } : {})
     };
   }
 
@@ -1801,6 +1812,7 @@
     if (existing) return existing;
 
     const conversation = moduleState.conversations.find((item) => item.id === conversationId) || { id: conversationId };
+    run._localRunElapsedMs = runElapsedMs(run);
     const trace = tracePayloadFromRun(run);
     const contentBlocks = contentBlocksPayloadFromRun(run, run.text || "");
     const message = {
@@ -1814,7 +1826,7 @@
       _localRunStatus: "cancelled",
       _localRunStatusText: "已中断",
       _localRunStartedAt: run.createdAt || "",
-      _localRunElapsedMs: runElapsedMs(run)
+      _localRunElapsedMs: run._localRunElapsedMs
     };
     if (trace) message.trace = trace;
     if (contentBlocks) message.contentBlocks = contentBlocks;
@@ -1855,11 +1867,26 @@
         content_blocks_json: JSON.stringify(blocks)
       };
     }
-    if (!existingTrace && trace) merged = { ...merged, trace };
+    if (!existingTrace && trace) {
+      merged = { ...merged, trace };
+    } else if (existingTrace && trace?.duration && !existingTrace.durationSeconds) {
+      let rawExistingTrace = message.trace_json || message.trace;
+      if (typeof rawExistingTrace === "string") {
+        try { rawExistingTrace = JSON.parse(rawExistingTrace); } catch { rawExistingTrace = null; }
+      }
+      const mergedTrace = rawExistingTrace && typeof rawExistingTrace === "object"
+        ? { ...rawExistingTrace, duration: trace.duration }
+        : {
+            ...(existingTrace.reasoning ? { reasoning: existingTrace.reasoning } : {}),
+            ...(existingTrace.tools.length ? { tools: existingTrace.tools } : {}),
+            duration: trace.duration
+          };
+      merged = { ...merged, trace: mergedTrace, trace_json: JSON.stringify(mergedTrace) };
+    }
     return merged;
   }
 
-  function renderTraceFor({ reasoning, tools, content, completed, expanded, scopeKey }) {
+  function renderTraceFor({ reasoning, tools, content, completed, expanded, scopeKey, durationSeconds }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderTraceBlocks !== "function") return "";
     return renderer.renderTraceBlocks({
@@ -1868,11 +1895,12 @@
       content,
       completed,
       expanded,
-      scopeKey
+      scopeKey,
+      durationSeconds
     });
   }
 
-  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock }) {
+  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock, durationSeconds }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
     return renderer.renderAssistantContentBlocks({
@@ -1880,7 +1908,8 @@
       completed,
       expanded,
       scopeKey,
-      renderTextBlock
+      renderTextBlock,
+      durationSeconds
     });
   }
 
@@ -4260,6 +4289,7 @@
         );
     const contentBlocks = !isUser ? contentBlocksFromMessage(msg) : [];
     const orderedBlocksHaveProcess = contentBlocksHaveProcess(contentBlocks);
+    const persistedTrace = !isUser ? parseTraceJson(msg.trace_json || msg.trace) : null;
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
@@ -4267,6 +4297,7 @@
         completed: true,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
+        durationSeconds: persistedTrace?.durationSeconds || 0,
         renderTextBlock(block, _blockIndex, renderState = {}) {
           const prefixHtml = renderedFirstTextBlock || renderState.process
             ? ""
@@ -4278,7 +4309,7 @@
       : "";
     const bodyHtml = _renderMsgBody(bodyMd);
     const trace = !isUser && (!orderedBlocksHtml || !orderedBlocksHaveProcess)
-      ? parseTraceJson(msg.trace_json || msg.trace)
+      ? persistedTrace
       : null;
     const traceHtml = trace
       ? renderTraceFor({
@@ -4287,7 +4318,8 @@
         content: bodyMd,
         completed: true,
         expanded: false,
-        scopeKey: `cloud-msg:${msg.id || ""}`
+        scopeKey: `cloud-msg:${msg.id || ""}`,
+        durationSeconds: trace.durationSeconds
       })
       : "";
     const bubbleBodyHtml = `${attachmentBeforeBodyHtml}${senderHtml}${skillsHtml}${bodyHtml}`;

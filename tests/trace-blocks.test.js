@@ -111,21 +111,26 @@ test("completed legacy trace is grouped behind one manually expandable process r
   const { traceBlocks, state } = loadTraceBlocks();
   const input = {
     reasoning: "checking project files",
-    tools: [{ id: "tool_1", name: "shell", status: "completed", preview: "git status" }],
+    tools: [{ id: "tool_1", name: "shell", status: "completed", preview: "git status", duration: 4 }],
     content: "最终回复",
     completed: true,
+    durationSeconds: 212,
     scopeKey: "msg:m_legacy"
   };
 
   const collapsed = traceBlocks.renderTraceBlocks(input);
   assert.match(collapsed, /class="trace-row assistant-process/);
   assert.match(collapsed, /data-trace-key="msg:m_legacy::process"/);
+  assert.match(collapsed, /<span class="assistant-process-label">已处理<\/span><span class="assistant-process-duration">3m 32s<\/span>/);
+  assert.doesNotMatch(collapsed, /◇|查看过程|\d+ 项/);
   assert.doesNotMatch(collapsed, /checking project files|git status/);
 
   state.openTraceKeys.add("msg:m_legacy::process");
   const expanded = traceBlocks.renderTraceBlocks(input);
   assert.match(expanded, /checking project files/);
   assert.match(expanded, /git status/);
+  assert.match(expanded, /class="trace-row reasoning[^"]*"[^>]*open/);
+  assert.match(expanded, /class="trace-row tool[^"]*"[^>]*open/);
 });
 
 test("collapsed trace bodies are hydrated only when the row opens", () => {
@@ -249,9 +254,9 @@ test("completed assistant content collapses prior text and trace while keeping t
   const { traceBlocks, state } = loadTraceBlocks();
   const input = {
     blocks: [
-      { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
+      { type: "thinking", id: "think_1", text: "检查上下文", status: "completed", duration: 92 },
       { type: "text", id: "text_1", text: "我先看一下目录。" },
-      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed" },
+      { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: 120 },
       { type: "text", id: "text_2", text: "最终结论：开发态已修复。" }
     ],
     completed: true,
@@ -264,13 +269,16 @@ test("completed assistant content collapses prior text and trace while keeping t
   const collapsed = traceBlocks.renderAssistantContentBlocks(input);
   assert.match(collapsed, /class="trace-row assistant-process/);
   assert.match(collapsed, /data-trace-key="msg:m_completed::process"/);
-  assert.match(collapsed, /<span class="trace-cmd">查看过程<\/span>/);
+  assert.match(collapsed, /<span class="assistant-process-label">已处理<\/span><span class="assistant-process-duration">3m 32s<\/span>/);
+  assert.doesNotMatch(collapsed, /◇|查看过程|\d+ 项/);
   assert.match(collapsed, /最终结论：开发态已修复。/);
   assert.doesNotMatch(collapsed, /我先看一下目录。|检查上下文|pwd/);
 
   state.openTraceKeys.add("msg:m_completed::process");
   const expanded = traceBlocks.renderAssistantContentBlocks(input);
   assert.match(expanded, /class="trace-row assistant-process[^"]*"[^>]*open/);
+  assert.match(expanded, /class="trace-row reasoning[^"]*"[^>]*open/);
+  assert.match(expanded, /class="trace-row tool[^"]*"[^>]*open/);
   assert.match(expanded, /我先看一下目录。/);
   assert.match(expanded, /检查上下文/);
   assert.match(expanded, /pwd/);
@@ -438,7 +446,7 @@ test("trace bodies are clipped instead of creating nested scroll containers", ()
   const rendererCss = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "styles", "chat.css"), "utf8");
   const webCss = fs.readFileSync(path.join(__dirname, "..", "src", "web", "styles.css"), "utf8");
   for (const css of [rendererCss, webCss]) {
-    const traceBodyRule = css.match(/\.trace-body\s*\{([\s\S]*?)\n\}/)?.[1] || "";
+    const traceBodyRule = css.match(/(?:^|\n)\.trace-body\s*\{([\s\S]*?)\n\}/)?.[1] || "";
     const diffBodyRule = css.match(/\.trace-body\.diff-body\s*\{([\s\S]*?)\n\}/)?.[1] || "";
     assert.match(traceBodyRule, /overflow:\s*hidden;/);
     assert.doesNotMatch(traceBodyRule, /overflow:\s*(?:auto|scroll);/);

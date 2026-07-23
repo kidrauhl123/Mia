@@ -4371,6 +4371,15 @@ function renderMessageHtml(message, ctx) {
       contentBlocks = normalizer.contentBlocksWithFinalText(contentBlocks, message.content || "");
     }
   }
+  let persistedTrace = message.trace || message.trace_json || null;
+  if (typeof persistedTrace === "string" && persistedTrace.trim()) {
+    try { persistedTrace = JSON.parse(persistedTrace); } catch { persistedTrace = null; }
+  }
+  if (!persistedTrace || typeof persistedTrace !== "object") persistedTrace = null;
+  const rawProcessDuration = Number(persistedTrace?.duration ?? persistedTrace?.durationSeconds);
+  const processDurationSeconds = Number.isFinite(rawProcessDuration) && rawProcessDuration > 0
+    ? rawProcessDuration
+    : 0;
   let renderedFirstTextBlock = false;
   const orderedBlocksHtml = contentBlocks.length && window.miaTraceBlocks?.renderAssistantContentBlocks
     ? window.miaTraceBlocks.renderAssistantContentBlocks({
@@ -4378,6 +4387,7 @@ function renderMessageHtml(message, ctx) {
       completed: true,
       expanded: false,
       scopeKey: `msg:${message.createdAt || ""}`,
+      durationSeconds: processDurationSeconds,
       renderTextBlock(block, _blockIndex, renderState = {}) {
         const prefixHtml = renderedFirstTextBlock || renderState.process
           ? ""
@@ -4390,12 +4400,13 @@ function renderMessageHtml(message, ctx) {
     : "";
   const traceHtml = message.role === "assistant" && !orderedBlocksHtml
     ? window.miaTraceBlocks.renderTraceBlocks({
-      reasoning: message.reasoning,
-      tools: message.tools,
+      reasoning: message.reasoning || persistedTrace?.reasoning,
+      tools: message.tools || persistedTrace?.tools,
       content: message.content,
       completed: true,
       expanded: false,
-      scopeKey: `msg:${message.createdAt || ""}`
+      scopeKey: `msg:${message.createdAt || ""}`,
+      durationSeconds: processDurationSeconds
     })
     : "";
   const roleClass = message.role === "user" ? "user" : "assistant";

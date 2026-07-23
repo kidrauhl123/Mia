@@ -759,7 +759,9 @@ test("cloud-claude-code maps old managed aliases to the worker platform model", 
 test("cloud-claude-code persists ordered content blocks from streamed events", async () => {
   const ctx = setup();
   try {
+    const timestamps = [1_000, 213_000];
     const dispatcher = makeDispatcher(ctx, {
+      now: () => timestamps.shift() ?? 213_000,
       hermesImClient: {
         async runChat(args) {
           args.onEvent({ type: "reasoning_delta", id: "think_1", text: "检查上下文" });
@@ -790,6 +792,7 @@ test("cloud-claude-code persists ordered content blocks from streamed events", a
       { type: "tool", id: "tool_1", name: "shell", preview: "pwd", status: "completed", duration: 0.75, error: false },
       { type: "text", id: "text_2", text: "结论是已确认。" }
     ]);
+    assert.equal(JSON.parse(reply.trace_json).duration, 212);
   } finally {
     ctx.cleanup();
   }

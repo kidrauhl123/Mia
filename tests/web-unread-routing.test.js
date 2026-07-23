@@ -1345,8 +1345,13 @@ test("src/web/app.js renders persisted ordered assistant content blocks before t
   );
   assert.match(
     source,
-    /orderedBlocksHtml[\s\S]*?\?\s*""[\s\S]*?:\s*parseTraceJson\(msg\.trace_json/,
-    "trace_json rendering must be skipped when ordered blocks render"
+    /persistedTrace[\s\S]*?durationSeconds:\s*persistedTrace\?\.durationSeconds/,
+    "ordered block rendering must receive the persisted turn duration"
+  );
+  assert.match(
+    source,
+    /orderedBlocksHtml\s*\?\s*null\s*:\s*persistedTrace/,
+    "legacy trace rendering must still be skipped when ordered blocks render"
   );
 });
 

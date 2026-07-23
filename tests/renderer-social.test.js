@@ -6183,13 +6183,13 @@ test("renderConversationChat prefers ordered content blocks over top-level trace
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.__mockWindow.miaTraceBlocks = {
-    renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+    renderAssistantContentBlocks({ blocks, renderTextBlock, durationSeconds }) {
       return blocks.map((block) => {
         if (block.type === "text") return renderTextBlock(block);
         if (block.type === "thinking") return `<div class="ordered-thinking">${block.text}</div>`;
         if (block.type === "tool") return `<div class="ordered-tool">${block.name}</div>`;
         return "";
-      }).join("");
+      }).join("") + `<i data-duration="${durationSeconds || 0}"></i>`;
     },
     renderTraceBlocks() {
       return '<div class="legacy-trace">legacy</div>';
@@ -6207,7 +6207,7 @@ test("renderConversationChat prefers ordered content blocks over top-level trace
       sender_ref: "mia",
       body_md: "我先看目录。\n\n结论是已确认。",
       created_at: "",
-      trace_json: JSON.stringify({ reasoning: "legacy", tools: [{ name: "legacy-tool", status: "completed" }] }),
+      trace_json: JSON.stringify({ reasoning: "legacy", tools: [{ name: "legacy-tool", status: "completed" }], duration: 212 }),
       content_blocks_json: JSON.stringify([
         { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
         { type: "text", id: "text_1", text: "我先看目录。" },
@@ -6233,6 +6233,7 @@ test("renderConversationChat prefers ordered content blocks over top-level trace
   assert.ok(html.indexOf("检查上下文") < html.indexOf("我先看目录。"));
   assert.ok(html.indexOf("我先看目录。") < html.indexOf("shell"));
   assert.ok(html.indexOf("shell") < html.indexOf("结论是已确认。"));
+  assert.match(html, /data-duration="212"/);
   assert.doesNotMatch(html, /legacy-trace/);
   assert.doesNotMatch(html, /legacy-tool/);
 });

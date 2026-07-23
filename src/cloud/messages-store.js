@@ -36,6 +36,8 @@ function isSqliteConstraintError(error) {
 function normalizeTrace(input) {
   if (!input || typeof input !== "object") return null;
   const reasoning = String(input.reasoning || "").trim();
+  const rawDuration = Number(input.duration ?? input.durationSeconds);
+  const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
   const rawTools = Array.isArray(input.tools) ? input.tools : [];
   const tools = rawTools.slice(0, 50).map((tool, idx) => {
     if (!tool || typeof tool !== "object") return null;
@@ -54,10 +56,11 @@ function normalizeTrace(input) {
       error: Boolean(tool.error)
     };
   }).filter(Boolean);
-  if (!reasoning && !tools.length) return null;
+  if (!reasoning && !tools.length && !duration) return null;
   return {
     ...(reasoning ? { reasoning } : {}),
-    ...(tools.length ? { tools } : {})
+    ...(tools.length ? { tools } : {}),
+    ...(duration ? { duration } : {})
   };
 }
 

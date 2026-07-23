@@ -35,6 +35,22 @@
     return String(value || "").slice(0, maxLength).replace(/\s+/g, " ");
   }
 
+  function processDurationSeconds(entries = []) {
+    return (Array.isArray(entries) ? entries : []).reduce((total, entry) => {
+      const duration = Number(entry?.duration);
+      return Number.isFinite(duration) && duration > 0 ? total + duration : total;
+    }, 0);
+  }
+
+  function formatProcessDuration(seconds) {
+    const totalSeconds = Math.round(Number(seconds) || 0);
+    if (totalSeconds <= 0) return "";
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainder = totalSeconds % 60;
+    if (!minutes) return `${remainder}s`;
+    return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  }
+
   function traceKeyFromRow(row) {
     if (!row) return "";
     if (typeof row.getAttribute === "function") return String(row.getAttribute("data-trace-key") || "");
@@ -192,9 +208,10 @@
     return { glyph: "🧠", title: "记忆已更新", body: "已更新当前 Bot 的记忆。" };
   }
 
-  function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools, completed = false }) {
+  function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools, completed = false, durationSeconds = 0 }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
+    const defaultExpanded = completed || Boolean(expanded);
     const toolList = Array.isArray(tools) ? tools : [];
     const displayReasoning = traceReasoningForDisplay(reasoning, toolList, content, {
       showWithoutTools: Boolean(showReasoningWithoutTools)
@@ -206,7 +223,7 @@
       const userOpen = state.openTraceKeys.has(key);
       const userClosed = state.openTraceKeys.has(`!${key}`);
       return {
-        open: userOpen || (!userClosed && Boolean(expanded)),
+        open: userOpen || (!userClosed && defaultExpanded),
         userOpen,
         userClosed
       };
@@ -282,7 +299,7 @@
     if (!completed) return traceHtml;
     return renderAssistantProcessDetails({
       processKey: scopeKey ? `${scopeKey}::process` : "",
-      itemCount: rows.length,
+      durationSeconds: Number(durationSeconds) > 0 ? Number(durationSeconds) : processDurationSeconds(toolList),
       render: () => traceHtml
     });
   }
@@ -320,15 +337,15 @@
     return attrs.length ? ` ${attrs.join(" ")}` : "";
   }
 
-  function renderAssistantProcessDetails({ processKey, itemCount, render }) {
+  function renderAssistantProcessDetails({ processKey, durationSeconds, render }) {
     const processState = traceOpenState(processKey, false);
+    const durationText = formatProcessDuration(durationSeconds);
     return `<div class="trace assistant-process-trace">` +
       `<details class="trace-row assistant-process${traceAnimClass(processKey)}" data-accordion="true"${traceRowAttrs(processKey, 0, processState)}>` +
         `<summary>` +
-          `<span class="trace-chevron">▸</span>` +
-          `<span class="trace-glyph">◇</span>` +
-          `<span class="trace-cmd">查看过程</span>` +
-          `<span class="trace-meta">${window.miaMarkdown.escapeHtml(itemCount)} 项</span>` +
+          `<span class="assistant-process-label">已处理</span>` +
+          (durationText ? `<span class="assistant-process-duration">${window.miaMarkdown.escapeHtml(durationText)}</span>` : "") +
+          `<span class="trace-chevron" aria-hidden="true"></span>` +
         `</summary>` +
         traceBodyHtml({
           key: processKey,
@@ -588,7 +605,8 @@
     normalized,
     renderTextBlock,
     scopeKey,
-    assistantContent
+    assistantContent,
+    durationSeconds
   }) {
     let finalTextIndex = -1;
     for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
@@ -605,14 +623,16 @@
     const processHtml = () => renderAssistantBlockEntries({
       entries: processEntries,
       renderTextBlock,
-      expanded: false,
+      expanded: true,
       scopeKey,
       assistantContent,
       process: true
     });
     const processDetails = renderAssistantProcessDetails({
       processKey,
-      itemCount: processEntries.length,
+      durationSeconds: Number(durationSeconds) > 0
+        ? Number(durationSeconds)
+        : processDurationSeconds(processEntries.map((entry) => entry.block)),
       render: processHtml
     });
     const finalBlock = normalized[finalTextIndex];
@@ -622,7 +642,7 @@
     return `${processDetails}${finalHtml}`;
   }
 
-  function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey, completed = false }) {
+  function renderAssistantContentBlocks({ blocks, renderTextBlock, expanded, scopeKey, completed = false, durationSeconds = 0 }) {
     const normalized = normalizeAssistantBlocks(blocks);
     if (!normalized.length) return "";
     const assistantContent = assistantTextFromBlocks(normalized);
@@ -631,7 +651,8 @@
         normalized,
         renderTextBlock,
         scopeKey,
-        assistantContent
+        assistantContent,
+        durationSeconds
       });
       if (completedHtml) return completedHtml;
     }

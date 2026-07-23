@@ -1963,13 +1963,13 @@ test("local assistant messages render ordered content blocks before trace fallba
           resolveAvatarForContact: (input) => ({ image: input.avatarImage || "", crop: input.avatarCrop || null, color: "#5e5ce6", text: input.displayName || input.id || "?" })
         },
         miaTraceBlocks: {
-          renderAssistantContentBlocks({ blocks, renderTextBlock }) {
+          renderAssistantContentBlocks({ blocks, renderTextBlock, durationSeconds }) {
             return blocks.map((block) => {
               if (block.type === "text") return renderTextBlock(block);
               if (block.type === "thinking") return '<div class="ordered-thinking">' + block.text + '</div>';
               if (block.type === "tool") return '<div class="ordered-tool">' + block.name + '</div>';
               return "";
-            }).join("");
+            }).join("") + '<i data-duration="' + (durationSeconds || 0) + '"></i>';
           },
           renderTraceBlocks: () => '<div class="legacy-trace">legacy</div>'
         },
@@ -2007,6 +2007,7 @@ test("local assistant messages render ordered content blocks before trace fallba
       attachments: [{ name: "artifact.txt" }],
       reasoning: "legacy",
       tools: [{ name: "legacy-tool", status: "completed" }],
+      trace: { duration: 212 },
       contentBlocks: [
         { type: "thinking", id: "think_1", text: "检查上下文", status: "completed" },
         { type: "text", id: "text_1", text: "我先看目录。" },
@@ -2024,6 +2025,7 @@ test("local assistant messages render ordered content blocks before trace fallba
   assert.ok(html.indexOf("结论是已确认。") < html.indexOf("message-attachments"));
   assert.doesNotMatch(html, /legacy-trace/);
   assert.doesNotMatch(html, /legacy-tool/);
+  assert.match(html, /data-duration="212"/);
 
   const legacyHtml = renderMessageHtml(
     {

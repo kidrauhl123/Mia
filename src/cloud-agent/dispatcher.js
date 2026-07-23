@@ -241,6 +241,7 @@ function createCloudAgentDispatcher(deps = {}) {
   const cloudBaseUrl = deps.cloudBaseUrl || "";
   const listBridgeDevices = typeof deps.listBridgeDevices === "function" ? deps.listBridgeDevices : null;
   const log = typeof deps.log === "function" ? deps.log : () => {};
+  const now = typeof deps.now === "function" ? deps.now : Date.now;
   const loadNativeSessionId = typeof deps.loadNativeSessionId === "function" ? deps.loadNativeSessionId : () => "";
   const saveNativeSessionId = typeof deps.saveNativeSessionId === "function" ? deps.saveNativeSessionId : () => {};
   const deleteNativeSessionId = typeof deps.deleteNativeSessionId === "function" ? deps.deleteNativeSessionId : () => {};
@@ -530,6 +531,7 @@ function createCloudAgentDispatcher(deps = {}) {
     }
     const rosterMembers = Array.isArray(members) ? members : socialStore.listConversationMembers(conversationId);
     const rosterBots = Array.isArray(bots) ? bots : botsStore.listBots(ownerId);
+    const executionStartedAt = now();
     const trace = createTraceCollector();
     const contentBlocks = createAssistantContentBlockCollector();
     await cancelActiveRunsForTarget({ ownerId, botId, conversationId });
@@ -745,7 +747,15 @@ function createCloudAgentDispatcher(deps = {}) {
         contentBlocks.payload(replyContent),
         replyAttachments
       );
-      const replyTrace = redactGeneratedArtifactPathsInValue(trace.payload(), replyAttachments);
+      const rawReplyTrace = trace.payload();
+      const hasProcessBlocks = replyContentBlocks.some((block) => block?.type && block.type !== "text");
+      const processDuration = Math.max(0.001, (now() - executionStartedAt) / 1000);
+      const replyTrace = redactGeneratedArtifactPathsInValue(
+        rawReplyTrace || hasProcessBlocks
+          ? { ...(rawReplyTrace || {}), duration: processDuration }
+          : null,
+        replyAttachments
+      );
       const hasRequestedFileDelivery = workerFileArtifactsForDeliveryRequest(inputText).length > 0;
       const finalReplyContent = hasRequestedFileDelivery && replyAttachments.length && shouldReplaceWithFileDeliveryReply(replyContent)
         ? fileDeliveryReplyText(replyAttachments)

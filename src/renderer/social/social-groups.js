@@ -79,6 +79,8 @@
     }
     if (!parsed || typeof parsed !== "object") return null;
     const reasoning = String(parsed.reasoning || "").trim();
+    const rawDuration = Number(parsed.duration ?? parsed.durationSeconds);
+    const durationSeconds = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
     const tools = Array.isArray(parsed.tools)
       ? parsed.tools.map((tool, idx) => {
         if (!tool || typeof tool !== "object") return null;
@@ -94,8 +96,8 @@
         };
       }).filter(Boolean)
       : [];
-    if (!reasoning && !tools.length) return null;
-    return { reasoning, tools };
+    if (!reasoning && !tools.length && !durationSeconds) return null;
+    return { reasoning, tools, durationSeconds };
   }
 
   function parseContentBlocksJson(value) {
@@ -133,11 +135,12 @@
       content,
       completed: true,
       expanded: false,
-      scopeKey: `cloud-msg:${msg.id || ""}`
+      scopeKey: `cloud-msg:${msg.id || ""}`,
+      durationSeconds: trace.durationSeconds
     });
   }
 
-  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock }) {
+  function renderOrderedAssistantBlocks({ blocks, completed, expanded, scopeKey, renderTextBlock, durationSeconds }) {
     const renderer = global.miaTraceBlocks;
     if (!renderer || typeof renderer.renderAssistantContentBlocks !== "function") return "";
     return renderer.renderAssistantContentBlocks({
@@ -145,7 +148,8 @@
       completed,
       expanded,
       scopeKey,
-      renderTextBlock
+      renderTextBlock,
+      durationSeconds
     });
   }
 
@@ -267,6 +271,7 @@
     const attachmentBeforeBodyHtml = isOwn ? attachmentHtml : "";
     const attachmentAfterBodyHtml = isOwn ? "" : attachmentHtml;
     const contentBlocks = !isOwn ? contentBlocksFromMessage(msg) : [];
+    const persistedTrace = !isOwn ? parseTraceJson(msg.trace_json || msg.trace) : null;
     let renderedFirstTextBlock = false;
     const orderedBlocksHtml = contentBlocks.length
       ? renderOrderedAssistantBlocks({
@@ -274,6 +279,7 @@
         completed: true,
         expanded: false,
         scopeKey: `cloud-msg:${msg.id || ""}`,
+        durationSeconds: persistedTrace?.durationSeconds || 0,
         renderTextBlock(block, _blockIndex, renderState = {}) {
           const prefixHtml = renderedFirstTextBlock || renderState.process
             ? ""

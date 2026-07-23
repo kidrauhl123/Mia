@@ -148,6 +148,20 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
+test("completed trace uses the quiet processed disclosure treatment on desktop and web", () => {
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
+  const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
+
+  for (const css of [chatCss, webCss]) {
+    assert.match(css, /\.assistant-process-trace\s*\{[\s\S]*?font-family:\s*inherit;/);
+    assert.match(css, /\.assistant-process\s*>\s*summary\s*\{[\s\S]*?font-family:\s*inherit;[\s\S]*?cursor:\s*default;/);
+    assert.match(css, /\.assistant-process\[open\]\s*>\s*summary\s*\{[\s\S]*?border-bottom:/);
+    assert.match(css, /\.assistant-process\s*>\s*summary\s*>\s*\.trace-chevron\s*\{[\s\S]*?border-right:/);
+    assert.match(css, /\.assistant-process-content\s+\.trace-row\.reasoning\s*>\s*summary\s*\{[\s\S]*?display:\s*none;/);
+    assert.match(css, /\.assistant-process-content\s+\.trace-row\.reasoning\s+\.trace-body\s*\{[\s\S]*?border:\s*0;/);
+  }
+});
+
 test("user message skill chips remain readable on light user bubbles", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const userSkillChipRule = cssRuleBody(baseCss, ".message.user .message-skill-chip");
