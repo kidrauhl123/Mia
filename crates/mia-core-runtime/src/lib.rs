@@ -36,8 +36,10 @@ use mia_core_api_types::MemoryMode;
 
 const POLLUTED_ENV_KEYS: [&str; 4] = ["NODE_OPTIONS", "NODE_INSPECT", "NODE_DEBUG", "CLAUDECODE"];
 const MIA_MEMORY_BUDGET_ENV: &str = "MIA_MEMORY_BUDGET";
-const MIA_NODE_MEMORY_FLAGS: &str =
-    "--max-old-space-size=32 --max-semi-space-size=1 --optimize-for-size";
+// `NODE_OPTIONS` accepts Node command-line flags, not Chromium/V8 `--js-flags`.
+// In particular, `--optimize-for-size` is valid for Electron's `--js-flags`
+// switch but is rejected by Node before an ACP agent can start.
+const MIA_NODE_MEMORY_FLAGS: &str = "--max-old-space-size=32 --max-semi-space-size=1";
 pub const EVENT_RUNTIME_STARTED: &str = "conversation.runtimeStarted";
 pub const EVENT_RUNTIME_CANCEL_REQUESTED: &str = "conversation.runtimeCancelRequested";
 pub const EVENT_RUNTIME_STDOUT: &str = "conversation.runtimeStdout";

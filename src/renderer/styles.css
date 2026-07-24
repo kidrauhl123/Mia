@@ -7377,6 +7377,22 @@ body.platform-win32 .skill-context-menu {
   z-index: 80;
 }
 
+/* The Windows workspace sits above the rail and side panes. Any overlay that
+ * is mounted at the document root must clear that plane as well; otherwise a
+ * modal backdrop is drawn underneath the rounded workspace and leaks through
+ * its outer corners. Keep native window controls (90) above these overlays. */
+body.platform-win32 .composer-select-menu,
+body.platform-win32 .skill-preview-dialog,
+body.platform-win32 .bot-dialog,
+body.platform-win32 .pet-generate-dialog,
+body.platform-win32 .avatar-crop-dialog,
+body.platform-win32 .pet-job-button,
+body.platform-win32 .pet-job-panel,
+body.platform-win32 .skill-use-picker,
+body.platform-win32 .skill-market-modal {
+  z-index: 80;
+}
+
 .profile-popover-form {
   width: 100%;
   max-height: calc(100vh - 46px);

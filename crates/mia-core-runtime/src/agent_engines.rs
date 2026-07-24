@@ -244,6 +244,20 @@ impl AgentEngineScanner {
         build_inventory(agents, options.generated_at)
     }
 
+    /// Probe one engine when a caller needs its live ACP capabilities without
+    /// making an unrelated full-inventory scan.
+    pub async fn scan_engine(
+        &self,
+        engine_id: &str,
+        options: AgentEngineScanOptions,
+    ) -> Option<AgentEngineStatus> {
+        let engine_id = normalize_agent_engine_id(engine_id);
+        let definition = agent_definitions()
+            .into_iter()
+            .find(|definition| definition.id == engine_id)?;
+        Some(self.scan_definition(definition, &options).await)
+    }
+
     async fn scan_definition(
         &self,
         definition: AgentEngineDefinition,

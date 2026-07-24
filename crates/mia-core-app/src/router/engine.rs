@@ -9,7 +9,9 @@ use mia_core_api_types::{
     SlashCommandItem, SlashCommandListResponse,
 };
 use mia_core_common::process::configure_background_command;
-use mia_core_runtime::{AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner};
+use mia_core_runtime::{
+    AgentEngineInventory, AgentEngineScanOptions, AgentEngineScanner, cached_agent_runtime_controls,
+};
 use serde_json::{Value, json};
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -36,6 +38,7 @@ pub async fn engine_capabilities(
 ) -> Json<EngineCapabilitiesResponse> {
     let hermes = load_hermes_engine_capabilities(&states).await;
     let codex = load_codex_models().await;
+    let claude = load_claude_engine_capabilities(&states).await;
     let codex_effort_options = codex_effort_options_from_models(&codex);
     let codex_effort_levels = codex_effort_options
         .iter()
@@ -51,19 +54,7 @@ pub async fn engine_capabilities(
                 "approvalModes": hermes.approval_modes,
                 "effortLevels": hermes.effort_levels
             },
-            "claude-code": {
-                "available": false,
-                "cliPath": "",
-                "models": [],
-                "currentModel": "",
-                "currentEffortLevel": "",
-                "effortLevels": [],
-                "effortOptions": [],
-                "permissionModes": [],
-                "permissionOptions": [],
-                "source": "claude-code",
-                "error": ""
-            },
+            "claude-code": claude,
             "codex": {
                 "models": codex,
                 "effortLevels": codex_effort_levels,
@@ -72,6 +63,76 @@ pub async fn engine_capabilities(
             }
         }),
     })
+}
+
+/// Claude Code exposes its selectable modes through ACP during initialize.
+/// Do not manufacture a local list here: probe the real managed/system runtime
+/// and project the advertised permission control into the UI capability shape.
+async fn load_claude_engine_capabilities(states: &ModuleStates) -> Value {
+    let scanner = AgentEngineScanner::real();
+    let status = scanner
+        .scan_engine(
+            "claude-code",
+            AgentEngineScanOptions::current(states.workspace_dir.clone()),
+        )
+        .await;
+    let controls = cached_agent_runtime_controls("claude-code");
+    let permission = controls
+        .iter()
+        .find(|control| control.category == "permission");
+    let permission_options = permission
+        .map(|control| {
+            control
+                .options
+                .iter()
+                .map(|choice| {
+                    json!({
+                        "value": choice.value,
+                        "label": choice.label,
+                        "description": choice.description,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let permission_modes = permission_options
+        .iter()
+        .filter_map(|choice| choice.get("value").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    let current_permission = permission
+        .map(|control| control.current_value.as_str())
+        .unwrap_or_default();
+
+    match status {
+        Some(status) => json!({
+            "available": status.usable_in_mia,
+            "cliPath": status.path,
+            "models": [],
+            "currentModel": "",
+            "currentEffortLevel": "",
+            "effortLevels": [],
+            "effortOptions": [],
+            "permissionModes": permission_modes,
+            "permissionOptions": permission_options,
+            "currentPermissionMode": current_permission,
+            "source": status.source,
+            "error": if status.usable_in_mia { "" } else { &status.readiness.detail }
+        }),
+        None => json!({
+            "available": false,
+            "cliPath": "",
+            "models": [],
+            "currentModel": "",
+            "currentEffortLevel": "",
+            "effortLevels": [],
+            "effortOptions": [],
+            "permissionModes": permission_modes,
+            "permissionOptions": permission_options,
+            "currentPermissionMode": current_permission,
+            "source": "claude-code",
+            "error": "Claude Code engine definition is unavailable"
+        }),
+    }
 }
 
 pub async fn hermes_slash_commands(

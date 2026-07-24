@@ -1,16 +1,18 @@
 use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use mia_core_api_types::{
     CloudBridgeCancelRequest, CloudBridgeCancelResponse, CloudBridgeLifecycleResponse,
     CloudBridgeRunRequest, CloudBridgeRunResponse, CloudBridgeRuntimeControlRequest,
     CloudBridgeStartRequest, CloudConnectRequest, CloudConnectResponse,
     CloudEventsLifecycleResponse, CloudEventsStartRequest, CloudMemorySyncRequest,
     CloudMemorySyncResponse, CloudSettingsResponse, CloudStatusResponse, PutCloudSettingsRequest,
-    RuntimeControlChoice, RuntimeControlSnapshot,
+    RuntimeControl, RuntimeControlChoice, RuntimeControlSnapshot,
 };
 use mia_core_cloud::CloudError;
 use serde::Deserialize;
+use serde_json::{Value, json};
 
 use super::state::ModuleStates;
 use crate::cloud_bridge::{
@@ -181,23 +183,147 @@ pub async fn run_cloud_bridge_async(
 pub async fn prepare_cloud_bridge_runtime_controls(
     State(states): State<ModuleStates>,
     Json(request): Json<CloudBridgeRunRequest>,
-) -> Result<Json<RuntimeControlSnapshot>, StatusCode> {
-    let (mut plan, runtime_config) = cloud_bridge_runtime_control_plan(&states, request).await?;
-    states
+) -> Response {
+    let (mut plan, runtime_config) = match cloud_bridge_runtime_control_plan(&states, request).await {
+        Ok(prepared) => prepared,
+        Err(status) => return status.into_response(),
+    };
+    if let Err(error) = states
         .mia_runtime_proxies
         .prepare_plan(&states.cloud, &runtime_config, &mut plan)
         .await
-        .map_err(map_cloud_status)?;
-    let mut snapshot = states
+    {
+        return map_cloud_status(error).into_response();
+    }
+    // The Mia platform owns these controls. Opening the composer must not
+    // start an ACP process merely to display the already-known model and
+    // reasoning choices; the process is created when the user actually sends.
+    if let Some(mut snapshot) = mia_platform_runtime_control_snapshot(&plan) {
+        augment_snapshot_with_mia_platform_models(&mut snapshot, &runtime_config, &states).await;
+        return Json(snapshot).into_response();
+    }
+    let mut snapshot = match states
         .runtime_sessions
         .prepare_session(plan)
         .await
-        .map_err(|error| {
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
             tracing::warn!(error = %error, "prepare cloud bridge runtime controls failed");
-            StatusCode::BAD_GATEWAY
-        })?;
+            return runtime_control_error(StatusCode::BAD_GATEWAY, error).into_response();
+        }
+    };
     augment_snapshot_with_mia_platform_models(&mut snapshot, &runtime_config, &states).await;
-    Ok(Json(snapshot))
+    Json(snapshot).into_response()
+}
+
+fn runtime_control_error(status: StatusCode, error: impl ToString) -> (StatusCode, Json<Value>) {
+    let detail = error.to_string();
+    let detail = detail.trim();
+    let detail = detail.chars().take(1200).collect::<String>();
+    (
+        status,
+        Json(json!({
+            "error": if detail.is_empty() { "runtime_control_prepare_failed" } else { &detail }
+        })),
+    )
+}
+
+fn mia_platform_runtime_control_snapshot(
+    plan: &mia_core_runtime::RuntimeTurnPlan,
+) -> Option<RuntimeControlSnapshot> {
+    if plan.environment.get("MIA_PLATFORM_PROVIDER").map(String::as_str) != Some("mia") {
+        return None;
+    }
+    let model = plan
+        .environment
+        .get("MIA_PLATFORM_MODEL")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let mut model_options = vec![RuntimeControlChoice {
+        value: model.to_string(),
+        label: platform_model_label(model),
+        description: "Mia platform model".into(),
+    }];
+    if let Some(raw_models) = plan.environment.get("MIA_PLATFORM_MODELS") {
+        for value in raw_models.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+            if model_options.iter().any(|choice| choice.value == value) {
+                continue;
+            }
+            model_options.push(RuntimeControlChoice {
+                value: value.to_string(),
+                label: platform_model_label(value),
+                description: "Mia platform model".into(),
+            });
+        }
+    }
+    let mut controls = vec![RuntimeControl {
+        id: "model".into(),
+        category: "model".into(),
+        current_value: model.to_string(),
+        source: "mia_provider".into(),
+        options: model_options,
+    }];
+    if let (Some(current_effort), Some(raw_efforts)) = (
+        plan.environment.get("MIA_PLATFORM_REASONING_EFFORT"),
+        plan.environment.get("MIA_PLATFORM_REASONING_EFFORTS"),
+    ) {
+        let options = raw_efforts
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| RuntimeControlChoice {
+                value: value.to_string(),
+                label: platform_reasoning_label(value),
+                description: String::new(),
+            })
+            .collect::<Vec<_>>();
+        if options
+            .iter()
+            .any(|choice| choice.value == current_effort.as_str())
+        {
+            controls.push(RuntimeControl {
+                id: "reasoning_effort".into(),
+                category: "thought_level".into(),
+                current_value: current_effort.to_string(),
+                source: "mia_provider".into(),
+                options,
+            });
+        }
+    }
+    Some(RuntimeControlSnapshot {
+        conversation_id: plan.conversation_id.clone(),
+        engine: plan.engine.clone(),
+        memory_mode: match plan.memory_mode {
+            mia_core_api_types::MemoryMode::Mia => "mia",
+            mia_core_api_types::MemoryMode::Native => "native",
+        }
+        .into(),
+        session_id: None,
+        state: "ready".into(),
+        controls,
+        error: String::new(),
+    })
+}
+
+fn platform_model_label(value: &str) -> String {
+    if value == "mia-auto" {
+        "Auto".into()
+    } else {
+        value.to_string()
+    }
+}
+
+fn platform_reasoning_label(value: &str) -> String {
+    match value {
+        "none" => "None".into(),
+        "low" => "Low".into(),
+        "medium" => "Medium".into(),
+        "high" => "High".into(),
+        "max" => "Max".into(),
+        other => other.to_string(),
+    }
 }
 
 pub async fn set_cloud_bridge_runtime_control(
@@ -541,10 +667,11 @@ fn first_value_string(value: &serde_json::Value, keys: &[&str]) -> Option<String
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_discovered_native_model_entries, push_runtime_model_choice,
-        runtime_model_entry_choice, runtime_model_entry_is_visible,
+        merge_discovered_native_model_entries, mia_platform_runtime_control_snapshot,
+        push_runtime_model_choice, runtime_model_entry_choice, runtime_model_entry_is_visible,
     };
-    use mia_core_api_types::RuntimeControlChoice;
+    use mia_core_api_types::{MemoryMode, RuntimeControlChoice};
+    use mia_core_runtime::{RuntimeBuilder, RuntimeTurnInput};
     use serde_json::json;
 
     #[test]
@@ -587,6 +714,45 @@ mod tests {
             &json!({ "model": "gpt-5.6-sol", "provider": "codex" }),
             true
         ));
+    }
+
+    #[test]
+    fn mia_platform_controls_do_not_require_an_acp_session() {
+        let mut plan = RuntimeBuilder::new("/tmp/mia-platform-controls").build_turn_plan(
+            RuntimeTurnInput {
+                conversation_id: "conversation_platform".into(),
+                message_id: "message_platform".into(),
+                bot_id: Some("bot_platform".into()),
+                memory_mode: MemoryMode::Mia,
+                engine: Some("codex".into()),
+                previous_session_key: None,
+                workspace_dir: "/tmp/mia-platform-controls".into(),
+                provider: json!({}),
+                mcp_servers: json!({}),
+                attachments: json!([]),
+                selected_skill_ids: Vec::new(),
+                body: String::new(),
+            },
+        );
+        plan.environment
+            .insert("MIA_PLATFORM_PROVIDER".into(), "mia".into());
+        plan.environment
+            .insert("MIA_PLATFORM_MODEL".into(), "mia-auto".into());
+        plan.environment
+            .insert("MIA_PLATFORM_MODELS".into(), "mia-auto,mia-fast".into());
+        plan.environment
+            .insert("MIA_PLATFORM_REASONING_EFFORT".into(), "high".into());
+        plan.environment
+            .insert("MIA_PLATFORM_REASONING_EFFORTS".into(), "none,low,high".into());
+
+        let snapshot = mia_platform_runtime_control_snapshot(&plan).expect("platform snapshot");
+
+        assert_eq!(snapshot.state, "ready");
+        assert!(snapshot.session_id.is_none());
+        assert_eq!(snapshot.controls.len(), 2);
+        assert_eq!(snapshot.controls[0].current_value, "mia-auto");
+        assert_eq!(snapshot.controls[0].options[0].label, "Auto");
+        assert_eq!(snapshot.controls[1].current_value, "high");
     }
 
     #[test]

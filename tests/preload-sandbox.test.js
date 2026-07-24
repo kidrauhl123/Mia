@@ -16,6 +16,9 @@ test("desktop preload can load local shared contracts", () => {
   assert.match(channelSource, /UtilRevealLocalFile:\s*"util:reveal-local-file"/);
   assert.match(preloadSource, /revealLocalFile: \(target\) => ipcRenderer\.invoke\(IpcChannel\.UtilRevealLocalFile, target\)/);
   assert.match(channelSource, /MemorySettingsSave:\s*"memory:settings-save"/);
+  assert.match(channelSource, /PermissionSettingsSave:\s*"permissions:settings-save"/);
+  assert.match(preloadSource, /savePermissionSettings: \(settings\) => ipcRenderer\.invoke\(IpcChannel\.PermissionSettingsSave, settings\)/);
+  assert.match(mainSource, /IpcChannel\.PermissionSettingsSave[\s\S]*settingsStore\.writePermissionSettings\(settings \|\| \{\}\)/);
   assert.doesNotMatch(channelSource, /EffortSave/);
   assert.doesNotMatch(preloadSource, /saveEffort/);
   assert.doesNotMatch(mainSource, /IpcChannel\.EffortSave/);

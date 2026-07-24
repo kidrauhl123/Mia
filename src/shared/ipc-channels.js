@@ -71,6 +71,7 @@
     CommandsAgentList: "commands:agent-list",
     CommandsAgentExecute: "commands:agent-execute",
     MemorySettingsSave: "memory:settings-save",
+    PermissionSettingsSave: "permissions:settings-save",
     ModelCatalog: "model:catalog",
     CodexListModels: "codex:list-models",
     SkillsList: "skills:list",

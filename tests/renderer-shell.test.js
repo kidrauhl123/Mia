@@ -251,7 +251,7 @@ test("runtime refresh invalidates bot runtime control options when local engine 
   assert.match(appSource, /function runtimeControlInventorySignature\(runtime = state\.runtime\)/);
   assert.match(refreshRuntime, /const previousRuntimeControlInventory = runtimeControlInventorySignature\(state\.runtime\);/);
   assert.match(refreshRuntime, /const nextRuntimeControlInventory = runtimeControlInventorySignature\(runtime\);/);
-  assert.match(refreshRuntime, /if \(nextRuntimeControlInventory !== previousRuntimeControlInventory\) \{\s*botRuntimeControlOptionsCache\.clear\(\);\s*runtimeRequestBackoff\.resetAll\(\);\s*\}/);
+  assert.match(refreshRuntime, /if \(nextRuntimeControlInventory !== previousRuntimeControlInventory\) \{\s*botRuntimeControlOptionsCache\.clear\(\);\s*botRuntimeControlOptionsLoadStates\.clear\(\);\s*runtimeRequestBackoff\.resetAll\(\);\s*\}/);
 });
 
 test("bot composer shows Mia Core startup progress through the right-side status slot", () => {
@@ -383,6 +383,7 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   assert.match(css, /body\.platform-win32 \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\) \.nav-rail\s*\{[\s\S]*?padding:\s*8px 0 12px;[\s\S]*?z-index:\s*61;/);
   assert.match(css, /body\.platform-win32 \.profile-popover\s*\{\s*z-index:\s*80;/);
   assert.match(css, /body\.platform-win32 \.skill-context-menu\s*\{\s*z-index:\s*80;/);
+  assert.match(css, /body\.platform-win32 \.composer-select-menu,[\s\S]*?body\.platform-win32 \.skill-preview-dialog,[\s\S]*?body\.platform-win32 \.bot-dialog,[\s\S]*?body\.platform-win32 \.pet-generate-dialog,[\s\S]*?body\.platform-win32 \.avatar-crop-dialog,[\s\S]*?body\.platform-win32 \.pet-job-button,[\s\S]*?body\.platform-win32 \.pet-job-panel,[\s\S]*?body\.platform-win32 \.skill-use-picker,[\s\S]*?body\.platform-win32 \.skill-market-modal\s*\{\s*z-index:\s*80;/);
   assert.match(css, /body\.platform-win32 \.conversation-sidebar:has\(\.create-menu:not\(\.hidden\)\),[\s\S]*?body\.platform-win32 \.contacts-sidebar:has\(\.create-menu:not\(\.hidden\)\)\s*\{\s*z-index:\s*80;/);
   assert.match(css, /body\.platform-win32 \.conversation-sidebar,[\s\S]*?body\.platform-win32 \.app-shell\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?margin:\s*0;[\s\S]*?border-radius:\s*0;[\s\S]*?background:\s*var\(--win-sidebar-bg\);[\s\S]*?box-shadow:\s*none;[\s\S]*?backdrop-filter:\s*none;/);
   assert.match(css, /body\.platform-win32 \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\) \.conversation-sidebar,[\s\S]*?body\.platform-win32 \.app-shell:not\(\[data-nav-layout="sidebar-bottom"\]\)\[data-layout="index-workspace"\] \.sidebar\s*\{[\s\S]*?z-index:\s*61;[\s\S]*?margin:\s*calc\(-1 \* var\(--win-titlebar-height\)\) 0 0;/);
@@ -2759,6 +2760,7 @@ test("native runtime controls keep Hermes Gateway models and leave Codex discove
   const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const nativeInputSource = extractFunctionSource(appSource, "nativeConversationRuntimeControlInput");
   const context = vm.createContext({
+    state: { runtime: { permissions: { engines: {} } } },
     platformModelEntriesForNativeRuntimeControls: () => [{ id: "mia-auto" }]
   });
   vm.runInContext(`${nativeInputSource}; this.input = nativeConversationRuntimeControlInput;`, context);
@@ -2776,6 +2778,25 @@ test("native runtime controls keep Hermes Gateway models and leave Codex discove
   assert.doesNotMatch(stylesSource, /\.model-switch-status\.native-memory/);
 });
 
+test("new external Agent conversations inherit the saved engine permission profile", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const nativeInputSource = extractFunctionSource(appSource, "nativeConversationRuntimeControlInput");
+  const context = vm.createContext({
+    state: { runtime: { permissions: { engines: { codex: ":danger-full-access" } } } },
+    platformModelEntriesForNativeRuntimeControls: () => []
+  });
+  vm.runInContext(`${nativeInputSource}; this.input = nativeConversationRuntimeControlInput;`, context);
+
+  assert.equal(
+    context.input({ bot: { id: "codex", agentEngine: "codex" } }).permissionMode,
+    ":danger-full-access"
+  );
+  assert.equal(
+    "permissionMode" in context.input({ bot: { id: "hermes", agentEngine: "hermes" } }),
+    false
+  );
+});
+
 test("runtime control reads time out instead of leaving the composer loading forever", async () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const timeoutSource = extractFunctionSource(appSource, "runtimeControlRequestWithTimeout");
@@ -2789,6 +2810,27 @@ test("runtime control reads time out instead of leaving the composer loading for
     /运行配置读取超时/
   );
   assert.match(requestSource, /runtimeControlRequestWithTimeout\(pending\)/);
+});
+
+test("runtime control reads are deduplicated and keep a per-conversation load state", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const cacheKeySource = extractFunctionSource(appSource, "runtimeControlOptionsCacheKey");
+  const requestSource = extractFunctionSource(appSource, "requestRuntimeControlOptions");
+  const syncSource = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+  const refreshRuntimeSource = extractFunctionSource(appSource, "performRefreshRuntime");
+
+  assert.match(appSource, /const botRuntimeControlOptionsInFlight = new Map\(\);/);
+  assert.match(appSource, /const botRuntimeControlOptionsLoadStates = new Map\(\);/);
+  assert.match(cacheKeySource, /conversationId \? `\$\{runtimeKey\}:conversation:\$\{conversationId\}` : runtimeKey/);
+  assert.match(requestSource, /const existing = botRuntimeControlOptionsInFlight\.get\(key\);\s*if \(existing\) return existing;/);
+  assert.match(requestSource, /setRuntimeControlOptionsLoadState\(context, "loading"\);/);
+  assert.match(requestSource, /setRuntimeControlOptionsLoadState\(context, "ready"\);/);
+  assert.match(requestSource, /setRuntimeControlOptionsLoadState\(context, "error", error\?\.message \|\| error\);/);
+  assert.match(requestSource, /botRuntimeControlOptionsInFlight\.set\(key, task\);\s*return task;/);
+  assert.match(syncSource, /const loadState = runtimeControlOptionsLoadStateForContext\(controlContext\);/);
+  assert.match(syncSource, /runtimeControlOptionsStatusText\(loadState\)/);
+  assert.match(appSource, /if \(loadState\.status === "error"\) return "运行配置读取失败";/);
+  assert.match(refreshRuntimeSource, /botRuntimeControlOptionsCache\.clear\(\);\s*botRuntimeControlOptionsLoadStates\.clear\(\);\s*runtimeRequestBackoff\.resetAll\(\);/);
 });
 
 test("Hermes runtime control reads use the lazy Gateway session without waiting for agent warmup", () => {

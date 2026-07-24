@@ -1441,8 +1441,9 @@ impl NativeAcpTask {
         let stderr_tail = Arc::new(StdMutex::new(String::new()));
         let stderr_task = tokio::spawn(read_stderr_tail(child.stderr.take(), stderr_tail.clone()));
         let session_state = Arc::new(StdMutex::new(NativeAcpSessionState::default()));
-        let protocol =
-            AcpProtocol::connect(stdin, stdout, session_state.clone(), permission_broker).await?;
+        let protocol = AcpProtocol::connect(stdin, stdout, session_state.clone(), permission_broker)
+            .await
+            .map_err(|error| acp_initialize_error_with_stderr(error, &stderr_tail))?;
 
         Ok(Self {
             protocol,
@@ -2529,6 +2530,15 @@ fn stderr_tail_snapshot(tail: &Arc<StdMutex<String>>) -> String {
     tail.lock().unwrap().trim().to_string()
 }
 
+fn acp_initialize_error_with_stderr(error: anyhow::Error, stderr_tail: &Arc<StdMutex<String>>) -> anyhow::Error {
+    let detail = summarize_acp_stderr(&stderr_tail_snapshot(stderr_tail));
+    if detail.is_empty() {
+        error
+    } else {
+        error.context(format!("ACP agent stderr: {detail}"))
+    }
+}
+
 fn empty_native_acp_output_error(
     engine: &str,
     stop_reason: StopReason,
@@ -3200,6 +3210,15 @@ lines.on("line", (line) => {
 
         assert!(message.contains("Codex native ACP produced no assistant output"));
         assert!(message.contains("provider auth failed"));
+    }
+
+    #[test]
+    fn native_acp_initialize_error_includes_stderr_tail() {
+        let stderr = Arc::new(StdMutex::new("Codex app-server failed to start".to_string()));
+        let error = acp_initialize_error_with_stderr(anyhow!("ACP initialize timed out"), &stderr);
+
+        assert!(error.to_string().contains("ACP agent stderr"));
+        assert!(error.to_string().contains("Codex app-server failed to start"));
     }
 
     #[test]

@@ -1287,6 +1287,7 @@ contextBridge.exposeInMainWorld("mia", {
   loadAgentCommands: (payload) => ipcRenderer.invoke(IpcChannel.CommandsAgentList, payload),
   executeAgentCommand: (payload) => ipcRenderer.invoke(IpcChannel.CommandsAgentExecute, payload),
   saveMemorySettings: (settings) => ipcRenderer.invoke(IpcChannel.MemorySettingsSave, settings),
+  savePermissionSettings: (settings) => ipcRenderer.invoke(IpcChannel.PermissionSettingsSave, settings),
   generateConversationTitle: (payload) => ipcRenderer.invoke(IpcChannel.ConversationTitleGenerate, payload),
   loadModelCatalog: () => ipcRenderer.invoke(IpcChannel.ModelCatalog),
   loadCodexModels: () => ipcRenderer.invoke(IpcChannel.CodexListModels),

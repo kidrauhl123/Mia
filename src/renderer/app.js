@@ -19,7 +19,11 @@ let avatarTrimDrag = null;
 const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
 const botRuntimeControlOptionsCache = new Map();
-const botRuntimeControlOptionsInFlight = new Set();
+// Runtime controls belong to a conversation session. Keep both the snapshot
+// and its load lifecycle keyed by conversation so a second chat with the same
+// bot cannot reuse a stale ACP session snapshot.
+const botRuntimeControlOptionsInFlight = new Map();
+const botRuntimeControlOptionsLoadStates = new Map();
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
 const runtimeRequestBackoff = window.miaRequestBackoff?.createRequestBackoff?.({
   baseDelayMs: 1_000,
@@ -5008,7 +5012,11 @@ async function ensureBotRuntimeBinding(botKey, runtimeKind = "cloud-claude-code"
 }
 
 function runtimeControlOptionsCacheKey(context = activeBotRuntimeControlContext()) {
-  return context?.botKey ? botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code") : "";
+  const botKey = String(context?.botKey || "").trim();
+  if (!botKey) return "";
+  const runtimeKey = botRuntimeCacheKey(botKey, context.runtimeKind || "cloud-claude-code");
+  const conversationId = String(context?.conversationId || "").trim();
+  return conversationId ? `${runtimeKey}:conversation:${conversationId}` : runtimeKey;
 }
 
 function runtimeControlOptionsBackoffKey(context = activeBotRuntimeControlContext()) {
@@ -5082,6 +5090,22 @@ function runtimeControlOptionsForContext(context = activeBotRuntimeControlContex
   return key ? botRuntimeControlOptionsCache.get(key) || null : null;
 }
 
+function runtimeControlOptionsLoadStateForContext(context = activeBotRuntimeControlContext()) {
+  const key = runtimeControlOptionsCacheKey(context);
+  return key ? botRuntimeControlOptionsLoadStates.get(key) || { status: "idle" } : { status: "idle" };
+}
+
+function setRuntimeControlOptionsLoadState(context, status, error = "") {
+  const key = runtimeControlOptionsCacheKey(context);
+  if (!key) return;
+  botRuntimeControlOptionsLoadStates.set(key, { status, error: String(error || "") });
+}
+
+function runtimeControlOptionsStatusText(loadState = {}) {
+  if (loadState.status === "error") return "运行配置读取失败";
+  return "运行配置读取中...";
+}
+
 function runtimeControlStateSnapshot() {
   return {
     modelCatalog: window.miaModelHelpers?.catalogEntries?.() || [],
@@ -5124,8 +5148,10 @@ function runtimeControlInventorySignature(runtime = state.runtime) {
 }
 
 function runtimeControlOptionsRequest(context = activeBotRuntimeControlContext()) {
-  const key = runtimeControlOptionsCacheKey(context);
-  const binding = key ? botRuntimeControlCache.get(key) : null;
+  const bindingKey = context?.botKey
+    ? botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code")
+    : "";
+  const binding = bindingKey ? botRuntimeControlCache.get(bindingKey) : null;
   return {
     runtimeKind: context?.runtimeKind || "cloud-claude-code",
     bot: context?.bot || {},
@@ -5222,11 +5248,19 @@ function usesNativeConversationRuntimeControls(context = {}) {
 function nativeConversationRuntimeControlInput(context = {}) {
   const bot = context?.bot || {};
   const agentEngine = String(bot.agentEngine || bot.agent_engine || "").trim();
+  const normalizedEngine = agentEngine.toLowerCase().replace(/_/g, "-");
+  // Codex and Claude Code permission profiles are an Agent-level preference,
+  // not a per-conversation default. Pass the saved engine preference into every
+  // prepare/send request so a newly opened conversation starts consistently.
+  const enginePermissionMode = ["codex", "claude-code"].includes(normalizedEngine)
+    ? String(state.runtime?.permissions?.engines?.[normalizedEngine] || "").trim()
+    : "";
   return {
     botId: context?.botKey || bot.id || bot.key || "",
     botName: bot.name || bot.displayName || context?.botKey || "",
     agentEngine,
     runtimeKind: "desktop-local",
+    ...(enginePermissionMode ? { permissionMode: enginePermissionMode } : {}),
     // Hermes already advertises its active models through ACP. Supplying Mia's
     // catalog here makes an unselected `mia-auto` look like a native Hermes model.
     ...(agentEngine.toLowerCase() === "hermes"
@@ -5237,7 +5271,10 @@ function nativeConversationRuntimeControlInput(context = {}) {
 
 function invalidateRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
-  if (key) botRuntimeControlOptionsCache.delete(key);
+  if (key) {
+    botRuntimeControlOptionsCache.delete(key);
+    botRuntimeControlOptionsLoadStates.delete(key);
+  }
   const backoffKey = runtimeControlOptionsBackoffKey(context);
   if (backoffKey) runtimeRequestBackoff.reset(backoffKey);
 }
@@ -5263,22 +5300,26 @@ function runtimeControlRequestWithTimeout(pending, timeoutMs = RUNTIME_CONTROL_R
 function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
   const backoffKey = runtimeControlOptionsBackoffKey(context);
-  if (!key || botRuntimeControlOptionsInFlight.has(key) || !runtimeRequestBackoff.canRun(backoffKey)) return;
+  if (!key) return Promise.resolve(null);
+  const existing = botRuntimeControlOptionsInFlight.get(key);
+  if (existing) return existing;
+  if (!runtimeRequestBackoff.canRun(backoffKey)) return Promise.resolve(null);
   const nativeControls = usesNativeConversationRuntimeControls(context);
   const api = nativeControls
     ? window.mia?.social?.prepareConversationRuntimeControls
     : window.mia?.social?.getBotRuntimeControlOptions;
   if (typeof api !== "function") {
+    setRuntimeControlOptionsLoadState(context, "error", "运行配置接口不可用");
     setRuntimeControlDisabled(true);
     setModelSwitchStatusText("运行配置接口不可用");
-    return;
+    return Promise.resolve(null);
   }
-  botRuntimeControlOptionsInFlight.add(key);
   const request = nativeControls
     ? nativeConversationRuntimeControlInput(context)
     : runtimeControlOptionsRequest(context);
-  const pending = nativeControls ? api(context.conversationId, request) : api(request);
-  runtimeControlRequestWithTimeout(pending)
+  setRuntimeControlOptionsLoadState(context, "loading");
+  const pending = Promise.resolve().then(() => nativeControls ? api(context.conversationId, request) : api(request));
+  const task = runtimeControlRequestWithTimeout(pending)
     .then((result) => {
       if (result && result.ok === false) throw new Error(result.error || result.message || "Runtime control options failed");
       const payload = runtimeControlOptionsPayload(result);
@@ -5287,19 +5328,27 @@ function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()
         : payload;
       if (!options || typeof options !== "object") throw new Error("Runtime control options response was empty");
       botRuntimeControlOptionsCache.set(key, options);
+      setRuntimeControlOptionsLoadState(context, "ready");
       runtimeRequestBackoff.succeed(backoffKey);
       const latest = activeConversationBotContext();
       if (latest?.conversationId === context?.conversationId) render();
+      return options;
     })
     .catch((error) => {
       runtimeRequestBackoff.fail(backoffKey);
+      setRuntimeControlOptionsLoadState(context, "error", error?.message || error);
       setRuntimeControlDisabled(true);
       setModelSwitchStatusText("运行配置读取失败");
       console.warn("[renderer] bot runtime control options failed:", error?.message || error);
+      return null;
     })
     .finally(() => {
-      botRuntimeControlOptionsInFlight.delete(key);
+      if (botRuntimeControlOptionsInFlight.get(key) === task) {
+        botRuntimeControlOptionsInFlight.delete(key);
+      }
     });
+  botRuntimeControlOptionsInFlight.set(key, task);
+  return task;
 }
 
 function setComposerModelAvatar(entry = {}, engine = "hermes", options = {}) {
@@ -5345,9 +5394,9 @@ function syncConversationBotRuntimeControls() {
   const options = runtimeControlOptionsForContext(controlContext);
   if (!options) {
     els.modelSwitchStatus?.classList.add("runtime-feedback");
-    setModelSwitchStatusText("运行配置读取中...");
     requestRuntimeControlOptions(controlContext);
   }
+  const loadState = runtimeControlOptionsLoadStateForContext(controlContext);
   const engine = String(options?.agentEngine || "").trim();
   const modelEntries = runtimeControlArray(options?.modelOptions);
   const effortEntries = runtimeControlArray(options?.effortOptions);
@@ -5416,7 +5465,7 @@ function syncConversationBotRuntimeControls() {
   if (els.quickModelSelect) els.quickModelSelect.disabled = !(modelEntries.length || effortEntries.length);
   if (els.effortSelect) els.effortSelect.disabled = !effortEntries.length;
   if (els.permissionMode) els.permissionMode.disabled = !permissionEntries.length;
-  setModelSwitchStatusText(options?.statusText || "运行配置读取中...");
+  setModelSwitchStatusText(options?.statusText || runtimeControlOptionsStatusText(loadState));
   if (!platformModelCatalog.loaded && !platformModelCatalog.loading) {
     loadPlatformModelCatalog().then((result) => {
       if (!result?.changed) return;
@@ -5444,7 +5493,8 @@ function syncConversationBotRuntimeControls() {
       })
       .catch((error) => {
         runtimeRequestBackoff.fail(runtimeBindingBackoffKey);
-        setModelSwitchStatusText("运行配置读取失败");
+        setRuntimeControlOptionsLoadState(controlContext, "error", error?.message || error);
+        if (activeConversationBotContext()?.conversationId === context.conversationId) render();
         console.warn("[renderer] bot runtime load failed:", error?.message || error);
       })
       .finally(() => {
@@ -5522,6 +5572,36 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
 
 async function saveActivePermissionRuntimeControl(mode) {
   if (usesManagedCloudAgentPermissions()) return false;
+  const context = activeBotRuntimeControlContext();
+  const options = runtimeControlOptionsForContext(context);
+  const agentEngine = String(
+    options?.agentEngine
+    || context?.bot?.agentEngine
+    || context?.bot?.agent_engine
+    || ""
+  ).trim().toLowerCase().replace(/_/g, "-");
+  // External ACP engines advertise permission profiles that apply to the
+  // Agent itself. Persist that preference before updating the live session so
+  // every later conversation inherits the user's last selection.
+  if (["codex", "claude-code"].includes(agentEngine)) {
+    const savePreference = window.mia?.savePermissionSettings;
+    if (typeof savePreference !== "function") {
+      setModelSwitchStatusText("权限设置接口不可用");
+      return false;
+    }
+    setModelSwitchStatusText("保存 Agent 权限...");
+    setRuntimeControlDisabled(true);
+    try {
+      const runtime = await savePreference({ agentEngine, mode });
+      if (runtime && typeof runtime === "object") state.runtime = runtime;
+    } catch (error) {
+      setModelSwitchStatusText("权限保存失败");
+      appendTransientChat("assistant", `Permission mode failed: ${error.message || error}`);
+      return false;
+    } finally {
+      setRuntimeControlDisabled(false);
+    }
+  }
   return saveActiveBotRuntimeControl(
     "permissionMode",
     mode || "",
@@ -5765,6 +5845,7 @@ async function performRefreshRuntime() {
   const nextRuntimeControlInventory = runtimeControlInventorySignature(runtime);
   if (nextRuntimeControlInventory !== previousRuntimeControlInventory) {
     botRuntimeControlOptionsCache.clear();
+    botRuntimeControlOptionsLoadStates.clear();
     runtimeRequestBackoff.resetAll();
   }
   if (state.coreStartup?.active && runtime?.daemon?.running) {

@@ -2698,6 +2698,10 @@ ipcMain.handle(IpcChannel.CommandsSlash, () => engineCatalogCoreAdapter.loadHerm
 ipcMain.handle(IpcChannel.CommandsAgentList, async (_event, payload) => externalAgentCommandCoreAdapter.loadCommands(payload));
 ipcMain.handle(IpcChannel.CommandsAgentExecute, (_event, payload) => externalAgentCommandCoreAdapter.executeCommand(payload));
 ipcMain.handle(IpcChannel.MemorySettingsSave, (_event, settings) => writeMemorySettingsToCore(settings || {}));
+ipcMain.handle(IpcChannel.PermissionSettingsSave, async (_event, settings) => {
+  settingsStore.writePermissionSettings(settings || {});
+  return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
+});
 ipcMain.handle(IpcChannel.ConversationTitleGenerate, (_event, payload) => conversationTitleService.generateTitle(payload));
 ipcMain.handle(IpcChannel.ModelCatalog, () => engineCatalogCoreAdapter.loadHermesModelCatalog());
 ipcMain.handle(IpcChannel.CodexListModels, () => engineCatalogCoreAdapter.loadCodexModels());
