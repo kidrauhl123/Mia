@@ -914,12 +914,15 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
   const socialMessages = socialPayload?.data?.messages || socialPayload?.messages || [];
   const localConversationId = localCoreConversationIdForBotConversation(conversationId);
   let localPayload = null;
-  if (observedCoreConversationIds.has(localConversationId)) {
-    try {
-      localPayload = await listCoreConversationMessages(localConversationId, 0, Math.max(1000, Number(limit) || 200));
-    } catch (error) {
-      if (!String(error?.message || "").includes("404")) throw error;
-    }
+  // A session that was created before this renderer started is not in
+  // observedCoreConversationIds yet.  Skipping Core in that case makes every
+  // historical local-Agent session appear empty after the user selects it.
+  // Probe the deterministic bridge id and treat a 404 as the normal cloud-only
+  // case, so cloud sessions keep their existing social history behavior.
+  try {
+    localPayload = await listCoreConversationMessages(localConversationId, 0, Math.max(1000, Number(limit) || 200));
+  } catch (error) {
+    if (!String(error?.message || "").includes("404")) throw error;
   }
   const localMessages = (localPayload?.data?.messages || localPayload?.messages || [])
     .map((message) => rewriteLocalBotMessageConversation(message, conversationId, localConversationId));

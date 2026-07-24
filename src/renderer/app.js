@@ -4588,16 +4588,41 @@ function activeConversationBotContext() {
   if (conversationTypeForComposer(conversation, conversationId) !== "bot") return null;
   const botKey = botKeyForConversation(conversation);
   if (!botKey) return null;
-  const defaultRuntimeKind = runtimeKindForBotConversation(conversation);
+  // A conversation's saved runtime is authoritative. Identity rows are
+  // cloud-sourced and can temporarily carry an older/default runtime while a
+  // local binding is being hydrated; letting that row overwrite an explicit
+  // desktop-local conversation makes a local Hermes chat look like a cloud
+  // agent and hides its native controls.
+  const conversationRuntimeKind = sessionHistory.runtimeKind(conversation, "");
+  const conversationDecorations = conversation.decorations || {};
+  const conversationRuntimeConfig = conversation.runtimeConfig || conversation.runtime_config || {};
+  const conversationAgentEngine = String(
+    conversationDecorations.agentEngine
+    || conversationDecorations.agent_engine
+    || conversationRuntimeConfig.agentEngine
+    || conversationRuntimeConfig.agent_engine
+    || conversation.agentEngine
+    || conversation.agent_engine
+    || ""
+  )
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
   const bot = allOwnedBotsForIdentity().find((item) => String(item?.key || item?.id || "") === botKey) || {};
   const botRuntimeKind = sessionHistory.runtimeKind(bot, "");
+  const botAgentEngine = String(conversationAgentEngine || bot.agentEngine || bot.agent_engine || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  // Mia Cloud is the hosted Claude Code runtime. A cloud identity row without
+  // a runtime binding must not turn a Hermes or Codex chat into a cloud one.
+  const knownLocalEngine = botAgentEngine === "hermes" || botAgentEngine === "codex";
   return {
     conversation,
     conversationId,
     botKey,
-    runtimeKind: defaultRuntimeKind === "desktop-local" && botRuntimeKind
-      ? botRuntimeKind
-      : defaultRuntimeKind
+    agentEngine: botAgentEngine,
+    runtimeKind: conversationRuntimeKind || (knownLocalEngine ? "desktop-local" : botRuntimeKind || "desktop-local")
   };
 }
 
@@ -4654,6 +4679,7 @@ function activeBotRuntimeControlContext() {
         ...bot,
         key: conversationContext.botKey,
         id: bot.id || bot.key || conversationContext.botKey,
+        agentEngine: conversationContext.agentEngine || bot.agentEngine || bot.agent_engine || "",
         runtimeKind: conversationContext.runtimeKind
       }
     };
@@ -5438,6 +5464,8 @@ function syncConversationBotRuntimeControls() {
     && Boolean(options?.hermesSessionYoloControlId);
   const hermesSessionYoloActive = hermesPermissionMenuEnabled
     && Boolean(options?.hermesSessionYoloActive);
+  const hermesGlobalYoloActive = engine.toLowerCase() === "hermes"
+    && ["off", "yolo"].includes(selectedPermission.toLowerCase());
   setComposerRuntimeControlVisible(els.permissionMode, permissionEntries.length > 0);
   const permissionLabel = setComposerSelectOptions(
     els.permissionMode,
@@ -5447,7 +5475,7 @@ function syncConversationBotRuntimeControls() {
   );
   setText(
     els.permissionLabel,
-    hermesSessionYoloActive && selectedPermission !== "off" ? "YOLO（仅本会话）" : permissionLabel
+    hermesSessionYoloActive && !hermesGlobalYoloActive ? "YOLO（仅本会话）" : permissionLabel
   );
   window.miaHermesPermissionMenu?.configure?.({
     select: els.permissionMode,
@@ -5459,7 +5487,7 @@ function syncConversationBotRuntimeControls() {
   const permissionSwitcher = els.permissionMode?.closest(".permission-switcher");
   const fullAccessPermission = window.miaEngineContracts?.isFullAccessPermissionMode?.(els.permissionMode?.value);
   permissionSwitcher?.classList.toggle("yolo", hermesSessionYoloActive
-    || (hermesPermissionMenuEnabled && els.permissionMode?.value === "off")
+    || hermesGlobalYoloActive
     || (fullAccessPermission && !(engine === "claude-code" && els.permissionMode?.value === "bypassPermissions")));
   permissionSwitcher?.classList.toggle("claude-bypass", engine === "claude-code" && els.permissionMode?.value === "bypassPermissions");
   if (els.quickModelSelect) els.quickModelSelect.disabled = !(modelEntries.length || effortEntries.length);

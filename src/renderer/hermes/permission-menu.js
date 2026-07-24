@@ -47,8 +47,8 @@
     if (!configuration || !menu || select?.dataset?.hermesPermissionMenu !== "true") return false;
     const options = entries.filter((entry) => entry?.type === "option" && !entry.placeholder);
     if (!options.length) return false;
-    const mode = String(selectedValue || configuration.approvalMode || "smart");
-    const globalBypass = mode === "off";
+    const mode = String(selectedValue || configuration.approvalMode || "ask");
+    const globalBypass = ["off", "yolo"].includes(mode.trim().toLowerCase());
     const yoloActive = Boolean(configuration.sessionYoloActive);
     const yoloDescription = "允许完全访问，危险操作不再询问";
     menu.classList.add("hermes-permission-menu");

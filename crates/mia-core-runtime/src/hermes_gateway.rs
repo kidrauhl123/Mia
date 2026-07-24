@@ -21,6 +21,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::net::TcpStream;
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, Notify, broadcast, oneshot};
+use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use uuid::Uuid;
@@ -38,6 +39,7 @@ const HERMES_GATEWAY_READY_TIMEOUT: Duration = Duration::from_secs(20);
 const HERMES_GATEWAY_CONNECT_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const HERMES_AGENT_READY_TIMEOUT: Duration = Duration::from_secs(120);
 const HERMES_RPC_TIMEOUT: Duration = Duration::from_secs(120);
+const HERMES_SCHEMA_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(8);
 const HERMES_STDERR_TAIL_LIMIT: usize = 16 * 1024;
 
 pub(crate) async fn probe_hermes_gateway_command(
@@ -360,6 +362,7 @@ struct HermesGatewayTask {
     stored_session_id: Option<String>,
     session_info: Value,
     approval_mode: String,
+    approval_options: Vec<RuntimeControlChoice>,
     session_yolo: bool,
     agent_ready: bool,
     pending_initial_prompt: Option<String>,
@@ -371,6 +374,7 @@ impl HermesGatewayTask {
         initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
     ) -> Result<Self> {
         let process = HermesGatewayProcess::spawn(plan).await?;
+        let approval_options = discover_hermes_approval_options(plan).await;
         let pending_initial_prompt = if plan.memory_mode == MemoryMode::Mia {
             match initial_prompt_provider.as_ref() {
                 Some(provider) => {
@@ -390,8 +394,8 @@ impl HermesGatewayTask {
             approval_mode: desired_permission_mode(plan)
                 .as_deref()
                 .and_then(normalize_hermes_approval_mode)
-                .unwrap_or("smart")
-                .into(),
+                .unwrap_or_else(|| "ask".into()),
+            approval_options,
             session_yolo: false,
             agent_ready: false,
             pending_initial_prompt,
@@ -587,7 +591,7 @@ impl HermesGatewayTask {
         .as_deref()
         .and_then(normalize_hermes_approval_mode)
         {
-            self.approval_mode = mode.into();
+            self.approval_mode = mode;
         }
         self.agent_ready = !self
             .session_info
@@ -610,7 +614,7 @@ impl HermesGatewayTask {
         .as_deref()
         .and_then(normalize_hermes_approval_mode)
         {
-            self.approval_mode = mode.into();
+            self.approval_mode = mode;
             return;
         }
         if let Ok(result) = self
@@ -622,7 +626,7 @@ impl HermesGatewayTask {
                 .as_deref()
                 .and_then(normalize_hermes_approval_mode)
         {
-            self.approval_mode = mode.into();
+            self.approval_mode = mode;
             return;
         }
         if let Some(mode) = approval_mode_from_plan_config(plan).await {
@@ -861,7 +865,7 @@ impl HermesGatewayTask {
                     );
                 }
                 "approval.request" => {
-                    if self.approval_mode == "off" || self.session_yolo {
+                    if hermes_approval_bypasses_prompts(&self.approval_mode) || self.session_yolo {
                         let choices = gateway_approval_choices(&event.payload);
                         let choice = hermes_permission_choice("session", &choices);
                         let _ = self
@@ -890,7 +894,7 @@ impl HermesGatewayTask {
                             .as_deref()
                             .and_then(normalize_hermes_approval_mode)
                     {
-                        self.approval_mode = mode.into();
+                        self.approval_mode = mode;
                     }
                 }
                 "message.complete" => {
@@ -1019,7 +1023,18 @@ impl HermesGatewayTask {
             control_id,
             "permission" | "permission_mode" | "approval_mode"
         ) {
-            let mode = normalize_hermes_approval_mode(value)
+            let requested = String::from(value).trim().to_ascii_lowercase();
+            let mode = self
+                .approval_options
+                .iter()
+                .find(|choice| choice.value == requested)
+                .map(|choice| choice.value.clone())
+                .or_else(|| {
+                    self.approval_options
+                        .is_empty()
+                        .then(|| normalize_hermes_approval_mode(value))
+                        .flatten()
+                })
                 .ok_or_else(|| anyhow!("Hermes approval mode `{value}` is not supported"))?;
             match self
                 .process
@@ -1034,12 +1049,11 @@ impl HermesGatewayTask {
                     self.approval_mode = value_string(&result, &["value"])
                         .as_deref()
                         .and_then(normalize_hermes_approval_mode)
-                        .unwrap_or(mode)
-                        .into();
+                        .unwrap_or(mode);
                 }
                 Err(error) if is_legacy_approval_mode_rpc_error(&error) => {
-                    persist_legacy_approval_mode(plan, mode).await?;
-                    self.approval_mode = mode.into();
+                    persist_legacy_approval_mode(plan, &mode).await?;
+                    self.approval_mode = mode;
                 }
                 Err(error) => return Err(error),
             }
@@ -1112,17 +1126,28 @@ impl HermesGatewayTask {
                 .map(|value| control_choice(value, reasoning_effort_label(value)))
                 .collect(),
         });
-        controls.push(RuntimeControl {
-            id: "approval_mode".into(),
-            category: "permission".into(),
-            current_value: self.approval_mode.clone(),
-            source: "hermes_gateway".into(),
-            options: vec![
-                control_choice_with_description("manual", "手动", "危险操作每次都询问"),
-                control_choice_with_description("smart", "智能", "低风险自动通过，高风险操作询问"),
-                control_choice_with_description("off", "关闭", "不再询问，直接执行"),
-            ],
-        });
+        let mut approval_options = self.approval_options.clone();
+        // The CLI schema lists the modes it currently advertises.  An
+        // existing Hermes profile can still report a legacy-but-active value
+        // (for example `smart`), so include the actual current value too.
+        // This preserves a truthful selected state while keeping the options
+        // sourced from the installed Agent rather than from Mia constants.
+        if !self.approval_mode.is_empty()
+            && !approval_options
+                .iter()
+                .any(|choice| choice.value == self.approval_mode)
+        {
+            approval_options.push(hermes_approval_choice(&self.approval_mode));
+        }
+        if !approval_options.is_empty() {
+            controls.push(RuntimeControl {
+                id: "approval_mode".into(),
+                category: "permission".into(),
+                current_value: self.approval_mode.clone(),
+                source: "hermes_gateway".into(),
+                options: approval_options,
+            });
+        }
         controls.push(RuntimeControl {
             id: "session_yolo".into(),
             category: "session_permission".into(),
@@ -1931,20 +1956,112 @@ fn desired_permission_mode(plan: &RuntimeTurnPlan) -> Option<String> {
     provider_value(plan, &["permissionMode", "permission_mode"])
 }
 
-fn normalize_hermes_approval_mode(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "manual" | "read-only" | "readonly" | ":read-only" => Some("manual"),
-        "smart" | "default" | "ask" | "accept-edits" | "acceptedits" | "auto" => Some("smart"),
-        "off"
+async fn discover_hermes_approval_options(plan: &RuntimeTurnPlan) -> Vec<RuntimeControlChoice> {
+    const SCRIPT: &str = r#"
+import json
+
+try:
+    from hermes_cli import web_server
+    schema = getattr(web_server, "CONFIG_SCHEMA", None) or getattr(web_server, "SETTINGS_SCHEMA", {})
+    field = schema.get("approvals.mode", {}) if isinstance(schema, dict) else {}
+    options = field.get("options", []) if isinstance(field, dict) else []
+    print(json.dumps([str(value).strip() for value in options if str(value).strip()]))
+except Exception:
+    print("[]")
+"#;
+
+    let Some(runtime) = plan.command.as_ref() else {
+        return Vec::new();
+    };
+    if !runtime
+        .args
+        .windows(2)
+        .any(|pair| pair[0] == "-m" && pair[1] == "hermes_cli.main")
+    {
+        return Vec::new();
+    }
+    let workspace =
+        absolute_workspace_dir(&plan.workspace_dir).unwrap_or_else(|_| PathBuf::from("."));
+    let mut command = Command::new(&runtime.program);
+    configure_background_command(command.as_std_mut());
+    command
+        .arg("-c")
+        .arg(SCRIPT)
+        .env_clear()
+        .envs(plan.environment.iter())
+        .current_dir(workspace)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let output = match timeout(HERMES_SCHEMA_DISCOVERY_TIMEOUT, command.output()).await {
+        Ok(Ok(output)) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+    let Ok(values) = serde_json::from_slice::<Vec<String>>(&output.stdout) else {
+        return Vec::new();
+    };
+    let mut seen = std::collections::BTreeSet::new();
+    values
+        .into_iter()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .filter(|value| !value.is_empty() && seen.insert(value.clone()))
+        .map(|value| hermes_approval_choice(&value))
+        .collect()
+}
+
+fn hermes_approval_choice(value: &str) -> RuntimeControlChoice {
+    match value {
+        "ask" => control_choice_with_description("ask", "询问", "危险操作需要确认"),
+        "yolo" => control_choice_with_description("yolo", "完全访问", "跳过审批，直接执行危险操作"),
+        "deny" => control_choice_with_description("deny", "拒绝", "拒绝需要审批的危险操作"),
+        "manual" => control_choice_with_description("manual", "手动", "危险操作每次都询问"),
+        "smart" => {
+            control_choice_with_description("smart", "智能", "低风险操作自动通过，高风险操作询问")
+        }
+        "off" => control_choice_with_description("off", "关闭审批", "不再询问，直接执行"),
+        other => control_choice(other, other),
+    }
+}
+
+fn normalize_hermes_approval_mode(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "manual"
+        | "read-only"
+        | "readonly"
+        | ":read-only"
+        | "smart"
+        | "default"
+        | "ask"
+        | "accept-edits"
+        | "acceptedits"
+        | "auto"
+        | "off"
         | "yolo"
         | "dontask"
         | "never"
         | "agent-full-access"
         | "full-access"
         | "bypasspermissions"
-        | ":danger-full-access" => Some("off"),
+        | ":danger-full-access"
+        | "deny"
+        | "denied" => Some(normalized),
         _ => None,
     }
+}
+
+fn hermes_approval_bypasses_prompts(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "off"
+            | "yolo"
+            | "dontask"
+            | "never"
+            | "agent-full-access"
+            | "full-access"
+            | "bypasspermissions"
+            | ":danger-full-access"
+    )
 }
 
 fn normalize_hermes_reasoning_effort(value: &str) -> Option<&'static str> {
@@ -2001,7 +2118,7 @@ async fn approval_mode_from_plan_config(plan: &RuntimeTurnPlan) -> Option<String
     let mode = config.get("approvals").and_then(|value| value.get("mode"));
     match mode {
         Some(Value::Bool(false)) => Some("off".into()),
-        Some(Value::String(value)) => normalize_hermes_approval_mode(value).map(str::to_string),
+        Some(Value::String(value)) => normalize_hermes_approval_mode(value),
         Some(_) => Some("manual".into()),
         None => Some("manual".into()),
     }
@@ -2151,13 +2268,22 @@ mod tests {
 
     #[test]
     fn hermes_controls_normalize_legacy_permission_and_effort_values() {
-        assert_eq!(normalize_hermes_approval_mode("default"), Some("smart"));
-        assert_eq!(normalize_hermes_approval_mode("acceptEdits"), Some("smart"));
+        assert_eq!(
+            normalize_hermes_approval_mode("default"),
+            Some("default".into())
+        );
+        assert_eq!(
+            normalize_hermes_approval_mode("acceptEdits"),
+            Some("acceptedits".into())
+        );
         assert_eq!(
             normalize_hermes_approval_mode("bypassPermissions"),
-            Some("off")
+            Some("bypasspermissions".into())
         );
-        assert_eq!(normalize_hermes_approval_mode("manual"), Some("manual"));
+        assert_eq!(
+            normalize_hermes_approval_mode("manual"),
+            Some("manual".into())
+        );
         assert_eq!(normalize_hermes_reasoning_effort("off"), Some("none"));
         assert_eq!(normalize_hermes_reasoning_effort("xhigh"), Some("xhigh"));
         assert_eq!(normalize_hermes_reasoning_effort("max"), Some("max"));

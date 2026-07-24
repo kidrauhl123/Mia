@@ -242,11 +242,12 @@ async fn load_hermes_engine_capabilities(states: &ModuleStates) -> HermesCapabil
 import json
 result = {"approvalModes": [], "effortLevels": []}
 try:
-    from hermes_cli.web_server import SETTINGS_SCHEMA
-    if "approvals.mode" in SETTINGS_SCHEMA and "options" in SETTINGS_SCHEMA["approvals.mode"]:
-        result["approvalModes"] = list(SETTINGS_SCHEMA["approvals.mode"]["options"])
-    if "agent.reasoning_effort" in SETTINGS_SCHEMA and "options" in SETTINGS_SCHEMA["agent.reasoning_effort"]:
-        result["effortLevels"] = list(SETTINGS_SCHEMA["agent.reasoning_effort"]["options"])
+    from hermes_cli import web_server
+    schema = getattr(web_server, "CONFIG_SCHEMA", None) or getattr(web_server, "SETTINGS_SCHEMA", {})
+    if "approvals.mode" in schema and "options" in schema["approvals.mode"]:
+        result["approvalModes"] = list(schema["approvals.mode"]["options"])
+    if "agent.reasoning_effort" in schema and "options" in schema["agent.reasoning_effort"]:
+        result["effortLevels"] = list(schema["agent.reasoning_effort"]["options"])
 except Exception:
     pass
 print(json.dumps(result))
@@ -260,7 +261,7 @@ print(json.dumps(result))
     };
     let approval_modes = unique_string_array(parsed.get("approvalModes"));
     let effort_levels = unique_string_array(parsed.get("effortLevels"));
-    if approval_modes.is_empty() || effort_levels.is_empty() {
+    if approval_modes.is_empty() {
         return HermesCapabilities::default();
     }
     HermesCapabilities {
@@ -494,7 +495,13 @@ async fn run_hermes_python(
 }
 
 fn hermes_engine_dir(states: &ModuleStates) -> PathBuf {
-    env_path("MIA_HERMES_ENGINE_DIR")
+    // The legacy `hermes-engine` directory is only a reservation point in a
+    // desktop install.  A usable Mia-stable Hermes lives in the separately
+    // bundled runtime directory, which is also what the agent scanner uses.
+    // Prefer that real runtime so the capability probe cannot report an empty
+    // schema while the engine inventory correctly says Hermes is ready.
+    mia_stable_hermes_root()
+        .or_else(|| env_path("MIA_HERMES_ENGINE_DIR"))
         .unwrap_or_else(|| sibling_runtime_dir(states, "hermes-engine"))
 }
 

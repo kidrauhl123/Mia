@@ -232,7 +232,16 @@ test("conversation preload bridge keeps the social conversation list cloud-owned
   const localRuntimeControlPayload = extractFunctionSource(preload, "localConversationRuntimeControlPayload");
   assert.match(localRuntimeControlPayload, /runtimeKind:\s*"desktop-local"/);
   const listLocalDesktopSource = extractFunctionSource(preload, "listLocalDesktopBotMessages");
-  assert.match(listLocalDesktopSource, /if \(observedCoreConversationIds\.has\(localConversationId\)\) \{/);
+  assert.match(
+    listLocalDesktopSource,
+    /await listCoreConversationMessages\(localConversationId,\s*0,\s*Math\.max\(1000,\s*Number\(limit\) \|\| 200\)\)/,
+    "local Agent session history must probe its deterministic Core conversation even before it was observed in this renderer"
+  );
+  assert.doesNotMatch(
+    listLocalDesktopSource,
+    /if \(observedCoreConversationIds\.has\(localConversationId\)\)/,
+    "an observation cache must not suppress historical local session reads"
+  );
   assert.match(preload, /id:\s*firstText\(response\?\.messageId,\s*response\?\.message_id,\s*`msg_\$\{runId\}`\)/);
   const desktopBotPostSource = extractFunctionSource(preload, "isDesktopLocalBotConversationPost");
   assert.match(

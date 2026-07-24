@@ -2628,14 +2628,18 @@ test("conversation runtime controls do not fall back to an unrelated persona dur
   assert.match(syncControls, /当前聊天不支持切换模型/);
 });
 
-test("active cloud bot conversations use session-history runtime resolution", () => {
+test("active bot conversations prefer their saved runtime over a stale identity default", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const activeContext = extractFunctionSource(appSource, "activeConversationBotContext");
 
   assert.match(activeContext, /const conversation = social\?\.getConversationById\?\.\(conversationId\);/);
   assert.match(activeContext, /if \(!conversation\) return null;/);
-  assert.match(activeContext, /const defaultRuntimeKind = runtimeKindForBotConversation\(conversation\);/);
+  assert.match(activeContext, /const conversationRuntimeKind = sessionHistory\.runtimeKind\(conversation,\s*""\);/);
+  assert.match(activeContext, /const conversationAgentEngine = String\([\s\S]*conversationDecorations\.agentEngine/);
   assert.match(activeContext, /const botRuntimeKind = sessionHistory\.runtimeKind\(bot,\s*""\);/);
+  assert.match(activeContext, /const botAgentEngine = String\(conversationAgentEngine \|\| bot\.agentEngine/);
+  assert.match(activeContext, /const knownLocalEngine = botAgentEngine === "hermes" \|\| botAgentEngine === "codex";/);
+  assert.match(activeContext, /runtimeKind: conversationRuntimeKind \|\| \(knownLocalEngine \? "desktop-local" : botRuntimeKind \|\| "desktop-local"\)/);
   assert.doesNotMatch(activeContext, /const botRuntimeKind = String\(bot\?\.runtimeKind/);
 });
 
