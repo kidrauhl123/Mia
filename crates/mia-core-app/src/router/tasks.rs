@@ -1,16 +1,17 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use mia_core_api_types::{
     CreateTaskJobRequest, EmptyResponse, RunTaskJobResponse, TaskJobListResponse, TaskJobResponse,
-    UpdateTaskJobRequest,
+    TaskJobSummary, UpdateTaskJobRequest,
 };
 use mia_core_cloud::CloudError;
 use mia_core_tasks::{
     EVENT_TASK_CREATED, EVENT_TASK_RUN_FINISHED, EVENT_TASK_RUN_STARTED, EVENT_TASK_UPDATED,
     TaskError,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::scheduler::execute_task_conversation_turn;
@@ -26,6 +27,173 @@ pub async fn list_task_jobs(
         .await
         .map(Json)
         .map_err(ApiRouteError::from_task)
+}
+
+/// Scope supplied by the per-turn built-in MCP process.  The Agent never gets
+/// to choose it: `builtin_mcp` derives both values from the active turn.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchedulerScope {
+    pub bot_id: String,
+    pub conversation_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchedulerCreateRequest {
+    pub bot_id: String,
+    pub conversation_id: String,
+    pub name: String,
+    pub schedule: Value,
+    pub schedule_description: String,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchedulerUpdateRequest {
+    pub bot_id: String,
+    pub conversation_id: String,
+    pub name: Option<String>,
+    pub schedule: Option<Value>,
+    pub schedule_description: Option<String>,
+    pub message: Option<String>,
+    pub status: Option<String>,
+}
+
+pub async fn list_scheduler_jobs(
+    State(states): State<ModuleStates>,
+    Query(scope): Query<SchedulerScope>,
+) -> Result<Json<TaskJobListResponse>, ApiRouteError> {
+    states
+        .tasks
+        .list_jobs_for_conversation(&scope.bot_id, &scope.conversation_id)
+        .await
+        .map(Json)
+        .map_err(ApiRouteError::from_task)
+}
+
+pub async fn create_scheduler_job(
+    State(states): State<ModuleStates>,
+    Json(request): Json<SchedulerCreateRequest>,
+) -> Result<Json<TaskJobResponse>, ApiRouteError> {
+    let name = required_scheduler_text("name", request.name)?;
+    let schedule_description =
+        required_scheduler_text("scheduleDescription", request.schedule_description)?;
+    let message = required_scheduler_text("message", request.message)?;
+    let response = states
+        .tasks
+        .create_job(CreateTaskJobRequest {
+            kind: "agent".into(),
+            schedule: Some(request.schedule),
+            schedule_intent: None,
+            target: json!({
+                "botId": request.bot_id,
+                "conversationId": request.conversation_id,
+                "title": name,
+                "scheduleDescription": schedule_description,
+            }),
+            instructions: message,
+        })
+        .await
+        .map_err(ApiRouteError::from_task)?;
+    states
+        .realtime
+        .emit(EVENT_TASK_CREATED, json!({ "job": response.job.clone() }));
+    Ok(Json(response))
+}
+
+pub async fn update_scheduler_job(
+    State(states): State<ModuleStates>,
+    Path(job_id): Path<String>,
+    Json(request): Json<SchedulerUpdateRequest>,
+) -> Result<Json<TaskJobResponse>, ApiRouteError> {
+    let job =
+        scoped_scheduler_job(&states, &request.bot_id, &request.conversation_id, &job_id).await?;
+    let mut target = job.target;
+    if !target.is_object() {
+        target = json!({});
+    }
+    let target_object = target
+        .as_object_mut()
+        .expect("scheduler target normalized to object");
+    if let Some(name) = request.name {
+        target_object.insert(
+            "title".into(),
+            Value::String(required_scheduler_text("name", name)?),
+        );
+    }
+    if let Some(description) = request.schedule_description {
+        target_object.insert(
+            "scheduleDescription".into(),
+            Value::String(required_scheduler_text("scheduleDescription", description)?),
+        );
+    }
+    let message = request
+        .message
+        .map(|message| required_scheduler_text("message", message))
+        .transpose()?;
+    let response = states
+        .tasks
+        .update_job(
+            &job_id,
+            UpdateTaskJobRequest {
+                schedule: request.schedule,
+                schedule_intent: None,
+                target: Some(target),
+                instructions: message,
+                status: request.status,
+            },
+        )
+        .await
+        .map_err(ApiRouteError::from_task)?;
+    states
+        .realtime
+        .emit(EVENT_TASK_UPDATED, json!({ "job": response.job.clone() }));
+    Ok(Json(response))
+}
+
+pub async fn delete_scheduler_job(
+    State(states): State<ModuleStates>,
+    Path(job_id): Path<String>,
+    Json(scope): Json<SchedulerScope>,
+) -> Result<Json<EmptyResponse>, ApiRouteError> {
+    scoped_scheduler_job(&states, &scope.bot_id, &scope.conversation_id, &job_id).await?;
+    let response = states
+        .tasks
+        .delete_job(&job_id)
+        .await
+        .map_err(ApiRouteError::from_task)?;
+    states.realtime.emit(
+        EVENT_TASK_UPDATED,
+        json!({ "jobId": job_id, "deleted": true }),
+    );
+    Ok(Json(response))
+}
+
+async fn scoped_scheduler_job(
+    states: &ModuleStates,
+    bot_id: &str,
+    conversation_id: &str,
+    job_id: &str,
+) -> Result<TaskJobSummary, ApiRouteError> {
+    states
+        .tasks
+        .list_jobs_for_conversation(bot_id, conversation_id)
+        .await
+        .map_err(ApiRouteError::from_task)?
+        .jobs
+        .into_iter()
+        .find(|job| job.id == job_id)
+        .ok_or_else(|| ApiRouteError::not_found("scheduled task not found in this conversation"))
+}
+
+fn required_scheduler_text(field: &str, value: String) -> Result<String, ApiRouteError> {
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        return Err(ApiRouteError::bad_request(format!("{field} is required")));
+    }
+    Ok(value)
 }
 
 pub async fn list_cloud_tasks(
@@ -232,6 +400,20 @@ pub struct ApiRouteError {
 }
 
 impl ApiRouteError {
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+        }
+    }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            message: message.into(),
+        }
+    }
+
     fn from_task(error: TaskError) -> Self {
         let status = match &error {
             TaskError::NotFound(_) => StatusCode::NOT_FOUND,

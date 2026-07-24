@@ -1,6 +1,6 @@
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 
 use crate::services::AppServices;
 
@@ -46,9 +46,10 @@ use super::system::{
     save_model_selection, settings_runtime_control_options, system_status, test_provider,
 };
 use super::tasks::{
-    create_task_job, delete_cloud_task, delete_task_job, get_cloud_task, get_task_job,
-    list_cloud_tasks, list_task_jobs, pause_cloud_task, resume_cloud_task, run_cloud_task_now,
-    run_task_job, update_cloud_task, update_task_job,
+    create_scheduler_job, create_task_job, delete_cloud_task, delete_scheduler_job,
+    delete_task_job, get_cloud_task, get_task_job, list_cloud_tasks, list_scheduler_jobs,
+    list_task_jobs, pause_cloud_task, resume_cloud_task, run_cloud_task_now, run_task_job,
+    update_cloud_task, update_scheduler_job, update_task_job,
 };
 
 pub fn create_router(services: &AppServices) -> Router {
@@ -170,6 +171,14 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
             post(cancel_conversation_turn),
         )
         .route("/api/tasks/jobs", get(list_task_jobs).post(create_task_job))
+        .route(
+            "/api/mia/scheduler/jobs",
+            get(list_scheduler_jobs).post(create_scheduler_job),
+        )
+        .route(
+            "/api/mia/scheduler/jobs/{job_id}",
+            patch(update_scheduler_job).delete(delete_scheduler_job),
+        )
         .route(
             "/api/tasks/jobs/{job_id}",
             get(get_task_job)
@@ -2872,6 +2881,155 @@ mod tests {
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn scheduler_routes_are_scoped_to_the_current_conversation() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let app = create_router(&services);
+
+        let create_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/mia/scheduler/jobs")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"botId":"bot_a","conversationId":"conv_a","name":"日报提醒","schedule":"0 9 * * *","scheduleDescription":"每天上午九点","message":"提醒用户写日报。"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(create_response.status(), StatusCode::OK);
+        let create_body = to_bytes(create_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&create_body).unwrap();
+        let job_id = created["job"]["id"].as_str().unwrap();
+        assert_eq!(created["job"]["target"]["botId"], "bot_a");
+        assert_eq!(created["job"]["target"]["conversationId"], "conv_a");
+        assert_eq!(created["job"]["target"]["title"], "日报提醒");
+
+        let current_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mia/scheduler/jobs?botId=bot_a&conversationId=conv_a")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(current_response.status(), StatusCode::OK);
+        let current_body = to_bytes(current_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let current: Value = serde_json::from_slice(&current_body).unwrap();
+        assert_eq!(current["jobs"].as_array().unwrap().len(), 1);
+        assert_eq!(current["jobs"][0]["id"], job_id);
+
+        let foreign_list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mia/scheduler/jobs?botId=bot_b&conversationId=conv_b")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let foreign_list_body = to_bytes(foreign_list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let foreign_list: Value = serde_json::from_slice(&foreign_list_body).unwrap();
+        assert!(foreign_list["jobs"].as_array().unwrap().is_empty());
+
+        let foreign_update_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/mia/scheduler/jobs/{job_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"botId":"bot_b","conversationId":"conv_b","status":"paused"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(foreign_update_response.status(), StatusCode::NOT_FOUND);
+
+        let update_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PATCH")
+                    .uri(format!("/api/mia/scheduler/jobs/{job_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"botId":"bot_a","conversationId":"conv_a","status":"paused"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(update_response.status(), StatusCode::OK);
+        let update_body = to_bytes(update_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let updated: Value = serde_json::from_slice(&update_body).unwrap();
+        assert_eq!(updated["job"]["status"], "paused");
+
+        let foreign_delete_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/mia/scheduler/jobs/{job_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"botId":"bot_b","conversationId":"conv_b"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(foreign_delete_response.status(), StatusCode::NOT_FOUND);
+
+        let delete_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/mia/scheduler/jobs/{job_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"botId":"bot_a","conversationId":"conv_a"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(delete_response.status(), StatusCode::OK);
+
+        let final_list_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/mia/scheduler/jobs?botId=bot_a&conversationId=conv_a")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let final_list_body = to_bytes(final_list_response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let final_list: Value = serde_json::from_slice(&final_list_body).unwrap();
+        assert!(final_list["jobs"].as_array().unwrap().is_empty());
     }
 
     #[tokio::test]

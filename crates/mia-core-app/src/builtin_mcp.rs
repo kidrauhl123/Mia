@@ -213,8 +213,126 @@ async fn call_tool(
             )
             .await
         }
+        "schedule_list_current" => {
+            let scope = scheduler_scope(context)?;
+            let mut query = BTreeMap::new();
+            query.insert("botId", scope.bot_id.as_str());
+            query.insert("conversationId", scope.conversation_id.as_str());
+            core_json(
+                client,
+                context,
+                Method::GET,
+                "/api/mia/scheduler/jobs",
+                Some(&query),
+                None,
+            )
+            .await
+        }
+        "schedule_create" => {
+            let scope = scheduler_scope(context)?;
+            let schedule = args
+                .get("schedule")
+                .cloned()
+                .filter(|value| !value.is_null())
+                .context("schedule is required")?;
+            core_json(
+                client,
+                context,
+                Method::POST,
+                "/api/mia/scheduler/jobs",
+                None,
+                Some(json!({
+                    "botId": scope.bot_id,
+                    "conversationId": scope.conversation_id,
+                    "name": required_tool_text(&args, "name")?,
+                    "schedule": schedule,
+                    "scheduleDescription": required_tool_text(&args, "scheduleDescription")?,
+                    "message": required_tool_text(&args, "message")?,
+                })),
+            )
+            .await
+        }
+        "schedule_update" => {
+            let scope = scheduler_scope(context)?;
+            let job_id = required_tool_text(&args, "jobId")?;
+            let mut body = scope.as_json();
+            let body = body.as_object_mut().expect("scheduler scope is an object");
+            for key in [
+                "name",
+                "schedule",
+                "scheduleDescription",
+                "message",
+                "status",
+            ] {
+                if let Some(value) = args.get(key).filter(|value| !value.is_null()) {
+                    body.insert(key.to_string(), value.clone());
+                }
+            }
+            if body.len() == 2 {
+                bail!("schedule_update requires at least one field to change");
+            }
+            core_json(
+                client,
+                context,
+                Method::PATCH,
+                &format!("/api/mia/scheduler/jobs/{job_id}"),
+                None,
+                Some(Value::Object(body.clone())),
+            )
+            .await
+        }
+        "schedule_delete" => {
+            let scope = scheduler_scope(context)?;
+            let job_id = required_tool_text(&args, "jobId")?;
+            core_json(
+                client,
+                context,
+                Method::DELETE,
+                &format!("/api/mia/scheduler/jobs/{job_id}"),
+                None,
+                Some(scope.as_json()),
+            )
+            .await
+        }
         _ => bail!("Unknown tool: {name}"),
     }
+}
+
+#[derive(Debug, Clone)]
+struct SchedulerScope {
+    bot_id: String,
+    conversation_id: String,
+}
+
+impl SchedulerScope {
+    fn as_json(&self) -> Value {
+        json!({
+            "botId": self.bot_id,
+            "conversationId": self.conversation_id,
+        })
+    }
+}
+
+fn scheduler_scope(context: &MiaMcpContext) -> anyhow::Result<SchedulerScope> {
+    let bot_id = context.bot_id.trim();
+    let conversation_id = context.conversation_id.trim();
+    if bot_id.is_empty() || conversation_id.is_empty() {
+        bail!("The current Mia conversation is required for scheduled tasks");
+    }
+    Ok(SchedulerScope {
+        bot_id: bot_id.to_string(),
+        conversation_id: conversation_id.to_string(),
+    })
+}
+
+fn required_tool_text(args: &Value, key: &str) -> anyhow::Result<String> {
+    let value = args
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .context(format!("{key} is required"))?;
+    Ok(value.to_string())
 }
 
 /// Mutation feedback must not become a hidden read API for the Agent.
@@ -280,6 +398,56 @@ fn tool_definitions(memory_mode: MemoryMode) -> Vec<Value> {
             json!({"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}),
             true,
             false,
+        ),
+        tool(
+            "schedule_list_current",
+            "List scheduled tasks for only the current Mia conversation.",
+            json!({"type":"object","properties":{},"additionalProperties":false}),
+            true,
+            false,
+        ),
+        tool(
+            "schedule_create",
+            "Create a scheduled task in the current Mia conversation. The task will run with this Agent.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "name":{"type":"string","minLength":1},
+                    "schedule":{"anyOf":[{"type":"string","minLength":1},{"type":"object"}]},
+                    "scheduleDescription":{"type":"string","minLength":1},
+                    "message":{"type":"string","minLength":1}
+                },
+                "required":["name","schedule","scheduleDescription","message"],
+                "additionalProperties":false
+            }),
+            false,
+            true,
+        ),
+        tool(
+            "schedule_update",
+            "Update one scheduled task in the current Mia conversation. Use an id returned by schedule_list_current.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "jobId":{"type":"string","minLength":1},
+                    "name":{"type":"string","minLength":1},
+                    "schedule":{"anyOf":[{"type":"string","minLength":1},{"type":"object"}]},
+                    "scheduleDescription":{"type":"string","minLength":1},
+                    "message":{"type":"string","minLength":1},
+                    "status":{"type":"string","enum":["active","paused"]}
+                },
+                "required":["jobId"],
+                "additionalProperties":false
+            }),
+            false,
+            true,
+        ),
+        tool(
+            "schedule_delete",
+            "Delete one scheduled task in the current Mia conversation. Use an id returned by schedule_list_current.",
+            json!({"type":"object","properties":{"jobId":{"type":"string","minLength":1}},"required":["jobId"],"additionalProperties":false}),
+            false,
+            true,
         ),
     ];
     if memory_mode == MemoryMode::Mia {
@@ -352,12 +520,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tool_catalog_has_no_scheduler_tools() {
+    fn tool_catalog_exposes_scoped_scheduler_tools() {
         let names = tool_definitions(MemoryMode::Mia)
             .into_iter()
             .filter_map(|tool| tool.get("name").and_then(Value::as_str).map(str::to_string))
             .collect::<Vec<_>>();
-        assert!(!names.iter().any(|name| name.starts_with("schedule_")));
+        assert!(names.contains(&"schedule_list_current".to_string()));
+        assert!(names.contains(&"schedule_create".to_string()));
+        assert!(names.contains(&"schedule_update".to_string()));
+        assert!(names.contains(&"schedule_delete".to_string()));
     }
 
     #[test]

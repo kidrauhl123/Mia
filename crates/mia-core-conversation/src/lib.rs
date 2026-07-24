@@ -1,7 +1,5 @@
 //! Conversation and turn orchestration boundary for Mia Rust Core.
 
-pub mod cron_protocol;
-
 use std::collections::{HashSet, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};

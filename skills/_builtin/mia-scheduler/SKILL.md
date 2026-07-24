@@ -1,68 +1,56 @@
 ---
 name: mia-scheduler
-description: Mia reminders/定时提醒：创建、查询、更新或删除提醒任务；禁止用 shell/cronjob/sleep。
+description: Manage reminders and scheduled tasks for the current Mia conversation.
 ---
 
 # Mia Scheduled Tasks
 
-You can manage Mia scheduled tasks that execute in the current conversation with the current Agent.
+Use the built-in Mia scheduling tools to manage tasks that execute in the
+current conversation with the current Agent.  Do not use shell commands,
+operating-system schedulers, `sleep`, `at`, `cronjob`, or text control tags.
 
-## IMPORTANT RULES
+## Rules
 
-1. **Multiple tasks per conversation** - A conversation may have multiple scheduled tasks. Creating a new task must not replace an existing one.
-2. **Output commands directly** - Do not wrap commands in Markdown code blocks.
-3. **ALWAYS include closing tags** - `[CRON_CREATE]` must end with `[/CRON_CREATE]`; `[CRON_UPDATE]` must end with `[/CRON_UPDATE]`.
-4. Do not use shell commands, operating-system cron, `sleep`, `at`, `launchd`, or an MCP scheduler tool. Only the protocol below creates tasks in Mia 活跃任务.
+1. Tasks are scoped to this conversation. The tool does not expose or modify
+   tasks from other conversations.
+2. Before changing or deleting an existing task, call
+   `schedule_list_current` and use an id returned by that tool.
+3. Creating a new task does not replace existing tasks. Do not ask for a
+   confirmation that the user has already given.
+4. Only confirm success after `schedule_create`, `schedule_update`, or
+   `schedule_delete` returns successfully. If a tool fails, explain the
+   failure plainly instead of claiming the task was created.
+5. Never output `[CRON_LIST]`, `[CRON_CREATE]`, `[CRON_UPDATE]`, or
+   `[CRON_DELETE]`. They are not Mia commands.
 
-## Workflow
+## Tools
 
-This is a two-step workflow. Each step is one internal Agent turn.
+### List
 
-### Step 1: Query
+Call `schedule_list_current` to inspect tasks in this conversation.
 
-Output exactly `[CRON_LIST]` and nothing else. Wait for the hidden system response.
+### Create
 
-### Step 2: Act
+Call `schedule_create` with:
 
-- If the user requests a new task, immediately output `[CRON_CREATE]` whether or not other tasks already exist; do not ask for confirmation the user already gave.
-- If the user wants to change a specific task, output `[CRON_UPDATE: <job-id>]` using its real id from the list.
-- If the user explicitly asks to remove a specific task, output `[CRON_DELETE: <job-id>]` using its real id from the list.
-- If multiple existing tasks could match an update or delete request, ask the user which task they mean.
+- `name`: a short task name.
+- `schedule`: a five- or six-field cron expression, a relative expression such
+  as `in 5 minutes`, a future RFC3339 timestamp, or an accepted schedule
+  object.
+- `scheduleDescription`: a human-readable description in the user's local
+  time.
+- `message`: the complete, self-contained instruction the Agent should follow
+  when the task fires.
 
-## Create
+The `message` is the actual future instruction, not merely the user's request.
+For example, for “remind me every day at 10”, use a message such as “Reply with
+a short, friendly reminder that it is now time to …”.
 
-Output exactly this structure:
+### Update
 
-[CRON_CREATE]
-name: Short task name
-schedule: Five-field cron expression, relative delay, or future RFC3339 timestamp
-schedule_description: Human-readable schedule in the user's local time
-message: Complete, self-contained instruction for the Agent when the task fires
-[/CRON_CREATE]
+Call `schedule_update` with `jobId` plus every field that needs changing.  Set
+`status` to `paused` or `active` to pause or resume a task.
 
-The `message` is the actual instruction executed on every trigger. It must say what to do, not merely repeat “remind me”. For example:
+### Delete
 
-- User: “每天上午 9 点提醒我写日报”
-- `schedule`: `0 9 * * *`
-- `message`: `用一句简短中文提醒用户现在该写日报。`
-
-For a one-shot task, `schedule` may be a relative value such as `in 5 minutes` or a future RFC3339 timestamp such as `2026-07-13T09:00:00+08:00`.
-
-## Update
-
-[CRON_UPDATE: <job-id>]
-name: Updated task name
-schedule: Full updated schedule
-schedule_description: Full human-readable schedule
-message: Full updated self-contained instruction
-[/CRON_UPDATE]
-
-Use the real id returned by `[CRON_LIST]`. Always provide all four fields.
-
-## Query
-
-Output exactly `[CRON_LIST]`.
-
-## Delete
-
-Output exactly `[CRON_DELETE: <job-id>]` using the id returned by `[CRON_LIST]`.
+Call `schedule_delete` with a `jobId` returned by `schedule_list_current`.

@@ -99,15 +99,21 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        vec![
-            "context_snapshot",
-            "memory",
-            "skill_list_current",
-            "skill_read_current"
-        ]
-    );
+    for expected in [
+        "context_snapshot",
+        "memory",
+        "skill_list_current",
+        "skill_read_current",
+        "schedule_list_current",
+        "schedule_create",
+        "schedule_update",
+        "schedule_delete",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "missing {expected} from {names:?}"
+        );
+    }
     for old_name in [
         "memory_search",
         "memory_list",
@@ -231,14 +237,21 @@ async fn builtin_mcp_hides_memory_tool_in_native_mode() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        vec![
-            "context_snapshot",
-            "skill_list_current",
-            "skill_read_current"
-        ]
-    );
+    for expected in [
+        "context_snapshot",
+        "skill_list_current",
+        "skill_read_current",
+        "schedule_list_current",
+        "schedule_create",
+        "schedule_update",
+        "schedule_delete",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "missing {expected} from {names:?}"
+        );
+    }
+    assert!(!names.contains(&"memory"));
 
     child.kill().await.unwrap();
 }

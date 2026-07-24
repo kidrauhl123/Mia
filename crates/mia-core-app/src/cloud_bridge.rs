@@ -28,7 +28,6 @@ use crate::claude_code_mia_proxy::{
     ClaudeCodeMiaProxyConfig, RunningClaudeCodeMiaProxy, start_claude_code_mia_proxy,
 };
 use crate::codex_mia_proxy::{CodexMiaProxyConfig, RunningCodexMiaProxy, start_codex_mia_proxy};
-use crate::cron_turn::execute_runtime_with_cron;
 use crate::runtime::{ConversationRuntimeClaim, RuntimeRegistry};
 use crate::turn_execution::runtime_session_with_actual_id;
 
@@ -95,7 +94,7 @@ impl CloudBridgeRunHandler for AppCloudBridgeRunner {
 pub async fn execute_cloud_bridge_run(
     cloud: &CloudService,
     conversation: &ConversationService,
-    tasks: &TaskService,
+    _tasks: &TaskService,
     realtime: &EventBus,
     runtime: &RuntimeRegistry,
     runtime_sessions: &RuntimeSessionManager,
@@ -113,7 +112,7 @@ pub async fn execute_cloud_bridge_run(
     .await?;
     complete_started_cloud_bridge_run(
         conversation,
-        tasks,
+        _tasks,
         realtime,
         runtime,
         runtime_sessions,
@@ -400,7 +399,7 @@ pub async fn start_cloud_bridge_run(
 
 pub async fn complete_started_cloud_bridge_run(
     conversation: &ConversationService,
-    tasks: &TaskService,
+    _tasks: &TaskService,
     realtime: &EventBus,
     runtime: &RuntimeRegistry,
     runtime_sessions: &RuntimeSessionManager,
@@ -437,20 +436,16 @@ pub async fn complete_started_cloud_bridge_run(
         );
         let event_sender = event_processor.sender.clone();
         let execution_started = Instant::now();
-        let execution = execute_runtime_with_cron(
-            runtime_sessions,
-            tasks,
-            runtime_plan.clone(),
-            move |_| {
-                let event_sender = event_sender.clone();
+        let execution = runtime_sessions
+            .send_message(
+                runtime_plan.clone(),
                 RuntimeEventSink::new(move |event| {
                     let _ = event_sender.send(event);
-                })
-            },
-            Some(cancellation),
-        )
-        .await
-        .map_err(|error| CloudError::Runtime(error.to_string()));
+                }),
+                Some(cancellation),
+            )
+            .await
+            .map_err(|error| CloudError::Runtime(error.to_string()));
         runtime.remove(&cancellation_key);
         let mut event_state = match event_processor.finish().await {
             Ok(event_state) => event_state,
@@ -459,7 +454,7 @@ pub async fn complete_started_cloud_bridge_run(
                 return Err(error);
             }
         };
-        let cron_result = match execution {
+        let result = match execution {
             Ok(result) => result,
             Err(error) => {
                 attach_process_duration(
@@ -498,20 +493,13 @@ pub async fn complete_started_cloud_bridge_run(
                 return Err(error);
             }
         };
-        let result = cron_result.execution;
         let runtime_session = runtime_session_with_actual_id(
             &runtime_plan.runtime_session,
             event_state.actual_session_id.as_deref(),
         );
-        if cron_result.continuation_count > 0 {
-            replace_collected_text(
-                &mut event_state.structured_output,
-                &cron_result.visible_text,
-            );
-        }
         let mut output = runtime_output_with_collected_events(
             &runtime_plan.engine,
-            &cron_result.visible_text,
+            &result.stdout,
             &result.stderr,
             event_state.structured_output,
         );
@@ -1428,22 +1416,6 @@ fn runtime_output_with_collected_events(
         output.content_blocks = structured.content_blocks;
     }
     output
-}
-
-fn replace_collected_text(output: &mut RuntimeDisplayOutput, text: &str) {
-    let text = text.trim();
-    output.text = text.to_string();
-    let Some(blocks) = output.content_blocks.as_array_mut() else {
-        return;
-    };
-    blocks.retain(|block| block.get("type").and_then(Value::as_str) != Some("text"));
-    if !text.is_empty() {
-        blocks.push(json!({
-            "type": "text",
-            "id": format!("text_{}", blocks.len()),
-            "text": text,
-        }));
-    }
 }
 
 fn cloud_run_events_from_stdout(engine: &str, text: &str) -> Vec<Value> {
@@ -2535,45 +2507,6 @@ mod tests {
         assert_eq!(output.trace["tools"][0]["name"], "读取内存");
         assert_eq!(output.content_blocks[0]["type"], "tool");
         assert_eq!(output.content_blocks[1]["type"], "text");
-    }
-
-    #[test]
-    fn cron_continuation_replaces_collected_protocol_text_but_keeps_trace() {
-        let mut collector = CloudRunCollector::default();
-        collector.apply_run_event(&json!({
-            "type": "tool.started",
-            "id": "tool_1",
-            "name": "读取上下文",
-            "status": "running"
-        }));
-        collector.apply_run_event(&json!({
-            "type": "tool.completed",
-            "id": "tool_1",
-            "name": "读取上下文",
-            "status": "completed"
-        }));
-        collector.apply_run_event(&json!({
-            "type": "message.delta",
-            "text": "准备创建。 [CRON_CREATE]...[/CRON_CREATE]"
-        }));
-        let mut structured = collector.display_output();
-
-        replace_collected_text(&mut structured, "已经设置好每天上午 9 点的日报提醒。");
-
-        assert_eq!(structured.text, "已经设置好每天上午 9 点的日报提醒。");
-        assert_eq!(structured.trace["tools"][0]["name"], "读取上下文");
-        assert_eq!(structured.content_blocks[0]["type"], "tool");
-        assert_eq!(structured.content_blocks[1]["type"], "text");
-        assert_eq!(
-            structured.content_blocks[1]["text"],
-            "已经设置好每天上午 9 点的日报提醒。"
-        );
-        assert!(
-            !structured
-                .content_blocks
-                .to_string()
-                .contains("CRON_CREATE")
-        );
     }
 
     #[test]

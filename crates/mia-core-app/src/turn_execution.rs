@@ -13,7 +13,6 @@ use mia_core_tasks::TaskService;
 use serde_json::{Value, json};
 
 use crate::cloud_bridge::{attach_process_duration, normalize_runtime_output};
-use crate::cron_turn::execute_runtime_with_cron;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeTurnCompletion {
@@ -25,7 +24,7 @@ pub struct RuntimeTurnCompletion {
 
 pub async fn execute_and_complete_runtime_turn(
     conversation: &ConversationService,
-    tasks: &TaskService,
+    _tasks: &TaskService,
     sessions: &RuntimeSessionManager,
     realtime: &EventBus,
     runtime_plan: RuntimeTurnPlan,
@@ -50,13 +49,9 @@ pub async fn execute_and_complete_runtime_turn(
     let actual_session_id = Arc::new(Mutex::new(None::<String>));
     let actual_session_id_for_sink = actual_session_id.clone();
     let execution_started = Instant::now();
-    let execution = execute_runtime_with_cron(
-        sessions,
-        tasks,
-        runtime_plan.clone(),
-        move |_| {
-            let event_realtime = event_realtime.clone();
-            let actual_session_id_for_sink = actual_session_id_for_sink.clone();
+    let execution = sessions
+        .send_message(
+            runtime_plan.clone(),
             RuntimeEventSink::new(move |event| {
                 if event.name == EVENT_RUNTIME_FINISHED
                     && event.data.get("ok").and_then(Value::as_bool) == Some(true)
@@ -70,24 +65,19 @@ pub async fn execute_and_complete_runtime_turn(
                     *actual_session_id_for_sink.lock().unwrap() = Some(session_id.to_string());
                 }
                 event_realtime.emit(event.name, event.data);
-            })
-        },
-        cancellation,
-    )
-    .await;
+            }),
+            cancellation,
+        )
+        .await;
 
     let (body, runtime, successful, error) = match execution {
-        Ok(cron_result) => {
-            let result = cron_result.execution;
+        Ok(result) => {
             let runtime_session = runtime_session_with_actual_id(
                 &runtime_plan.runtime_session,
                 actual_session_id.lock().unwrap().as_deref(),
             );
-            let mut output = normalize_runtime_output(
-                &runtime_plan.engine,
-                &cron_result.visible_text,
-                &result.stderr,
-            );
+            let mut output =
+                normalize_runtime_output(&runtime_plan.engine, &result.stdout, &result.stderr);
             attach_process_duration(&mut output, execution_started.elapsed());
             let body = if output.text.trim().is_empty() && result.exit_code != Some(0) {
                 result.stderr.trim().to_string()

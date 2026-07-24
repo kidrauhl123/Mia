@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -33,7 +34,7 @@ use mia_core_common::process::configure_background_command;
 use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{Mutex, oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use uuid::Uuid;
@@ -974,6 +975,24 @@ fn session_meta_for_plan(plan: &RuntimeTurnPlan) -> Option<Meta> {
     .cloned()
 }
 
+/// Claude Code resumes through `session/new` metadata rather than ACP's
+/// generic `session/resume`.  The adapter may assign a replacement session id,
+/// so callers must use the id from the new-session response as the truth.
+fn session_meta_with_claude_resume(plan: &RuntimeTurnPlan, session_id: &SessionId) -> Meta {
+    let mut meta = session_meta_for_plan(plan).unwrap_or_default();
+    let claude_code = meta.entry("claudeCode").or_insert_with(|| json!({}));
+    let options = claude_code
+        .as_object_mut()
+        .expect("Claude Code metadata is an object")
+        .entry("options")
+        .or_insert_with(|| json!({}));
+    options
+        .as_object_mut()
+        .expect("Claude Code options are an object")
+        .insert("resume".into(), Value::String(session_id.to_string()));
+    meta
+}
+
 fn normalize_mcp_server(name: &str, server: &Value) -> Option<McpServer> {
     let mut value = server.clone();
     let object = value.as_object_mut()?;
@@ -1076,11 +1095,14 @@ async fn probe_native_acp_command_inner(
     let result: std::result::Result<RuntimeControlSnapshot, (NativeAcpProbeErrorKind, String)> =
         async {
             let session_state = Arc::new(StdMutex::new(NativeAcpSessionState::default()));
+            let (connection_closed_tx, connection_closed_rx) = watch::channel(None::<String>);
             let protocol = AcpProtocol::connect(
                 stdin,
                 stdout,
                 session_state.clone(),
                 NativeAcpPermissionBroker::default(),
+                connection_closed_tx,
+                connection_closed_rx,
             )
             .await
             .map_err(|error| (NativeAcpProbeErrorKind::Initialize, error.to_string()))?;
@@ -1372,9 +1394,9 @@ fn control_from_legacy_modes(modes: &SessionModeState) -> RuntimeControl {
 
 struct NativeAcpTask {
     protocol: AcpProtocol,
-    _child: Child,
+    child_wait_task: JoinHandle<()>,
     stderr_tail: Arc<StdMutex<String>>,
-    _stderr_task: JoinHandle<()>,
+    stderr_task: JoinHandle<()>,
     session_state: SharedSessionState,
     workspace_dir: PathBuf,
     platform_model_applied: Option<String>,
@@ -1440,16 +1462,45 @@ impl NativeAcpTask {
             .ok_or_else(|| anyhow!("ACP agent stdout was not piped"))?;
         let stderr_tail = Arc::new(StdMutex::new(String::new()));
         let stderr_task = tokio::spawn(read_stderr_tail(child.stderr.take(), stderr_tail.clone()));
+        let (connection_closed_tx, connection_closed_rx) = watch::channel(None::<String>);
+        let child_exit_tx = connection_closed_tx.clone();
+        let stderr_tail_for_exit = stderr_tail.clone();
+        let child_wait_task = tokio::spawn(async move {
+            let reason = match child.wait().await {
+                Ok(status) => format!("ACP agent process exited unexpectedly with status {status}"),
+                Err(error) => format!("ACP agent process wait failed: {error}"),
+            };
+            // `wait` can resolve slightly before the stderr drain observes EOF.
+            // Yield once so a Node/Claude fatal diagnostic written immediately
+            // before exit is retained on the error delivered to the caller.
+            tokio::task::yield_now().await;
+            let reason =
+                acp_error_with_stderr(reason, &stderr_tail_snapshot(&stderr_tail_for_exit));
+            let _ = child_exit_tx.send(Some(reason));
+        });
         let session_state = Arc::new(StdMutex::new(NativeAcpSessionState::default()));
-        let protocol = AcpProtocol::connect(stdin, stdout, session_state.clone(), permission_broker)
-            .await
-            .map_err(|error| acp_initialize_error_with_stderr(error, &stderr_tail))?;
+        let protocol = match AcpProtocol::connect(
+            stdin,
+            stdout,
+            session_state.clone(),
+            permission_broker,
+            connection_closed_tx,
+            connection_closed_rx,
+        )
+        .await
+        {
+            Ok(protocol) => protocol,
+            Err(error) => {
+                child_wait_task.abort();
+                return Err(acp_initialize_error_with_stderr(error, &stderr_tail));
+            }
+        };
 
         Ok(Self {
             protocol,
-            _child: child,
+            child_wait_task,
             stderr_tail,
-            _stderr_task: stderr_task,
+            stderr_task,
             session_state,
             workspace_dir,
             platform_model_applied: None,
@@ -1602,38 +1653,66 @@ impl NativeAcpTask {
         }
         let mcp_servers = mcp_servers_from_plan(plan);
         let session_meta = session_meta_for_plan(plan);
-        if let Some(session_id) = resumable_session_id(plan)
-            && self.protocol.supports_session_resume()
-        {
-            match self
-                .protocol
-                .resume_session(
-                    session_id.clone(),
-                    self.workspace_dir.clone(),
-                    mcp_servers.clone(),
-                    session_meta.clone(),
-                )
-                .await
-            {
-                Ok(response) => {
-                    let mut state = self.session_state.lock().unwrap();
-                    state.session_id = Some(session_id.clone());
-                    state.models = response.models;
-                    state.modes = response.modes;
-                    state.config_options = response.config_options;
-                    state.clear_pending_initial_prompt();
-                    return Ok(session_id);
+        if let Some(session_id) = resumable_session_id(plan) {
+            if plan.engine == "claude-code" {
+                match self
+                    .protocol
+                    .new_session(
+                        self.workspace_dir.clone(),
+                        mcp_servers.clone(),
+                        Some(session_meta_with_claude_resume(plan, &session_id)),
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        let resumed_session_id = response.session_id.clone();
+                        let mut state = self.session_state.lock().unwrap();
+                        state.apply_new_session_response(response);
+                        state.clear_pending_initial_prompt();
+                        return Ok(resumed_session_id);
+                    }
+                    Err(error) if should_open_fresh_session_after_resume_failure(plan, &error) => {
+                        tracing::warn!(
+                            engine = %plan.engine,
+                            conversation_id = %plan.conversation_id,
+                            memory_mode = ?plan.memory_mode,
+                            error = %error,
+                            "Claude Code meta-resume failed; opening a new session"
+                        );
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) if should_open_fresh_session_after_resume_failure(plan, &error) => {
-                    tracing::warn!(
-                        engine = %plan.engine,
-                        conversation_id = %plan.conversation_id,
-                        memory_mode = ?plan.memory_mode,
-                        error = %error,
-                        "ACP resume session failed; opening a new session"
-                    );
+            } else if self.protocol.supports_session_resume() {
+                match self
+                    .protocol
+                    .resume_session(
+                        session_id.clone(),
+                        self.workspace_dir.clone(),
+                        mcp_servers.clone(),
+                        session_meta.clone(),
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        let mut state = self.session_state.lock().unwrap();
+                        state.session_id = Some(session_id.clone());
+                        state.models = response.models;
+                        state.modes = response.modes;
+                        state.config_options = response.config_options;
+                        state.clear_pending_initial_prompt();
+                        return Ok(session_id);
+                    }
+                    Err(error) if should_open_fresh_session_after_resume_failure(plan, &error) => {
+                        tracing::warn!(
+                            engine = %plan.engine,
+                            conversation_id = %plan.conversation_id,
+                            memory_mode = ?plan.memory_mode,
+                            error = %error,
+                            "ACP resume session failed; opening a new session"
+                        );
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
             }
         }
         let response = self
@@ -1888,6 +1967,16 @@ impl NativeAcpTask {
     }
 }
 
+impl Drop for NativeAcpTask {
+    fn drop(&mut self) {
+        // The wait task owns the child process. Aborting it drops that child,
+        // and `kill_on_drop(true)` prevents an evicted cached task from
+        // leaving an orphan ACP process behind.
+        self.child_wait_task.abort();
+        self.stderr_task.abort();
+    }
+}
+
 fn platform_model_from_plan(plan: &RuntimeTurnPlan) -> Option<&str> {
     (plan
         .environment
@@ -1942,6 +2031,7 @@ struct AcpProtocol {
     connection: ConnectionTo<Agent>,
     shutdown_tx: Option<oneshot::Sender<()>>,
     alive: Arc<AtomicBool>,
+    connection_closed: watch::Receiver<Option<String>>,
     active_turn: SharedActiveTurn,
     permission_broker: NativeAcpPermissionBroker,
     agent_capabilities: AgentCapabilities,
@@ -2246,6 +2336,8 @@ impl AcpProtocol {
         stdout: ChildStdout,
         session_state: SharedSessionState,
         permission_broker: NativeAcpPermissionBroker,
+        connection_closed_tx: watch::Sender<Option<String>>,
+        connection_closed: watch::Receiver<Option<String>>,
     ) -> Result<Self> {
         let alive = Arc::new(AtomicBool::new(true));
         let active_turn = Arc::new(StdMutex::new(None));
@@ -2263,6 +2355,7 @@ impl AcpProtocol {
             ready_tx,
             shutdown_rx,
             alive.clone(),
+            connection_closed_tx,
         ));
 
         let agent_capabilities = tokio::time::timeout(ACP_INIT_TIMEOUT, init_rx)
@@ -2278,6 +2371,7 @@ impl AcpProtocol {
             connection,
             shutdown_tx: Some(shutdown_tx),
             alive,
+            connection_closed,
             active_turn,
             permission_broker,
             agent_capabilities,
@@ -2289,7 +2383,7 @@ impl AcpProtocol {
     }
 
     fn is_connected(&self) -> bool {
-        self.alive.load(Ordering::Acquire)
+        self.alive.load(Ordering::Acquire) && self.connection_closed.borrow().is_none()
     }
 
     fn supports_session_resume(&self) -> bool {
@@ -2375,14 +2469,15 @@ impl AcpProtocol {
         Req: JsonRpcRequest + serde::Serialize + std::fmt::Debug,
         Req::Response: serde::Serialize + std::fmt::Debug + Send,
     {
+        let mut connection_closed = self.connection_closed.clone();
         if !self.is_connected() {
-            bail!("ACP connection is not connected");
+            return Err(acp_connection_closed_error(&connection_closed));
         }
-        self.connection
-            .send_request(request)
-            .block_task()
-            .await
-            .map_err(|error| anyhow!("{error:?}"))
+        await_acp_response(
+            self.connection.send_request(request).block_task(),
+            &mut connection_closed,
+        )
+        .await
     }
 }
 
@@ -2404,6 +2499,7 @@ async fn run_sdk_background(
     ready_tx: oneshot::Sender<ConnectionTo<Agent>>,
     shutdown_rx: oneshot::Receiver<()>,
     alive: Arc<AtomicBool>,
+    connection_closed_tx: watch::Sender<Option<String>>,
 ) {
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let mut init_tx = Some(init_tx);
@@ -2470,8 +2566,46 @@ async fn run_sdk_background(
         .await;
 
     alive.store(false, Ordering::Release);
-    if let Err(error) = result {
-        tracing::debug!(?error, "ACP SDK background connection closed");
+    let reason = match result {
+        Ok(()) => "ACP connection closed unexpectedly".to_string(),
+        Err(error) => {
+            tracing::debug!(?error, "ACP SDK background connection closed");
+            format!("ACP connection closed: {error:?}")
+        }
+    };
+    let _ = connection_closed_tx.send(Some(reason));
+}
+
+fn acp_connection_closed_error(
+    connection_closed: &watch::Receiver<Option<String>>,
+) -> anyhow::Error {
+    anyhow!(
+        "{}",
+        connection_closed
+            .borrow()
+            .clone()
+            .unwrap_or_else(|| "ACP connection is not connected".into())
+    )
+}
+
+async fn await_acp_response<T, E>(
+    response: impl Future<Output = std::result::Result<T, E>>,
+    connection_closed: &mut watch::Receiver<Option<String>>,
+) -> Result<T>
+where
+    E: std::fmt::Debug,
+{
+    if connection_closed.borrow().is_some() {
+        return Err(acp_connection_closed_error(connection_closed));
+    }
+    tokio::select! {
+        response = response => response.map_err(|error| anyhow!("{error:?}")),
+        changed = connection_closed.changed() => {
+            if changed.is_err() && connection_closed.borrow().is_none() {
+                bail!("ACP connection closed");
+            }
+            Err(acp_connection_closed_error(connection_closed))
+        }
     }
 }
 
@@ -2530,12 +2664,24 @@ fn stderr_tail_snapshot(tail: &Arc<StdMutex<String>>) -> String {
     tail.lock().unwrap().trim().to_string()
 }
 
-fn acp_initialize_error_with_stderr(error: anyhow::Error, stderr_tail: &Arc<StdMutex<String>>) -> anyhow::Error {
+fn acp_initialize_error_with_stderr(
+    error: anyhow::Error,
+    stderr_tail: &Arc<StdMutex<String>>,
+) -> anyhow::Error {
     let detail = summarize_acp_stderr(&stderr_tail_snapshot(stderr_tail));
     if detail.is_empty() {
         error
     } else {
         error.context(format!("ACP agent stderr: {detail}"))
+    }
+}
+
+fn acp_error_with_stderr(reason: String, stderr: &str) -> String {
+    let detail = summarize_acp_stderr(stderr);
+    if detail.is_empty() {
+        reason
+    } else {
+        format!("{reason}; ACP agent stderr: {detail}")
     }
 }
 
@@ -2912,6 +3058,23 @@ mod tests {
     }
 
     #[test]
+    fn claude_code_resume_uses_new_session_metadata() {
+        let mut plan = native_acp_test_plan();
+        plan.engine = "claude-code".into();
+
+        let meta = session_meta_with_claude_resume(&plan, &SessionId::new("claude-session-1"));
+
+        assert_eq!(
+            meta["claudeCode"]["options"]["resume"],
+            Value::String("claude-session-1".into())
+        );
+        assert_eq!(
+            meta["claudeCode"]["options"]["disallowedTools"],
+            json!(["CronCreate", "CronDelete", "CronList", "CronUpdate"])
+        );
+    }
+
+    #[test]
     fn native_acp_fresh_plan_clears_persisted_resume_state() {
         let mut plan = native_acp_test_plan();
         plan.runtime_session.resume_session_key = Some("acp-session-1".into());
@@ -3073,6 +3236,43 @@ mod tests {
     }
 
     #[test]
+    fn acp_process_exit_error_keeps_the_stderr_tail() {
+        let error = acp_error_with_stderr(
+            "ACP agent process exited unexpectedly with status exit code: 134".into(),
+            "FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory",
+        );
+
+        assert!(error.contains("exit code: 134"));
+        assert!(error.contains("heap out of memory"));
+    }
+
+    #[tokio::test]
+    async fn acp_request_returns_when_agent_process_exits() {
+        let (closed_tx, mut closed_rx) = watch::channel(None::<String>);
+        let waiting = tokio::spawn(async move {
+            await_acp_response(
+                std::future::pending::<std::result::Result<(), &'static str>>(),
+                &mut closed_rx,
+            )
+            .await
+        });
+
+        closed_tx
+            .send(Some(
+                "ACP agent process exited unexpectedly with status exit code: 1".into(),
+            ))
+            .unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(1), waiting)
+            .await
+            .expect("connection close must unblock the pending ACP request")
+            .unwrap()
+            .unwrap_err();
+
+        assert!(error.to_string().contains("process exited unexpectedly"));
+        assert!(is_restartable_session_error(&error));
+    }
+
+    #[test]
     fn native_acp_session_manager_can_construct_real_backend() {
         let manager = NativeAcpSessionManager::real();
 
@@ -3214,11 +3414,17 @@ lines.on("line", (line) => {
 
     #[test]
     fn native_acp_initialize_error_includes_stderr_tail() {
-        let stderr = Arc::new(StdMutex::new("Codex app-server failed to start".to_string()));
+        let stderr = Arc::new(StdMutex::new(
+            "Codex app-server failed to start".to_string(),
+        ));
         let error = acp_initialize_error_with_stderr(anyhow!("ACP initialize timed out"), &stderr);
 
         assert!(error.to_string().contains("ACP agent stderr"));
-        assert!(error.to_string().contains("Codex app-server failed to start"));
+        assert!(
+            error
+                .to_string()
+                .contains("Codex app-server failed to start")
+        );
     }
 
     #[test]

@@ -1429,7 +1429,7 @@ async fn conversation_service_uses_default_workspace_for_builtin_native_skills()
     fs::create_dir_all(&officecli).unwrap();
     fs::write(
         scheduler.join("SKILL.md"),
-        "---\nname: mia-scheduler\ndescription: Mia scheduler protocol.\n---\n# Scheduler\nUse [CRON_CREATE].",
+        "---\nname: mia-scheduler\ndescription: Mia scheduler tools.\n---\n# Scheduler\nUse schedule_create.",
     )
     .unwrap();
     fs::write(
