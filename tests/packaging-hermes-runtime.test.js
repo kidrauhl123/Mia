@@ -220,9 +220,12 @@ test("Windows release workflow builds Rust Core natively and publishes durable a
   assert.match(workflow, /source_ref:/);
   assert.match(workflow, /node-version:\s*"22"/);
   assert.match(workflow, /rustup toolchain install stable --profile minimal/);
-  assert.match(workflow, /cargo build --release --locked -p mia-core-app --bin mia-core/);
+  assert.match(workflow, /cargo build --release --locked --target x86_64-pc-windows-msvc -p mia-core-app --bin mia-core/);
   assert.match(workflow, /MIA_CORE_RS_BIN:/);
-  assert.match(workflow, /target\/release\/mia-core\.exe/);
+  assert.match(workflow, /target\/x86_64-pc-windows-msvc\/release\/mia-core\.exe/);
+  assert.match(workflow, /Package Windows Mia Core archive/);
+  assert.match(workflow, /MIA_CORE_RELEASE_SKIP_BUILD: "1"/);
+  assert.match(workflow, /dist\/mia-core-release\/\*\*/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /gh release upload/);
 });

@@ -77,12 +77,19 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: Build Mia Core for Windows
-        run: cargo build --release --locked -p mia-core-app --bin mia-core
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc -p mia-core-app --bin mia-core
+
+      - name: Package Windows Mia Core archive
+        run: node scripts/build-mia-core-release.js
+        env:
+          MIA_CORE_RELEASE_SKIP_BUILD: "1"
+          MIA_CORE_TARGET_PLATFORM: win32
+          MIA_CORE_TARGET_ARCH: x64
 
       - name: Build and verify Windows installer
         run: npm run dist:win
         env:
-          MIA_CORE_RS_BIN: ${{ github.workspace }}/target/release/mia-core.exe
+          MIA_CORE_RS_BIN: ${{ github.workspace }}/target/x86_64-pc-windows-msvc/release/mia-core.exe
 
       - name: Stage Windows update feed
         run: node scripts/publish-win-update.js
@@ -91,7 +98,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Mia-${{ env.RELEASE_TAG }}-Windows
-          path: dist/mia-updates/*
+          path: |
+            dist/mia-updates/*
+            dist/mia-core-release/**
           if-no-files-found: error
           retention-days: 30
 
