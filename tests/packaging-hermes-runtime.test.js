@@ -152,6 +152,7 @@ test("desktop auto-update uses Mia generic update source instead of GitHub", () 
     assert.match(source, /dist", "mia-updates"/);
     assert.match(source, /MIA_UPDATE_DEPLOY/);
     assert.match(source, /\/var\/www\/mia-updates\//);
+    assert.match(source, /\[remote, "chmod", "755", remoteDir\]/);
     assert.match(source, /syncDesktopWebDownloads/);
     assert.doesNotMatch(source, /gh\(["']release|github release/i);
   }

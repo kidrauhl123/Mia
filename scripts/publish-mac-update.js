@@ -183,6 +183,9 @@ if (shouldDeploy) {
   console.log(`Deploying updates to ${remote}:${remoteDir}`);
   execFileSync("ssh", [remote, "mkdir", "-p", remoteDir], { cwd: root, stdio: "inherit" });
   execFileSync("rsync", ["-av", `${stageDir}/`, `${remote}:${remoteDir}`], { cwd: root, stdio: "inherit" });
+  // rsync preserves the source directory mode. Staging under mktemp defaults
+  // to 0700, which would make the public Nginx update location return 403.
+  execFileSync("ssh", [remote, "chmod", "755", remoteDir], { cwd: root, stdio: "inherit" });
   if (shouldSyncWebDownloads && dmgNames.length) {
     console.log("Syncing macOS website download aliases.");
     syncDesktopWebDownloads({
