@@ -12,11 +12,17 @@ test("Windows NSIS upgrades use same-volume staging and release Mia Core before 
 
   assert.equal(packageJson.build.nsis.include, "build/installer.nsh");
   assert.match(source, /!macro customUnInit/);
-  assert.doesNotMatch(source, /!macro customInit/);
+  assert.match(source, /!macro customInit\s+!insertmacro prepareLegacyUninstallerTemp/);
   assert.match(source, /\$\{GetOptions\} \$R0 "--updated" \$R1/);
   assert.match(source, /StrCpy \$R9 "\$INSTDIR\.__mia_update_tmp"/);
   assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TEMP", t "\$R9"\)/);
   assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TMP", t "\$R9"\)/);
+  const legacyTempHook = source.match(/!macro prepareLegacyUninstallerTemp[\s\S]*?!macroend/)?.[0];
+  assert.ok(legacyTempHook, "incoming installer must prepare the old uninstaller's temp directory");
+  assert.match(legacyTempHook, /!ifndef BUILD_UNINSTALLER/);
+  assert.match(legacyTempHook, /\$\{FileExists\} "\$INSTDIR\\Uninstall \$\{PRODUCT_NAME\}\.exe"/);
+  assert.match(legacyTempHook, /Kernel32::SetEnvironmentVariable\(t "TEMP", t "\$R9"\)/);
+  assert.match(legacyTempHook, /Kernel32::SetEnvironmentVariable\(t "TMP", t "\$R9"\)/);
   assert.match(source, /!macro customCheckAppRunning/);
   assert.match(source, /-Command "& \{ param\(\[string\]\$\$root\)/);
   assert.match(source, /Get-CimInstance -ClassName Win32_Process/);

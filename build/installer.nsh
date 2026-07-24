@@ -17,10 +17,36 @@
 ;
 ; SetEnvironmentVariable only changes this installer process and its children;
 ; it does not persistently change the user's TEMP/TMP settings.
-; This runs in the *old uninstaller* before electron-builder initializes
-; $PLUGINSDIR for its atomic replacement. `customInit` is not an
-; electron-builder hook, so using it silently skipped this repair during
-; updater-driven installs.
+;
+; The incoming installer invokes the installed version's uninstaller as a
+; child process. Set TEMP/TMP before that call so even releases that predate
+; customUnInit inherit a same-volume staging directory. `customInit` runs
+; after electron-builder resolves $INSTDIR in both the regular installer and
+; its UAC-elevated inner instance. Restrict this to an upgrade in the installer
+; build: a normal uninstaller must not create its temporary directory inside
+; the folder it is about to remove.
+!macro prepareLegacyUninstallerTemp
+  !ifndef BUILD_UNINSTALLER
+    ${If} ${FileExists} "$INSTDIR\Uninstall ${PRODUCT_NAME}.exe"
+      StrCpy $R9 "$INSTDIR.__mia_update_tmp"
+      ClearErrors
+      CreateDirectory "$R9"
+      ${IfNot} ${Errors}
+        System::Call 'Kernel32::SetEnvironmentVariable(t "TEMP", t "$R9") i.r2'
+        System::Call 'Kernel32::SetEnvironmentVariable(t "TMP", t "$R9") i.r2'
+        DetailPrint "Using same-volume temporary directory for the legacy uninstaller: $R9"
+      ${EndIf}
+    ${EndIf}
+  !endif
+!macroend
+
+!macro customInit
+  !insertmacro prepareLegacyUninstallerTemp
+!macroend
+
+; New uninstallers repeat the protection while handling --updated directly.
+; This is defense in depth; it cannot repair an already-installed historical
+; uninstaller, which is why the incoming installer hook above is required.
 !macro customUnInit
   ${GetParameters} $R0
   ${GetOptions} $R0 "--updated" $R1
