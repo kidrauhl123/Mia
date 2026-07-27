@@ -16,7 +16,8 @@ function countMatches(source, pattern) {
 test("main imports tray lifecycle and window close policy modules", () => {
   const main = read("src/main.js");
 
-  assert.match(main, /const \{ app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray \} = require\("electron"\);/);
+  assert.match(main, /const \{ app \} = require\("electron"\);/);
+  assert.match(main, /const \{ BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray \} = require\("electron"\);/);
   assert.match(main, /const \{ createTrayLifecycleService \} = require\("\.\/main\/tray-lifecycle-service\.js"\);/);
   assert.match(main, /WINDOW_CLOSE_ACTIONS/);
   assert.match(main, /decideWindowClose/);

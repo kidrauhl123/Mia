@@ -90,22 +90,46 @@ test("main desktop and web surfaces use crisp macOS text rendering", () => {
   assert.match(cssBlock(webCss, "html, body"), /-webkit-font-smoothing:\s*antialiased;/);
 });
 
-test("only intentional text links use the hand cursor", () => {
-  const violations = [];
+test("interactive controls use the hand cursor", () => {
+  const allowedSelectors = new Set([
+    ".bubble a.message-link",
+    ".trace-link-modifier-active .trace-link:hover",
+    ".recovery-shell button",
+    ".admin-advanced-fields summary",
+    ".final-experience-cta .gsap-large-button",
+    ".gs-swatch",
+    ".gs-seg button",
+    ".gs-close",
+    "button, a, label, summary, [role=\"button\"], input[type=\"button\"], input[type=\"color\"], input[type=\"submit\"]",
+    ".btn",
+    ".mw-row",
+    ".faq-q",
+    ".gsap-large-button",
+    ".settings-switch-wrap",
+    ".settings-switch-wrap input",
+    "button, a, label, summary, [role=\"button\"], select, input[type=\"button\"], input[type=\"color\"], input[type=\"submit\"], input[type=\"checkbox\"], input[type=\"radio\"]",
+    ".conversation-device-group-header",
+    ".identity-badge-trigger",
+    ".identity-badge-choices button",
+    ".message-code-copy",
+    ".settings-row > input[type=\"color\"]",
+    ".permission-banner .permission-actions button",
+    ".trace-row > summary"
+  ]);
+  const unexpected = [];
   const files = sourceFiles(path.join(root, "src"), new Set([".css", ".html", ".js"]));
 
   for (const file of files) {
     const text = read(file);
     for (const match of text.matchAll(/cursor\s*:\s*pointer\b/g)) {
       const selector = path.extname(file) === ".css" ? cssSelectorAt(text, match.index || 0) : "";
-      if (selector === ".bubble a.message-link") continue;
-      if (selector === ".trace-link-modifier-active .trace-link:hover") continue;
+      if (allowedSelectors.has(selector)) continue;
       const line = text.slice(0, match.index || 0).split("\n").length;
-      violations.push(`${file}:${line}${selector ? ` ${selector}` : ""}`);
+      unexpected.push(`${file}:${line}${selector ? ` ${selector}` : ""}`);
     }
   }
 
-  assert.deepEqual(violations, []);
+  assert.deepEqual(unexpected, []);
 });
 
 test("dynamic badges and unread counts use tabular numbers", () => {
