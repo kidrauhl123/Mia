@@ -33,7 +33,7 @@ function mockMenu() {
   };
 }
 
-function loadSocialMessageMenu() {
+function loadSocialMessageMenu({ bodyMd = "整条消息文本" } = {}) {
   const menu = mockMenu();
   let copied = "";
   const mockWindow = {
@@ -45,7 +45,7 @@ function loadSocialMessageMenu() {
     },
     miaSocial: {
       getActiveConversationId: () => "botc_sess_1",
-      describeMessageForMenu: () => ({ authorName: "论文搭子", isOwn: false, bodyMd: "整条消息文本" })
+      describeMessageForMenu: () => ({ authorName: "论文搭子", isOwn: false, bodyMd })
     },
     miaMessageMenu: { closeMessageContextMenu() {} },
     miaLottieIcons: { init() {} }
@@ -79,4 +79,52 @@ test("cloud message menu copies selected text instead of the whole bubble", asyn
   await copyButton.handler();
 
   assert.equal(copied(), "选中的一段");
+});
+
+test("cloud message menu copies the original markdown body", async () => {
+  const bodyMd = "**粗体**\n\n```js\nconst answer = 42;\n```\n\n[链接](https://example.com)";
+  const { api, menu, copied } = loadSocialMessageMenu({ bodyMd });
+
+  api.openSocialMessageMenu({ id: "m_1", body_md: bodyMd }, 100, 100);
+  const copyButton = menu.buttons.find((button) => button.dataset.socialMessageAction === "copy");
+  assert.ok(copyButton, "copy action should be rendered");
+
+  await copyButton.handler();
+
+  assert.equal(copied(), bodyMd);
+});
+
+test("cloud message link menu copies the link target", async () => {
+  const { api, menu, copied } = loadSocialMessageMenu();
+  const linkTarget = "https://example.com/docs?mode=raw#copy";
+
+  api.openSocialMessageMenu(
+    { id: "m_1", body_md: "[文档](https://example.com/docs)" },
+    100,
+    100,
+    null,
+    linkTarget,
+  );
+  const copyLinkButton = menu.buttons.find((button) => button.dataset.socialMessageAction === "copy-link");
+  assert.ok(copyLinkButton, "copy link action should be rendered");
+  assert.match(menu.innerHTML, /复制链接/);
+
+  await copyLinkButton.handler();
+
+  assert.equal(copied(), linkTarget);
+});
+
+test("chat context menu passes the hovered message link target", () => {
+  const appSource = fs.readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
+
+  assert.match(appSource, /function messageLinkCopyTarget\(link\)/);
+  assert.match(appSource, /const linkTarget = messageLinkCopyTarget\(event\.target\.closest\(messageLinkSelector\)\);/);
+  assert.match(
+    appSource,
+    /openSocialMessageMenu\(message, event\.clientX, event\.clientY, selection, linkTarget\)/,
+  );
+  assert.match(
+    appSource,
+    /openMessageContextMenu\(bubble\.dataset\.messageIndex, event\.clientX, event\.clientY, selection, linkTarget\)/,
+  );
 });

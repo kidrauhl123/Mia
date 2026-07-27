@@ -82,7 +82,7 @@
     return Boolean(anchorBubble && focusBubble && anchorBubble === focusBubble && els.chat?.contains(anchorBubble));
   }
 
-  function openMessageContextMenu(messageIndex, x, y, selection = null) {
+  function openMessageContextMenu(messageIndex, x, y, selection = null, linkTarget = "") {
     const index = Number(messageIndex);
     if (!messageAtIndex(index)) return;
     // Optional calls: the group subsystem was removed in the cloud-conversation
@@ -94,7 +94,14 @@
     closeBotContextMenu?.();
     closeGroupContextMenu?.();
     const selectionText = String(selection?.text || "").trim();
-    state.messageContextMenu = { open: true, x, y, messageIndex: index, selectionText };
+    state.messageContextMenu = {
+      open: true,
+      x,
+      y,
+      messageIndex: index,
+      selectionText,
+      linkTarget: String(linkTarget || "").trim()
+    };
     if (selectionText) highlightMessageSelection(selection.range);
     else clearMessageSelectionHighlight();
     renderMessageContextMenu();
@@ -102,7 +109,7 @@
 
   function closeMessageContextMenu() {
     if (!state.messageContextMenu.open) return;
-    state.messageContextMenu = { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "" };
+    state.messageContextMenu = { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "", linkTarget: "" };
     clearMessageSelectionHighlight();
     renderMessageContextMenu();
   }
@@ -228,10 +235,12 @@
     const selectionText = String(state.messageContextMenu.selectionText || "").trim();
     const hasSelection = Boolean(selectionText);
     const contextText = messageContextText(message, selectionText);
+    const copyLink = String(state.messageContextMenu.linkTarget || "").trim();
     const hasText = Boolean(contextText);
     menu.innerHTML = `
       ${menuItemHtml({ icon: "quote", label: hasSelection ? "回复选中" : "回复", attrs: `data-message-action="reply" ${hasText ? "" : "disabled"}` })}
       ${menuItemHtml({ icon: "copy", label: hasSelection ? "拷贝选中" : "拷贝", attrs: `data-message-action="copy" ${hasText ? "" : "disabled"}` })}
+      ${copyLink ? menuItemHtml({ icon: "copy", label: "复制链接", attrs: 'data-message-action="copy-link"' }) : ""}
       ${menuItemHtml({ icon: "translate", label: hasSelection ? "翻译选中" : "翻译", attrs: `data-message-action="translate" ${hasText ? "" : "disabled"}` })}
       <div class="skill-context-menu-separator" role="separator"></div>
       ${menuItemHtml({ icon: "pin", label: message.pinned ? "取消置顶" : "置顶", attrs: 'data-message-action="pin"' })}
@@ -248,11 +257,13 @@
         const action = button.dataset.messageAction;
         const index = state.messageContextMenu.messageIndex;
         const actionSelectionText = String(state.messageContextMenu.selectionText || "").trim();
+        const actionLinkTarget = String(state.messageContextMenu.linkTarget || "").trim();
         const targetMessage = messageAtIndex(index);
         closeMessageContextMenu();
         if (!targetMessage) return;
         if (action === "reply") replyToMessage(targetMessage, index, actionSelectionText);
         if (action === "copy") await copyTextToClipboard(messageContextText(targetMessage, actionSelectionText));
+        if (action === "copy-link") await copyTextToClipboard(actionLinkTarget);
         if (action === "translate") await translateMessage(targetMessage, index, actionSelectionText);
         if (action === "pin") await toggleMessagePinned(index);
         if (action === "delete") await deleteMessageAt(index);

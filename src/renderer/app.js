@@ -6553,6 +6553,7 @@ els.chat?.addEventListener("contextmenu", (event) => {
   const bubble = event.target.closest(".bubble[data-message-index], .message-attachments[data-message-index]");
   if (!bubble || !els.chat.contains(bubble)) return;
   const selection = window.miaMessageMenu?.selectionInsideBubble(bubble);
+  const linkTarget = messageLinkCopyTarget(event.target.closest(messageLinkSelector));
   // Cloud-conversation bubbles (cloud DM + cloud group) carry data-message-source +
   // data-message-id and live in social.moduleState.messageCache, not the
   // bot session, so dispatch to the lightweight social message menu.
@@ -6566,12 +6567,12 @@ els.chat?.addEventListener("contextmenu", (event) => {
     if (!message) return;
     event.preventDefault();
     event.stopPropagation();
-    window.miaSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY, selection);
+    window.miaSocialMessageMenu?.openSocialMessageMenu(message, event.clientX, event.clientY, selection, linkTarget);
     return;
   }
   event.preventDefault();
   event.stopPropagation();
-  window.miaMessageMenu?.openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection);
+  window.miaMessageMenu?.openMessageContextMenu(bubble.dataset.messageIndex, event.clientX, event.clientY, selection, linkTarget);
 });
 document.addEventListener("click", (event) => {
   if (!state.sessionMenuOpen) return;
@@ -8036,6 +8037,16 @@ function openMessageLink(link) {
   if (link.dataset.externalLink) {
     window.mia?.openExternal?.(link.dataset.externalLink);
   }
+}
+
+function messageLinkCopyTarget(link) {
+  const external = String(link?.dataset?.externalLink || "").trim();
+  if (external) return external;
+  const localPath = String(link?.dataset?.localFilePath || "").trim();
+  if (!localPath) return "";
+  const line = String(link?.dataset?.localFileLine || "").trim();
+  const column = String(link?.dataset?.localFileColumn || "").trim();
+  return line ? `${localPath}:${line}${column ? `:${column}` : ""}` : localPath;
 }
 
 let attachmentContextMenuOutsideClickHandler = null;

@@ -102,7 +102,7 @@
       composerSkillsConversationId: "",
       skillContextMenu: { open: false, x: 0, y: 0, skillId: "" },
       botContextMenu: { open: false, x: 0, y: 0, botKey: "" },
-      messageContextMenu: { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "" },
+      messageContextMenu: { open: false, x: 0, y: 0, messageIndex: -1, selectionText: "", linkTarget: "" },
       replyDraft: null,
       botMenuOpen: false,
       contactMenuOpen: false,
