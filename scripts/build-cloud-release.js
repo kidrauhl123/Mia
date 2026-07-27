@@ -186,7 +186,17 @@ function rewriteWebDownloadLinks(downloads) {
 
 function sha256File(filePath) {
   const hash = crypto.createHash("sha256");
-  hash.update(fs.readFileSync(filePath));
+  const descriptor = fs.openSync(filePath, "r");
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    for (;;) {
+      const bytesRead = fs.readSync(descriptor, buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+  } finally {
+    fs.closeSync(descriptor);
+  }
   return hash.digest("hex");
 }
 
