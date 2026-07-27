@@ -31,6 +31,12 @@ try {
 } catch {
   ({ createMessagesStore } = require("./src/cloud/messages-store.js"));
 }
+let createChatMcpApi = null;
+try {
+  ({ createChatMcpApi } = require("../src/cloud/chat-mcp-api.js"));
+} catch {
+  ({ createChatMcpApi } = require("./src/cloud/chat-mcp-api.js"));
+}
 let createEventLogStore = null;
 try {
   ({ createEventLogStore } = require("../src/cloud/event-log-store.js"));
@@ -3440,9 +3446,13 @@ async function handleRequest(req, res, context) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
   applySecurityHeaders(req, res, context);
 
+  if (url.pathname === "/mcp" && !requestOriginAllowed(req, context)) {
+    return writeError(res, 403, "Origin is not allowed.");
+  }
+
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
-      "Access-Control-Allow-Headers": "authorization, content-type",
+      "Access-Control-Allow-Headers": "authorization, content-type, mcp-method, mcp-name, mcp-protocol-version",
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     });
     res.end();
@@ -3547,8 +3557,42 @@ async function handleRequest(req, res, context) {
 
     const auth = cloudStore.authenticateToken(tokenFromRequest(req));
     if (req.method === "GET" && serveAuthorizedFile(req, res, context, auth, url.pathname)) return;
+    if (!auth && url.pathname === "/mcp") res.setHeader("WWW-Authenticate", "Bearer");
     if (!auth) return writeError(res, 401, "请先登录。");
     ensureCloudAgentBootstrap(context, auth.user.id);
+
+    if (url.pathname === "/mcp") {
+      let body = null;
+      if (req.method === "POST") {
+        try {
+          body = await readJson(req);
+        } catch (error) {
+          if (error.code === "MIA_INVALID_JSON") {
+            return writeJson(res, 400, {
+              jsonrpc: "2.0",
+              id: null,
+              error: { code: -32700, message: "Parse error" }
+            });
+          }
+          throw error;
+        }
+      }
+      const response = await context.chatMcpApi.handleHttp({
+        method: req.method,
+        body,
+        headers: req.headers,
+        userId: auth.user.id
+      });
+      for (const [name, value] of Object.entries(response.headers || {})) {
+        res.setHeader(name, value);
+      }
+      if (response.body == null) {
+        res.writeHead(response.status);
+        res.end();
+        return;
+      }
+      return writeJson(res, response.status, response.body);
+    }
 
     if (url.pathname.startsWith("/api/me/memory-documents")) {
       const body = req.method === "GET" ? {} : await readJson(req);
@@ -4985,7 +5029,8 @@ function createMiaCloudServer(options = {}) {
     wechatMpToken: options.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN || "",
     publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
     wechatAuth: null,
-    mobileScanLogin: null
+    mobileScanLogin: null,
+    chatMcpApi: null
   };
   context.socialStore = createSocialStore(context.cloudStore.getDb());
   context.messagesStore = createMessagesStore(context.cloudStore.getDb());
@@ -5145,6 +5190,33 @@ function createMiaCloudServer(options = {}) {
   });
   context.mobileScanLogin = createMobileScanLoginFlow({
     cloudStore: context.cloudStore
+  });
+  context.chatMcpApi = createChatMcpApi({
+    context,
+    serverVersion: String(process.env.MIA_CLOUD_VERSION || ""),
+    broadcast: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
+    dispatchMessage: ({ userId, conversationId, message }) => {
+      if (context.cloudAgentDispatcher) {
+        return context.cloudAgentDispatcher.handleUserMessage({
+          userId,
+          conversationId,
+          message
+        });
+      }
+      const invokedBy = context.cloudStore.getUserPublic(userId) || { id: userId };
+      broadcastBotDmDesktopInvocationFallback(
+        context,
+        conversationId,
+        message,
+        invokedBy
+      );
+      return null;
+    },
+    listDevices: (userId, listOptions = {}) => bridgeDevices(context.bridgeHub, userId, {
+      includeOffline: listOptions.includeOffline,
+      cloudStore: context.cloudStore
+    }),
+    getUserPublic: (userId) => context.cloudStore.getUserPublic(userId)
   });
   const server = http.createServer((req, res) => handleRequest(req, res, context));
   const wss = new WebSocketServer({ noServer: true });
