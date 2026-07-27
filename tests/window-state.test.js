@@ -113,3 +113,50 @@ test("attachWindowStatePersistence saves normal bounds on close", () => {
     maximized: true
   });
 });
+
+test("Windows persistence ignores live move and resize events until the gesture settles", () => {
+  const { store } = storeWith();
+  let scheduled = 0;
+  const manager = createWindowStateManager({
+    settingsStore: store,
+    screen: fakeScreen(),
+    platform: "win32",
+    setTimeoutFn: () => {
+      scheduled += 1;
+      return scheduled;
+    },
+    clearTimeoutFn: () => {}
+  });
+  const win = new FakeWindow({ x: 24, y: 36, width: 1100, height: 720 });
+
+  manager.attachWindowStatePersistence(win);
+  win.emit("move");
+  win.emit("resize");
+  assert.equal(scheduled, 0);
+
+  win.emit("moved");
+  win.emit("resized");
+  assert.equal(scheduled, 2);
+});
+
+test("Linux persistence retains move and resize event fallbacks", () => {
+  const { store } = storeWith();
+  let scheduled = 0;
+  const manager = createWindowStateManager({
+    settingsStore: store,
+    screen: fakeScreen(),
+    platform: "linux",
+    setTimeoutFn: () => {
+      scheduled += 1;
+      return scheduled;
+    },
+    clearTimeoutFn: () => {}
+  });
+  const win = new FakeWindow({ x: 24, y: 36, width: 1100, height: 720 });
+
+  manager.attachWindowStatePersistence(win);
+  win.emit("move");
+  win.emit("resize");
+
+  assert.equal(scheduled, 2);
+});

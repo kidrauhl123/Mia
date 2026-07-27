@@ -4,6 +4,7 @@ const {
   bootstrapWindowsMemoryBudget,
   installWindowsMemoryBudgetForChildProcesses
 } = require("./main/windows-memory-policy.js");
+const { applyWindowsGpuPolicy } = require("./main/windows-gpu-policy.js");
 
 // The main Electron isolate is created before app.commandLine switches can be
 // applied, so its V8 heap must be configured by the process command line. A
@@ -157,15 +158,11 @@ installWindowsMemoryBudgetForChildProcesses({
   argv: process.argv,
   policy: memoryBudgetBootstrap.policy
 });
-// The desktop UI does not require hardware compositing. On Windows the
-// software path avoids keeping a large dedicated GPU process alive (the same
-// rendering strategy used by the lighter Argo build). Keep an escape hatch for
-// machines where hardware acceleration is important for a particular display.
-if (process.platform === "win32" && process.env.MIA_ENABLE_HARDWARE_GPU !== "1") {
-  app.commandLine.appendSwitch("disable-gpu-compositing");
-  app.commandLine.appendSwitch("use-gl", "angle");
-  app.commandLine.appendSwitch("use-angle", "swiftshader-webgl");
-}
+applyWindowsGpuPolicy({
+  app,
+  env: process.env,
+  platform: process.platform
+});
 // Migration branch: the background Core is not the Electron GUI process; the
 // old daemon-profile userData / MIA_HOME special casing was deleted here.
 // Electron always runs as the window. A general
@@ -584,7 +581,11 @@ settingsStore = createSettingsStore({
   MIA_CLOUD_DEFAULT_URL,
   normalizeAvatarCrop: (crop) => normalizeAvatarCrop(crop)
 });
-const windowStateManager = createWindowStateManager({ settingsStore, screen });
+const windowStateManager = createWindowStateManager({
+  settingsStore,
+  screen,
+  platform: process.platform
+});
 let explicitMiaQuitInProgress = false;
 let fullMiaQuitPromise = null;
 

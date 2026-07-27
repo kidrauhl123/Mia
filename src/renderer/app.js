@@ -1017,7 +1017,10 @@ function runtimeUserIdentity(runtime = state.runtime) {
 function applySidebarWidth(width = state.sidebarWidth, persist = false) {
   const next = clampSidebarWidth(width);
   state.sidebarWidth = next;
-  document.documentElement.style.setProperty("--sidebar-width", `${next}px`);
+  const cssWidth = `${next}px`;
+  if (document.documentElement.style.getPropertyValue("--sidebar-width") !== cssWidth) {
+    document.documentElement.style.setProperty("--sidebar-width", cssWidth);
+  }
   if (persist) {
     try {
       localStorage.setItem("mia.sidebarWidth", String(next));
@@ -1241,9 +1244,17 @@ function syncComposerOverlayHeight() {
 function observeComposerOverlayHeight() {
   if (!els.chatForm) return;
   syncComposerOverlayHeight();
+  let frame = 0;
   const schedule = () => {
-    if (typeof window.requestAnimationFrame === "function") window.requestAnimationFrame(syncComposerOverlayHeight);
-    else syncComposerOverlayHeight();
+    if (frame) return;
+    if (typeof window.requestAnimationFrame !== "function") {
+      syncComposerOverlayHeight();
+      return;
+    }
+    frame = window.requestAnimationFrame(() => {
+      frame = 0;
+      syncComposerOverlayHeight();
+    });
   };
   if (typeof ResizeObserver === "function") {
     const observer = new ResizeObserver(schedule);
@@ -6798,7 +6809,12 @@ document.addEventListener("pointermove", (event) => {
 }, { capture: true });
 document.addEventListener("pointerup", (event) => window.miaScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
 document.addEventListener("pointercancel", (event) => window.miaScrollbarOverlay.stopScrollbarOverlayDrag(event), { capture: true });
-window.addEventListener("resize", () => {
+
+let windowResizeFrame = 0;
+let windowResizeIdleTimer = 0;
+
+function syncWindowResizeLayout() {
+  windowResizeFrame = 0;
   const overlayTarget = window.miaScrollbarOverlay.getScrollbarOverlayTarget();
   if (overlayTarget) window.miaScrollbarOverlay.updateScrollbarOverlay(overlayTarget);
   const isNarrow = window.innerWidth <= SHELL_SINGLE_MAX_WIDTH;
@@ -6809,14 +6825,29 @@ window.addEventListener("resize", () => {
   }
   state.isNarrowWindow = isNarrow;
   applySidebarWidth(state.sidebarWidth);
-  normalizeNarrowPaneForView(state.activeView);
-  state.shellLayout = shellLayoutForView(state.activeView);
-  syncNarrowLayout();
-  syncSidebarCollapseState();
-  if (els.appShell) els.appShell.setAttribute("data-shell-layout", state.shellLayout);
+  if (transitionDirection) {
+    normalizeNarrowPaneForView(state.activeView);
+    state.shellLayout = shellLayoutForView(state.activeView);
+    syncNarrowLayout();
+    syncSidebarCollapseState();
+    if (els.appShell) els.appShell.setAttribute("data-shell-layout", state.shellLayout);
+  }
   scheduleSidebarTagIndicator();
   triggerResponsiveShellTransition(transitionDirection);
-});
+}
+
+function scheduleWindowResizeLayout() {
+  document.body.classList.add("window-resizing");
+  if (windowResizeIdleTimer) window.clearTimeout(windowResizeIdleTimer);
+  windowResizeIdleTimer = window.setTimeout(() => {
+    document.body.classList.remove("window-resizing");
+    windowResizeIdleTimer = 0;
+  }, 140);
+  if (windowResizeFrame) return;
+  windowResizeFrame = window.requestAnimationFrame(syncWindowResizeLayout);
+}
+
+window.addEventListener("resize", scheduleWindowResizeLayout);
 
 document.querySelectorAll("[data-settings-tab]").forEach((button) => {
   button.addEventListener("click", () => {

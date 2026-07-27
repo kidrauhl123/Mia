@@ -6506,6 +6506,16 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   animation-delay: calc((var(--agent-run-animation-age, 0ms) * -1) + 0.44s);
 }
 
+/* Live window resizing already invalidates the full viewport. Pause the
+ * continuously repainting status effects until the resize gesture settles. */
+body.window-resizing .agent-run-status.is-loading .agent-run-status-label,
+body.window-resizing .agent-run-status-loading-dots span,
+body.window-resizing .typing-dots i,
+body.window-resizing .trace-row[data-status="run"] > summary > .trace-glyph,
+body.window-resizing .bot-store-badge-shimmer {
+  animation-play-state: paused !important;
+}
+
 .agent-run-status-goal {
   min-width: 0;
   overflow: hidden;

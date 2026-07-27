@@ -64,6 +64,7 @@ function createWindowStateManager(deps = {}) {
   const {
     settingsStore,
     screen: screenApi,
+    platform = process.platform,
     debounceMs = 250,
     setTimeoutFn = setTimeout,
     clearTimeoutFn = clearTimeout
@@ -106,8 +107,9 @@ function createWindowStateManager(deps = {}) {
       if (timer) clearTimeoutFn(timer);
       timer = setTimeoutFn(flush, debounceMs);
     };
-    win.on("resize", schedule);
-    win.on("move", schedule);
+    const supportsSettledWindowEvents = platform === "win32" || platform === "darwin";
+    win.on(supportsSettledWindowEvents ? "resized" : "resize", schedule);
+    win.on(supportsSettledWindowEvents ? "moved" : "move", schedule);
     win.on("maximize", schedule);
     win.on("unmaximize", schedule);
     win.on("close", flush);
