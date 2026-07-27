@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; style-src 'self'; script-src 'self'"
+  >
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mia</title>
+  <link rel="stylesheet" href="../styles/renderer-recovery.css">
+</head>
+<body>
+  <main class="recovery-shell" aria-labelledby="recovery-title">
+    <img class="recovery-logo" src="../assets/mia-logo.png" alt="">
+    <h1 id="recovery-title">界面需要重新加载</h1>
+    <p>界面进程连续异常，后台任务和数据仍然保留。</p>
+    <button id="retry-button" type="button">重试界面</button>
+  </main>
+  <script src="./renderer-recovery.js"></script>
+</body>
+</html>

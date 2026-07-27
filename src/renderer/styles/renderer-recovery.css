@@ -1,0 +1,82 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "Microsoft YaHei",
+    sans-serif;
+  background: #f0f0f3;
+  color: #1f2937;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.recovery-shell {
+  width: min(420px, 100%);
+  text-align: center;
+}
+
+.recovery-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.recovery-shell h1 {
+  margin: 20px 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.recovery-shell p {
+  margin: 0 0 24px;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.recovery-shell button {
+  min-width: 120px;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  padding: 9px 20px;
+  background: #318ad3;
+  color: #fff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.recovery-shell button:hover {
+  background: #267abc;
+}
+
+.recovery-shell button:focus-visible {
+  outline: 3px solid rgb(49 138 211 / 35%);
+  outline-offset: 3px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    background: #17191d;
+    color: #f3f4f6;
+  }
+
+  .recovery-shell p {
+    color: #aeb6c3;
+  }
+}

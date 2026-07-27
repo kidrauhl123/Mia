@@ -1,40 +1,22 @@
 const { app } = require("electron");
 const { spawn: spawnMemoryBudgetedApp } = require("node:child_process");
-
-const MIA_MEMORY_JS_FLAGS = "--max-old-space-size=64 --max-semi-space-size=1 --optimize-for-size";
-const hasMemoryBudgetFlag = process.argv.some((arg) => String(arg || "").startsWith("--js-flags="));
-const shouldRelaunchWithMemoryBudget = process.platform === "win32"
-  && process.env.MIA_DISABLE_MEMORY_BUDGET !== "1"
-  && process.env.MIA_MEMORY_BUDGET_RELAUNCHED !== "1"
-  && !hasMemoryBudgetFlag;
+const {
+  bootstrapWindowsMemoryBudget,
+  installWindowsMemoryBudgetForChildProcesses
+} = require("./main/windows-memory-policy.js");
 
 // The main Electron isolate is created before app.commandLine switches can be
 // applied, so its V8 heap must be configured by the process command line. A
 // tiny bootstrap relaunches the packaged app with the bounded flags, then
 // exits before any Mia service or user data is opened.
-if (shouldRelaunchWithMemoryBudget) {
-  const forwardedArgs = process.argv
-    .slice(1)
-    .filter((arg) => !String(arg || "").startsWith("--js-flags="));
-  const child = spawnMemoryBudgetedApp(
-    process.execPath,
-    [`--js-flags=${MIA_MEMORY_JS_FLAGS}`, ...forwardedArgs],
-    {
-      detached: true,
-      stdio: "ignore",
-      env: {
-        ...process.env,
-        MIA_MEMORY_BUDGET_RELAUNCHED: "1",
-        MIA_MEMORY_BUDGET: "1"
-      }
-    }
-  );
-  child.unref();
-  process.exit(0);
-}
-
-const memoryBudgetEnabled = process.platform === "win32" && process.env.MIA_DISABLE_MEMORY_BUDGET !== "1";
-if (memoryBudgetEnabled) process.env.MIA_MEMORY_BUDGET = "1";
+const memoryBudgetBootstrap = bootstrapWindowsMemoryBudget({
+  argv: process.argv,
+  env: process.env,
+  execPath: process.execPath,
+  platform: process.platform,
+  spawn: spawnMemoryBudgetedApp
+});
+if (memoryBudgetBootstrap.relaunched) process.exit(0);
 
 const { BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { execFile, spawn, spawnSync } = require("node:child_process");
@@ -82,6 +64,7 @@ const {
 } = require("./main/device-identity.js");
 const { createSettingsStore } = require("./main/settings-store.js");
 const { createWindowStateManager } = require("./main/window-state.js");
+const { installWindowRendererRecovery } = require("./main/window-renderer-recovery.js");
 const { createTrayLifecycleService } = require("./main/tray-lifecycle-service.js");
 const {
   WINDOW_CLOSE_ACTIONS,
@@ -167,17 +150,13 @@ const IS_CORE_PROCESS = false;
 const ALLOW_MULTIPLE_INSTANCES = process.env.MIA_ALLOW_MULTIPLE_INSTANCES === "1";
 
 app.setName("Mia");
-// Electron's Chromium processes reserve a large V8 heap by default. Mia's
-// desktop workload is intentionally bounded by the Rust Core service, so a
-// smaller V8 young/old generation keeps the whole Windows UI process group
-// within the desktop memory budget without removing any feature or data.
-// Keep an escape hatch for unusually large local agent turns.
-if (process.platform === "win32" && process.env.MIA_DISABLE_MEMORY_BUDGET !== "1" && !hasMemoryBudgetFlag) {
-  app.commandLine.appendSwitch(
-    "js-flags",
-    "--max-old-space-size=64 --max-semi-space-size=1 --optimize-for-size"
-  );
-}
+// The cap is a maximum, not reserved memory. Keep enough headroom for long
+// conversations and recovery while retaining a bounded Windows process group.
+installWindowsMemoryBudgetForChildProcesses({
+  app,
+  argv: process.argv,
+  policy: memoryBudgetBootstrap.policy
+});
 // The desktop UI does not require hardware compositing. On Windows the
 // software path avoids keeping a large dedicated GPU process alive (the same
 // rendering strategy used by the lighter Argo build). Keep an escape hatch for
@@ -2104,6 +2083,28 @@ function createWindow() {
   win.on("close", (event) => {
     handleMainWindowClose(event, win);
   });
+  const rendererRecovery = installWindowRendererRecovery({
+    isShuttingDown: () => explicitMiaQuitInProgress,
+    log: (_level, message, error) => {
+      const suffix = error ? `: ${error?.message || error}` : "";
+      appendEngineLog(`${message}${suffix}`);
+    },
+    reload: () => win.webContents.reload(),
+    showFallback: ({ reason }) => {
+      if (win.isDestroyed()) return null;
+      return win.loadFile(
+        path.join(__dirname, "renderer", "recovery", "renderer-crashed.html"),
+        {
+          query: {
+            reason: String(reason || "unknown"),
+            target: win.miaSignedOutOnboarding ? "onboarding" : "main"
+          }
+        }
+      );
+    },
+    webContents: win.webContents
+  });
+  win.once("closed", () => rendererRecovery.dispose());
   let windowShown = false;
   const showWhenReady = () => {
     if (windowShown || win.isDestroyed()) return;
