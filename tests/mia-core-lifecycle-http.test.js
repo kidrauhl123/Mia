@@ -6,7 +6,7 @@ const { test } = require("node:test");
 const {
   createMiaCoreHttpClient,
   createMiaCoreHttpClientCache
-} = require("../src/main/mia-core/http-client.js");
+} = require("../src/shared/mia-core-http-client.js");
 
 test("Mia Core HTTP client builds typed loopback requests", async () => {
   const calls = [];

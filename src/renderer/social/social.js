@@ -23,6 +23,27 @@
   const OTHER_DEVICE_CONVERSATION_LABEL = "其他设备";
   const CLOUD_AGENT_RUN_STALE_MS = 30 * 60 * 1000;
   const BOT_REPLY_BACKFILL_ATTEMPTS = 90;
+  // A reconnect can emit several ready frames while the network or Core is
+  // recovering. Re-reading the entire social account for each frame creates a
+  // request fan-out that can starve Electron's main thread. One authoritative
+  // refresh per cooldown is enough because the event stream replays deltas.
+  const EVENTS_READY_BOOTSTRAP_COOLDOWN_MS = 30_000;
+  const CHAT_RENDER_WINDOW_SIZE = Number(global.miaMessageWindow?.DEFAULT_MESSAGE_WINDOW_SIZE) || 160;
+  const MAX_MESSAGE_CACHE_CONVERSATIONS = 24;
+  const MAX_MESSAGES_PER_CONVERSATION = 800;
+  const MAX_ATTACHMENT_PREVIEW_ENTRIES = 96;
+  const MAX_ATTACHMENT_PREVIEW_BYTES = 32 * 1024 * 1024;
+  const MAX_CONVERSATION_MEMBER_CACHE_ENTRIES = 64;
+  const resourceCache = global.miaResourceCache || {
+    estimateValueBytes: (value) => {
+      try { return JSON.stringify(value)?.length * 2 || 0; } catch { return 0; }
+    },
+    pruneMap: () => [],
+    touchMapValue: (map, key) => map?.get?.(key),
+    trimRecentItems: (items, { maxEntries = Infinity } = {}) => (
+      Array.isArray(items) && items.length > maxEntries ? items.slice(-maxEntries) : items
+    )
+  };
   // Keep render signatures cheap even when persisted diagnostic payloads are
   // large. The first/last edge is enough to notice normal streaming/finalization
   // changes without copying the whole trace into a temporary JSON string.
@@ -226,6 +247,9 @@
   const _conversationMembersCache = new Map();
   const _hydratingBotIdentities = new Set();
   let botIdentityRenderTimer = 0;
+  let socialBootstrapInFlight = null;
+  let lastSocialBootstrapCompletedAt = 0;
+  let eventsReadyBootstrapTimer = 0;
   let _tagEditOutsideHandler = null;
   let _tagEditOutsideGeneration = 0;
 
@@ -247,7 +271,9 @@
   let _lastRenderedConversationMessageIds = [];
   let _pendingMessageFocus = null;
   let _suppressPendingMessageFocus = false;
+  const _messageRenderWindowStates = new Map();
   const _chatBottomStickSessions = new WeakMap();
+  const _activeChatBottomStickElements = new Set();
   const _chatScrollIntents = new WeakMap();
 
   function jsonSignature(value) {
@@ -375,9 +401,66 @@
     });
   }
 
-  function chatRenderSignatureFor(conversationId) {
+  function fallbackMessageWindow(messagesInput, currentState = null, options = {}) {
+    const messages = Array.isArray(messagesInput) ? messagesInput : [];
+    const size = Math.max(1, Number(options.size) || CHAT_RENDER_WINDOW_SIZE);
+    const focusId = String(options.focusId || "");
+    const focusIndex = focusId
+      ? messages.findIndex((message) => messageStableId(message) === focusId)
+      : -1;
+    const maxStart = Math.max(0, messages.length - size);
+    let start = maxStart;
+    let mode = "tail";
+    if (focusIndex >= 0) {
+      start = Math.max(0, Math.min(maxStart, focusIndex - Math.floor(size / 2)));
+      mode = start < maxStart ? "history" : "tail";
+    } else if (currentState?.mode === "history") {
+      start = Math.max(0, Math.min(maxStart, Number(currentState.start) || 0));
+      mode = start < maxStart ? "history" : "tail";
+    }
+    const end = Math.min(messages.length, start + size);
+    const visibleMessages = messages.slice(start, end);
+    return {
+      start,
+      end,
+      total: messages.length,
+      size,
+      mode,
+      hasOlder: start > 0,
+      hasNewer: end < messages.length,
+      olderCount: start,
+      newerCount: Math.max(0, messages.length - end),
+      messages: visibleMessages,
+      state: {
+        mode,
+        start,
+        anchorId: messageStableId(visibleMessages[0])
+      }
+    };
+  }
+
+  function resolveConversationMessageWindow(conversationId, messages, options = {}) {
+    const currentState = _messageRenderWindowStates.get(conversationId) || null;
+    const pending = pendingFocusFor(conversationId);
+    const focusId = options.focusId === undefined ? pending?.messageId : options.focusId;
+    const api = global.miaMessageWindow;
+    const windowInfo = api?.resolveMessageWindow
+      ? api.resolveMessageWindow(messages, currentState, {
+          size: CHAT_RENDER_WINDOW_SIZE,
+          focusId
+        })
+      : fallbackMessageWindow(messages, currentState, {
+          size: CHAT_RENDER_WINDOW_SIZE,
+          focusId
+        });
+    setMessageRenderWindowState(conversationId, windowInfo.state);
+    return windowInfo;
+  }
+
+  function chatRenderSignatureFor(conversationId, providedWindow = null) {
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
-    const messages = Array.isArray(entry.messages) ? entry.messages : [];
+    const allMessages = Array.isArray(entry.messages) ? entry.messages : [];
+    const messageWindow = providedWindow || resolveConversationMessageWindow(conversationId, allMessages);
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const type = conversationTypeFor(conversation, conversationId);
     const members = (type === "group" || type === "bot") ? (_conversationMembersCache.get(conversationId) || []) : [];
@@ -386,14 +469,40 @@
       maxSeq: entry.maxSeq || 0,
       conversation: conversationSignature(conversation),
       members: members.map(memberSignature),
-      messages: messages.map(messageSignature),
-      stream: streamSignature(moduleState.cloudAgentRunsByConversation.get(conversationId))
+      messageWindow: {
+        start: messageWindow.start,
+        end: messageWindow.end,
+        total: messageWindow.total,
+        mode: messageWindow.mode
+      },
+      coveredMessageIds: messageWindow.messages
+        .filter((message) => activeRunCoversProcessingMessage(conversationId, message))
+        .map(messageStableId),
+      messages: messageWindow.messages.map(messageSignature)
     });
+  }
+
+  function chatStreamRenderSignatureFor(conversationId, providedWindow = null) {
+    if (!providedWindow) {
+      if (_messageRenderWindowStates.get(conversationId)?.mode === "history") return "";
+      return streamSignature(moduleState.cloudAgentRunsByConversation.get(conversationId));
+    }
+    if (providedWindow.hasNewer) return "";
+    return streamSignature(moduleState.cloudAgentRunsByConversation.get(conversationId));
   }
 
   function markChatRenderFresh(containerEl, conversationId = moduleState.activeConversationId) {
     if (!containerEl?.dataset || !conversationId) return;
-    containerEl.dataset.conversationRenderSignature = chatRenderSignatureFor(conversationId);
+    const entry = moduleState.messageCache.get(conversationId) || { messages: [] };
+    const allMessages = Array.isArray(entry.messages) ? entry.messages : [];
+    const messageWindow = resolveConversationMessageWindow(conversationId, allMessages);
+    containerEl.dataset.conversationRenderSignature = chatRenderSignatureFor(conversationId, messageWindow);
+    containerEl.dataset.conversationStreamRenderSignature = chatStreamRenderSignatureFor(conversationId, messageWindow);
+  }
+
+  function markChatStreamRenderFresh(containerEl, conversationId = moduleState.activeConversationId) {
+    if (!containerEl?.dataset || !conversationId) return;
+    containerEl.dataset.conversationStreamRenderSignature = chatStreamRenderSignatureFor(conversationId);
   }
 
   function cssEscapeValue(value) {
@@ -513,6 +622,7 @@
   }
 
   function schedulePendingMessageFocus(attempts = 5) {
+    if (!rendererWorkActive()) return;
     const raf = typeof requestAnimationFrame === "function"
       ? requestAnimationFrame
       : (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function"
@@ -559,10 +669,82 @@
   let _cloudRunRenderFrame = 0;
   let _cloudRunStatusTimer = 0;
   let _phaseOrbAnimationFrame = 0;
+  let _rendererLifecycleActive = true;
+  let _rendererDocumentVisible = true;
   let _permissionBannerWired = false;
   let _streamingTextSmoother = null;
   const _permissionDecisionInFlight = new Set();
   const _localDeletingMessageKeys = new Set();
+
+  function measureRendererWork(name, operation) {
+    if (deps && typeof deps.measurePerformance === "function") {
+      return deps.measurePerformance(name, operation);
+    }
+    return operation();
+  }
+
+  function rendererWorkActive() {
+    return _rendererLifecycleActive
+      && _rendererDocumentVisible
+      && !(typeof document !== "undefined" && document.hidden);
+  }
+
+  function protectedMessageCacheKeys(extraKey = "") {
+    const keys = new Set();
+    if (moduleState.activeConversationId) keys.add(moduleState.activeConversationId);
+    if (extraKey) keys.add(extraKey);
+    for (const [conversationId, run] of moduleState.cloudAgentRunsByConversation.entries()) {
+      if (isConversationRunBusy(run)) keys.add(conversationId);
+    }
+    return keys;
+  }
+
+  function enforceMessageCachePolicy(conversationId, entry = moduleState.messageCache.get(conversationId)) {
+    if (!entry) return entry;
+    if (Array.isArray(entry.messages) && entry.messages.length > MAX_MESSAGES_PER_CONVERSATION) {
+      entry.messages = resourceCache.trimRecentItems(entry.messages, {
+        maxEntries: MAX_MESSAGES_PER_CONVERSATION,
+        isProtected: isTransientLocalConversationMessage
+      });
+    }
+    if (moduleState.messageCache.get(conversationId) === entry) {
+      resourceCache.touchMapValue(moduleState.messageCache, conversationId);
+    }
+    resourceCache.pruneMap(moduleState.messageCache, {
+      maxEntries: MAX_MESSAGE_CACHE_CONVERSATIONS,
+      protectedKeys: protectedMessageCacheKeys(conversationId)
+    });
+    return entry;
+  }
+
+  function setAttachmentPreviewCache(key, value) {
+    moduleState.attachmentPreviewCache.delete(key);
+    moduleState.attachmentPreviewCache.set(key, value);
+    resourceCache.pruneMap(moduleState.attachmentPreviewCache, {
+      maxEntries: MAX_ATTACHMENT_PREVIEW_ENTRIES,
+      maxWeight: MAX_ATTACHMENT_PREVIEW_BYTES,
+      weightOf: (value) => resourceCache.estimateValueBytes(value)
+    });
+    return value;
+  }
+
+  function setConversationMembersCache(conversationId, members) {
+    _conversationMembersCache.delete(conversationId);
+    _conversationMembersCache.set(conversationId, members);
+    resourceCache.pruneMap(_conversationMembersCache, {
+      maxEntries: MAX_CONVERSATION_MEMBER_CACHE_ENTRIES,
+      protectedKeys: moduleState.activeConversationId ? [moduleState.activeConversationId] : []
+    });
+  }
+
+  function setMessageRenderWindowState(conversationId, value) {
+    _messageRenderWindowStates.delete(conversationId);
+    _messageRenderWindowStates.set(conversationId, value);
+    resourceCache.pruneMap(_messageRenderWindowStates, {
+      maxEntries: MAX_MESSAGE_CACHE_CONVERSATIONS,
+      protectedKeys: moduleState.activeConversationId ? [moduleState.activeConversationId] : []
+    });
+  }
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -912,20 +1094,20 @@
     if (!attachment || typeof attachment !== "object" || attachmentHasInlinePreview(attachment)) return attachment;
     const key = attachmentPreviewKey(attachment);
     if (!key || typeof window.mia?.fetchFileAttachment !== "function") return attachment;
-    const cached = moduleState.attachmentPreviewCache.get(key);
+    const cached = resourceCache.touchMapValue(moduleState.attachmentPreviewCache, key);
     if (cached?.status === "ready" && cached.attachment) {
       return mergeHydratedAttachment(attachment, cached.attachment);
     }
     if (cached?.status) return attachment;
-    moduleState.attachmentPreviewCache.set(key, { status: "loading" });
+    setAttachmentPreviewCache(key, { status: "loading" });
     window.mia.fetchFileAttachment(fetchAttachmentPreviewRequest(attachment, key))
       .then((preview) => {
         if (preview?.error) throw new Error(preview.message || "File not found.");
-        moduleState.attachmentPreviewCache.set(key, { status: "ready", attachment: preview });
+        setAttachmentPreviewCache(key, { status: "ready", attachment: preview });
         _reRenderActiveChat({ force: true });
       })
       .catch(() => {
-        moduleState.attachmentPreviewCache.set(key, { status: "error" });
+        setAttachmentPreviewCache(key, { status: "error" });
       });
     return attachment;
   }
@@ -1783,19 +1965,28 @@
   }
 
   function schedulePhaseOrbAnimation(root = document) {
-    if (_phaseOrbAnimationFrame) return;
+    if (!rendererWorkActive() || _phaseOrbAnimationFrame) return;
     _phaseOrbAnimationFrame = requestPhaseOrbFrame((timestamp) => {
       _phaseOrbAnimationFrame = 0;
-      if (updatePhaseOrbStatusElements(root || document, timestamp)) {
+      if (rendererWorkActive() && updatePhaseOrbStatusElements(root || document, timestamp)) {
         schedulePhaseOrbAnimation(root);
       }
     });
   }
 
   function startPhaseOrbAnimation(root = document) {
-    if (updatePhaseOrbStatusElements(root, Date.now())) {
+    if (rendererWorkActive() && updatePhaseOrbStatusElements(root, Date.now())) {
       schedulePhaseOrbAnimation(document);
     }
+  }
+
+  function cancelPhaseOrbAnimation() {
+    if (!_phaseOrbAnimationFrame) return;
+    const cancel = typeof global.cancelAnimationFrame === "function"
+      ? global.cancelAnimationFrame.bind(global)
+      : (typeof global.clearTimeout === "function" ? global.clearTimeout.bind(global) : null);
+    cancel?.(_phaseOrbAnimationFrame);
+    _phaseOrbAnimationFrame = 0;
   }
 
   function setTextIfChanged(element, text) {
@@ -1843,6 +2034,7 @@
     if (!conversationId || !run) return null;
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+      enforceMessageCachePolicy(conversationId);
     }
     const entry = moduleState.messageCache.get(conversationId);
     const runKey = String(run.runId || run.hermesRunId || conversationId || "").trim();
@@ -1875,6 +2067,7 @@
     if (run.goal) message.goal = run.goal;
     entry.messages.push(message);
     sortMessagesByTimelineSeq(entry.messages);
+    enforceMessageCachePolicy(conversationId, entry);
     return message;
   }
 
@@ -2207,10 +2400,127 @@
     return true;
   }
 
-  function rememberRenderedConversationMessages(conversationId, messages = []) {
+  function rememberRenderedConversationMessages(conversationId, messages = [], messageWindow = null) {
+    const cachedMessages = moduleState.messageCache.get(conversationId)?.messages;
+    const allMessages = Array.isArray(cachedMessages) ? cachedMessages : messages;
+    const visibleMessages = messageWindow?.messages
+      || resolveConversationMessageWindow(conversationId, allMessages, { focusId: "" }).messages;
     _lastRenderedConversationId = conversationId;
-    _lastRenderedConversationMessageCount = Array.isArray(messages) ? messages.length : 0;
-    _lastRenderedConversationMessageIds = messageStableIds(messages);
+    _lastRenderedConversationMessageCount = visibleMessages.length;
+    _lastRenderedConversationMessageIds = messageStableIds(visibleMessages);
+  }
+
+  function moveConversationMessageWindow(conversationId, direction) {
+    const entry = moduleState.messageCache.get(conversationId) || { messages: [] };
+    const messages = Array.isArray(entry.messages) ? entry.messages : [];
+    const currentState = _messageRenderWindowStates.get(conversationId) || null;
+    const api = global.miaMessageWindow;
+    let nextWindow;
+    if (api?.moveMessageWindow) {
+      nextWindow = api.moveMessageWindow(messages, currentState, direction, {
+        size: CHAT_RENDER_WINDOW_SIZE
+      });
+    } else {
+      const current = fallbackMessageWindow(messages, currentState, {
+        size: CHAT_RENDER_WINDOW_SIZE,
+        focusId: ""
+      });
+      let nextState = current.state;
+      if (direction === "latest") {
+        nextState = { mode: "tail", start: Math.max(0, messages.length - CHAT_RENDER_WINDOW_SIZE) };
+      } else if (direction === "older") {
+        nextState = { mode: "history", start: Math.max(0, current.start - CHAT_RENDER_WINDOW_SIZE) };
+      } else if (direction === "newer") {
+        const start = current.start + CHAT_RENDER_WINDOW_SIZE;
+        nextState = {
+          mode: start + CHAT_RENDER_WINDOW_SIZE >= messages.length ? "tail" : "history",
+          start
+        };
+      }
+      nextWindow = fallbackMessageWindow(messages, nextState, {
+        size: CHAT_RENDER_WINDOW_SIZE,
+        focusId: ""
+      });
+    }
+    setMessageRenderWindowState(conversationId, nextWindow.state);
+    return nextWindow;
+  }
+
+  function createMessageWindowNavigation(conversationId, messageWindow, position) {
+    const row = document.createElement("div");
+    row.className = `chat-history-window-nav is-${position}`;
+    if (row.dataset) row.dataset.messageWindowNav = position;
+
+    const addButton = (label, direction) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "chat-history-window-button";
+      button.textContent = label;
+      button.addEventListener("click", (event) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        if (conversationId !== moduleState.activeConversationId) return;
+        moveConversationMessageWindow(conversationId, direction);
+        _reRenderActiveChat({ force: true });
+        const chatEl = document.getElementById("chat");
+        if (!chatEl) return;
+        if (direction === "older") {
+          chatEl.scrollTop = chatEl.scrollHeight;
+        } else if (direction === "latest") {
+          scrollChatToBottom(chatEl);
+          scheduleChatBottomStick(chatEl, chatEl.scrollTop, 2, true);
+        } else {
+          chatEl.scrollTop = 0;
+        }
+      });
+      row.appendChild(button);
+    };
+
+    if (position === "top" && messageWindow.hasOlder) {
+      addButton(`显示更早消息（还有 ${messageWindow.olderCount} 条）`, "older");
+    }
+    if (position === "bottom" && messageWindow.hasNewer) {
+      addButton(`显示更新消息（还有 ${messageWindow.newerCount} 条）`, "newer");
+      addButton("回到最新消息", "latest");
+    }
+    return row;
+  }
+
+  function appendMessageWindowNavigation(containerEl, conversationId, messageWindow, position) {
+    const shouldShow = position === "top" ? messageWindow.hasOlder : messageWindow.hasNewer;
+    if (!shouldShow) return;
+    const row = createMessageWindowNavigation(conversationId, messageWindow, position);
+    if (position === "top" && typeof containerEl.insertBefore === "function") {
+      containerEl.insertBefore(row, containerEl.firstChild || null);
+    } else {
+      containerEl.appendChild(row);
+    }
+  }
+
+  function refreshMessageWindowNavigation(containerEl, conversationId, messageWindow) {
+    if (!containerEl) return;
+    const existing = Array.from(containerEl.children || [])
+      .filter((element) => hasElementClass(element, "chat-history-window-nav"));
+    existing.forEach((element) => element?.remove?.());
+    appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "top");
+    appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "bottom");
+  }
+
+  function trimActiveTailMessageDom(containerEl) {
+    if (!containerEl) return;
+    const children = Array.from(containerEl.children || []);
+    const messageArticles = children.filter((element) => (
+      hasElementClass(element, "message") && !hasElementClass(element, "streaming")
+    ));
+    const overflow = Math.max(0, messageArticles.length - CHAT_RENDER_WINDOW_SIZE);
+    for (let index = 0; index < overflow; index += 1) {
+      const element = messageArticles[index];
+      if (typeof element?.remove === "function") {
+        element.remove();
+      } else if (element?.parentNode && typeof element.parentNode.removeChild === "function") {
+        element.parentNode.removeChild(element);
+      }
+    }
   }
 
   function addElementClass(el, className) {
@@ -2445,6 +2755,13 @@
       : (typeof clearTimeout === "function" ? clearTimeout : null);
     if (clearTimer && session.timeoutId) clearTimer(session.timeoutId);
     _chatBottomStickSessions.delete(chatEl);
+    _activeChatBottomStickElements.delete(chatEl);
+  }
+
+  function stopAllChatBottomStickSessions() {
+    for (const chatEl of [..._activeChatBottomStickElements]) {
+      stopChatBottomStickSession(chatEl);
+    }
   }
 
   function observeChatBottomStickChildren(chatEl, session) {
@@ -2489,7 +2806,7 @@
   }
 
   function scheduleChatBottomStickStep(chatEl, session) {
-    if (!chatEl || !session?.active || session.framePending) return;
+    if (!rendererWorkActive() || !chatEl || !session?.active || session.framePending) return;
     session.framePending = true;
     scheduleFrame(() => {
       session.framePending = false;
@@ -2527,6 +2844,7 @@
         timeoutId: 0
       };
       _chatBottomStickSessions.set(chatEl, session);
+      _activeChatBottomStickElements.add(chatEl);
     }
     session.expectedScrollTop = Number(expectedScrollTop) || 0;
     session.remainingFrames = Math.max(session.remainingFrames || 0, remainingFrames);
@@ -2683,7 +3001,7 @@
   }
 
   function scheduleCloudRunRender(conversationId) {
-    if (conversationId !== moduleState.activeConversationId) return;
+    if (!rendererWorkActive() || conversationId !== moduleState.activeConversationId) return;
     if (_cloudRunRenderFrame) return;
     const schedule = typeof global.requestAnimationFrame === "function"
       ? global.requestAnimationFrame.bind(global)
@@ -2740,16 +3058,29 @@
     scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
   }
 
-  function updateActiveCloudRunStreamingArticle(conversationId) {
+  function updateActiveCloudRunStreamingArticleImpl(conversationId) {
     if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
     const chatEl = document.getElementById("chat");
     if (!chatEl) return false;
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     const existing = findActiveStreamingArticle(chatEl);
+    if (_messageRenderWindowStates.get(conversationId)?.mode === "history") {
+      existing?.remove?.();
+      if (Array.isArray(chatEl.children)) {
+        const index = chatEl.children.indexOf(existing);
+        if (index >= 0) chatEl.children.splice(index, 1);
+      }
+      markChatStreamRenderFresh(chatEl, conversationId);
+      return true;
+    }
     if (!streamingRunHasRenderableOutput(run)) {
       if (existing && typeof existing.remove === "function") {
         existing.remove();
-        markChatRenderFresh(chatEl, conversationId);
+        if (Array.isArray(chatEl.children)) {
+          const index = chatEl.children.indexOf(existing);
+          if (index >= 0) chatEl.children.splice(index, 1);
+        }
+        markChatStreamRenderFresh(chatEl, conversationId);
         settleChatAfterStreamingUpdate(chatEl, isChatPinnedToBottom(chatEl));
       }
       return true;
@@ -2774,7 +3105,7 @@
       markRenderedTraceBlocks(nextArticle);
       startPhaseOrbAnimation(nextArticle);
       initNameBadgeLotties(nextArticle);
-      markChatRenderFresh(chatEl, conversationId);
+      markChatStreamRenderFresh(chatEl, conversationId);
       settleChatAfterStreamingUpdate(chatEl, wasNearBottom);
       return true;
     }
@@ -2787,9 +3118,13 @@
     markRenderedTraceBlocks(existing);
     startPhaseOrbAnimation(existing);
     initNameBadgeLotties(existing);
-    markChatRenderFresh(chatEl, conversationId);
+    markChatStreamRenderFresh(chatEl, conversationId);
     settleChatAfterStreamingUpdate(chatEl, wasNearBottom);
     return true;
+  }
+
+  function updateActiveCloudRunStreamingArticle(conversationId) {
+    return measureRendererWork("stream.patch", () => updateActiveCloudRunStreamingArticleImpl(conversationId));
   }
 
   function updateActiveCloudRunStatusLine(conversationId = moduleState.activeConversationId) {
@@ -2807,7 +3142,7 @@
     clearStaleCloudAgentRuns();
     const hasRunningRun = Array.from(moduleState.cloudAgentRunsByConversation.values())
       .some((run) => isConversationRunBusy(run));
-    if (!hasRunningRun) {
+    if (!rendererWorkActive() || !hasRunningRun) {
       if (_cloudRunStatusTimer && typeof global.clearInterval === "function") {
         global.clearInterval(_cloudRunStatusTimer);
       }
@@ -2816,6 +3151,10 @@
     }
     if (_cloudRunStatusTimer || typeof global.setInterval !== "function") return;
     _cloudRunStatusTimer = global.setInterval(() => {
+      if (!rendererWorkActive()) {
+        refreshCloudRunStatusTimer();
+        return;
+      }
       if (clearStaleCloudAgentRuns()) {
         refreshCloudRunStatusTimer();
         return;
@@ -2830,6 +3169,29 @@
       }
       if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
     }, 1000);
+  }
+
+  function cancelCloudRunRenderFrame() {
+    if (!_cloudRunRenderFrame) return;
+    const cancel = typeof global.cancelAnimationFrame === "function"
+      ? global.cancelAnimationFrame.bind(global)
+      : (typeof global.clearTimeout === "function" ? global.clearTimeout.bind(global) : null);
+    cancel?.(_cloudRunRenderFrame);
+    _cloudRunRenderFrame = 0;
+  }
+
+  function setLifecycleState({ active = true, visible = true } = {}) {
+    _rendererLifecycleActive = Boolean(active);
+    _rendererDocumentVisible = Boolean(visible);
+    if (!rendererWorkActive()) {
+      cancelCloudRunRenderFrame();
+      cancelPhaseOrbAnimation();
+      stopAllChatBottomStickSessions();
+      refreshCloudRunStatusTimer();
+      return;
+    }
+    refreshCloudRunStatusTimer();
+    startPhaseOrbAnimation(document);
   }
 
   function activeConversationRun() {
@@ -2921,6 +3283,7 @@
   function ensureConversationMessageCache(conversationId) {
     if (!conversationId || moduleState.messageCache.has(conversationId)) return;
     moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+    enforceMessageCachePolicy(conversationId);
   }
 
   function isLegacyBotSessionConversation(conversation) {
@@ -3247,7 +3610,7 @@
     }
     const saved = upsertConversation(ensured);
     const members = ensuredMembersFromResult(result);
-    if (members) _conversationMembersCache.set(ensured.id, members);
+    if (members) setConversationMembersCache(ensured.id, members);
     if (isDesktopLocal && ensured.id !== id) {
       return { conversationId: id, conversation: current };
     }
@@ -3471,7 +3834,7 @@
     moduleState.botsLoaded = Array.isArray(snapshot.bots);
     _conversationMembersCache.clear();
     for (const [conversationId, list] of Object.entries(snapshot.members || {})) {
-      if (Array.isArray(list)) _conversationMembersCache.set(conversationId, list);
+      if (Array.isArray(list)) setConversationMembersCache(conversationId, list);
     }
     restoreLastActiveConversation();
     moduleState.bootstrapped = true;
@@ -3559,7 +3922,7 @@
     if (botIdentityRenderTimer) return;
     botIdentityRenderTimer = global.setTimeout(() => {
       botIdentityRenderTimer = 0;
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") deps.render(["sidebar", "header"]);
     }, 60);
   }
 
@@ -3586,7 +3949,7 @@
 
   // ── bootstrapAfterLogin ───────────────────────────────────────────────────
 
-  async function bootstrapAfterLogin() {
+  async function runBootstrapAfterLogin() {
     if (!window.mia || !window.mia.social) {
       console.warn("[social] window.mia.social not available — skip bootstrap");
       return;
@@ -3614,10 +3977,13 @@
         // Account switch since the cached social bootstrap was written → drop the
         // stale render cache so we don't briefly show another user's conversations.
         if (moduleState.myUserId && freshUserId && moduleState.myUserId !== freshUserId) {
-          setActiveConversationId(null);
-          moduleState.conversations = [];
-          moduleState.messageCache.clear();
-          _conversationMembersCache.clear();
+           setActiveConversationId(null);
+           moduleState.conversations = [];
+           moduleState.messageCache.clear();
+           moduleState.attachmentPreviewCache.clear();
+           moduleState.cloudAgentRunsByConversation.clear();
+           _messageRenderWindowStates.clear();
+           _conversationMembersCache.clear();
           moduleState.unreadByConversation.clear();
         }
         moduleState.myUsername = meRes.data.username || "";
@@ -3660,6 +4026,41 @@
     }
   }
 
+  function bootstrapAfterLogin() {
+    if (socialBootstrapInFlight) return socialBootstrapInFlight;
+    const current = runBootstrapAfterLogin();
+    socialBootstrapInFlight = current;
+    current.then(
+      () => {
+        if (socialBootstrapInFlight !== current) return;
+        socialBootstrapInFlight = null;
+        lastSocialBootstrapCompletedAt = Date.now();
+      },
+      () => {
+        if (socialBootstrapInFlight !== current) return;
+        socialBootstrapInFlight = null;
+        lastSocialBootstrapCompletedAt = Date.now();
+      }
+    );
+    return current;
+  }
+
+  function scheduleEventsReadyBootstrap() {
+    if (socialBootstrapInFlight) return socialBootstrapInFlight;
+    const elapsed = Math.max(0, Date.now() - lastSocialBootstrapCompletedAt);
+    const waitMs = Math.max(0, EVENTS_READY_BOOTSTRAP_COOLDOWN_MS - elapsed);
+    if (waitMs === 0) return bootstrapAfterLogin();
+    if (eventsReadyBootstrapTimer) return null;
+    const schedule = typeof global.setTimeout === "function" ? global.setTimeout.bind(global) : setTimeout;
+    eventsReadyBootstrapTimer = schedule(() => {
+      eventsReadyBootstrapTimer = 0;
+      bootstrapAfterLogin().catch((err) => {
+        console.warn("[social] delayed rebootstrap on events_ready failed:", err);
+      });
+    }, waitMs);
+    return null;
+  }
+
   function isBootstrapped() {
     return Boolean(moduleState.bootstrapped);
   }
@@ -3696,7 +4097,8 @@
     // state from the cloud. Otherwise any social events that were
     // broadcast while we were disconnected stay invisible until restart.
     if (type === "events_ready") {
-      bootstrapAfterLogin().catch((err) => console.warn("[social] rebootstrap on events_ready failed:", err));
+      const refresh = scheduleEventsReadyBootstrap();
+      refresh?.catch?.((err) => console.warn("[social] rebootstrap on events_ready failed:", err));
       return;
     }
 
@@ -3721,7 +4123,7 @@
       const key = String(bot?.key || bot?.id || "").trim();
       if (!key) return;
       upsertBotIdentity(bot);
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") deps.render("sidebar");
       return;
     }
 
@@ -3740,15 +4142,16 @@
         if (remove && conversation?.id) removedConversationIds.push(String(conversation.id));
         return !remove;
       });
-      for (const conversationId of removedConversationIds) {
-        moduleState.messageCache.delete(conversationId);
-        moduleState.unreadByConversation.delete(conversationId);
+       for (const conversationId of removedConversationIds) {
+         moduleState.messageCache.delete(conversationId);
+         _messageRenderWindowStates.delete(conversationId);
+         moduleState.unreadByConversation.delete(conversationId);
         _conversationMembersCache.delete(conversationId);
       }
       if (removedConversationIds.includes(String(moduleState.activeConversationId || ""))) {
         moduleState.activeConversationId = null;
       }
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") deps.render("conversation");
       return;
     }
 
@@ -3762,7 +4165,7 @@
         const fromName = req.from?.username || req.from?.account || req.from_user || "陌生人";
         showFriendRequestToast(fromName);
       }
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") deps.render("sidebar");
       return;
     }
 
@@ -3854,9 +4257,16 @@
     if (type === "conversation.message_appended") {
       const { conversationId, message } = payload || {};
       if (!conversationId || !message) return;
+      // Core realtime delivery no longer traverses Electron Main. Persist
+      // durable message frames as an asynchronous side effect; rendering and
+      // typing responsiveness never wait for this IPC.
+      Promise.resolve(
+        window.mia?.social?.cacheConversationMessages?.(conversationId, [message])
+      ).catch(() => {});
       let cachedMessage = messageWithFallbackRunTrace(conversationId, message);
       if (!moduleState.messageCache.has(conversationId)) {
         moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+        enforceMessageCachePolicy(conversationId);
       }
       const entry = moduleState.messageCache.get(conversationId);
       if (_reconcileEchoedConversationMessage(conversationId, cachedMessage)) return;
@@ -3883,6 +4293,7 @@
         entry.messages[existingIndex] = mergeFetchedMessage(entry.messages[existingIndex], cachedMessage);
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
+      enforceMessageCachePolicy(conversationId, entry);
       const { SenderKind } = conversationKinds();
       const isBotMessage = cachedMessage.sender_kind === SenderKind.Bot;
       const isTerminalBotMessage = isBotMessage && !assistantMessageIsProcessing(cachedMessage);
@@ -3934,7 +4345,9 @@
           _appendMessageToActiveChat(cachedMessage, { stick: isMine });
         }
       }
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") {
+        deps.render(conversationId === moduleState.activeConversationId ? ["sidebar", "chrome"] : "sidebar");
+      }
       return;
     }
 
@@ -3944,7 +4357,7 @@
       upsertConversation(conversation);
       // H2: Invalidate member cache so next mention parse refetches newly-added bots
       _conversationMembersCache.delete(conversation.id);
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") deps.render("sidebar");
       return;
     }
 
@@ -3955,7 +4368,9 @@
       const { conversation } = payload || {};
       if (!conversation || !conversation.id) return;
       upsertConversation(conversation);
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") {
+        deps.render(conversation.id === moduleState.activeConversationId ? ["sidebar", "header"] : "sidebar");
+      }
       return;
     }
 
@@ -3963,17 +4378,21 @@
     if (type === "conversation.deleted") {
       const { conversationId } = payload || {};
       if (!conversationId) return;
+      const wasActiveConversation = conversationId === moduleState.activeConversationId;
       moduleState.conversations = moduleState.conversations.filter((r) => r.id !== conversationId);
       moduleState.messageCache.delete(conversationId);
+      _messageRenderWindowStates.delete(conversationId);
       moduleState.unreadByConversation.delete(conversationId);
       _conversationMembersCache.delete(conversationId);
-      if (conversationId === moduleState.activeConversationId) moduleState.activeConversationId = null;
+      if (wasActiveConversation) moduleState.activeConversationId = null;
       // Pin state is on cloud (Phase 3); the server side cascades on
       // conversation delete and pushes user_settings.updated, so no client-side
       // cleanup is needed here. Leftover pin entries (orphaned by a
       // conversation delete the server didn't broadcast for some reason) age
       // out at the next settings PUT or are tolerated harmlessly.
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") {
+        deps.render(wasActiveConversation ? "conversation" : "sidebar");
+      }
       return;
     }
 
@@ -3993,11 +4412,11 @@
       if (conversationId === moduleState.activeConversationId) {
         rememberRenderedConversationMessages(conversationId, entry?.messages || []);
         _animateRemoveMessageFromActiveChat(messageId).then(() => {
-          if (deps && typeof deps.render === "function") deps.render();
+          if (deps && typeof deps.render === "function") deps.render(["sidebar", "chrome"]);
         });
         return;
       }
-      if (deps && typeof deps.render === "function") deps.render();
+      if (deps && typeof deps.render === "function") deps.render("sidebar");
       return;
     }
 
@@ -4164,11 +4583,17 @@
     renderAgentPermissionBanner();
 
     const entry = moduleState.messageCache.get(conversationId) || { messages: [], maxSeq: 0 };
-    const messages = Array.isArray(entry.messages) ? entry.messages : [];
+    const allMessages = Array.isArray(entry.messages) ? entry.messages : [];
+    const pendingFocus = pendingFocusFor(conversationId);
+    const messageWindow = resolveConversationMessageWindow(conversationId, allMessages, {
+      focusId: pendingFocus?.messageId || ""
+    });
+    const messages = messageWindow.messages;
     const conversation = moduleState.conversations.find((r) => r.id === conversationId);
     const color = avatarColor(conversationId);
     const conversationType = conversationTypeFor(conversation, conversationId);
-    const renderSignature = chatRenderSignatureFor(conversationId);
+    const renderSignature = chatRenderSignatureFor(conversationId, messageWindow);
+    const streamRenderSignature = chatStreamRenderSignatureFor(conversationId, messageWindow);
 
     // Decide BEFORE rebuilding whether to keep the view pinned to the bottom.
     // Stick when entering a different conversation, when the first non-empty
@@ -4185,7 +4610,7 @@
     const prevScrollTop = containerEl.scrollTop;
     const startBottomGap = chatBottomGap(containerEl);
     const wasNearBottom = isChatPinnedToBottom(containerEl);
-    const hasPendingFocus = Boolean(pendingFocusFor(conversationId));
+    const hasPendingFocus = Boolean(pendingFocus);
     const isStreamingOnlyPaint = !isConversationSwitch
       && !isFirstMessageHydration
       && messageIdsUnchanged
@@ -4212,7 +4637,7 @@
       : [];
     const tailMessageIdSet = new Set(tailMessageIds);
     const shouldAnimateMessage = (msg) => tailMessageIdSet.has(messageStableId(msg));
-    rememberRenderedConversationMessages(conversationId, messages);
+    rememberRenderedConversationMessages(conversationId, allMessages, messageWindow);
     const applyScroll = () => {
       if (!_suppressPendingMessageFocus && focusPendingMessage(containerEl)) return;
       if (stickToBottom) {
@@ -4233,6 +4658,9 @@
     };
 
     if (!isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
+      if (containerEl.dataset?.conversationStreamRenderSignature !== streamRenderSignature) {
+        updateActiveCloudRunStreamingArticle(conversationId);
+      }
       initNameBadgeLotties(containerEl);
       startPhaseOrbAnimation(containerEl);
       applyScroll();
@@ -4241,8 +4669,12 @@
       }
       return;
     }
-    if (containerEl.dataset) containerEl.dataset.conversationRenderSignature = renderSignature;
+    if (containerEl.dataset) {
+      containerEl.dataset.conversationRenderSignature = renderSignature;
+      containerEl.dataset.conversationStreamRenderSignature = streamRenderSignature;
+    }
     containerEl.innerHTML = "";
+    appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "top");
 
     // Header (avatar / name / meta) is painted by app.js render() — this
     // module only owns the message list so the chat header stays in lockstep
@@ -4250,7 +4682,7 @@
 
     if (conversation && conversationType === "group") {
       const members = _conversationMembersCache.get(conversationId) || [];
-      let previousMessage = null;
+      let previousMessage = messageWindow.start > 0 ? allMessages[messageWindow.start - 1] : null;
       for (const msg of messages) {
         if (activeRunCoversProcessingMessage(conversationId, msg)) continue;
         const article = _buildGroupMessageArticle(msg, color, members);
@@ -4261,8 +4693,11 @@
           previousMessage = msg;
         }
       }
-      const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members, { groupMessage: true });
+      const streaming = messageWindow.hasNewer
+        ? null
+        : _buildCloudAgentStreamingArticle(conversationId, color, members, { groupMessage: true });
       if (streaming) containerEl.appendChild(streaming);
+      appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "bottom");
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
       startPhaseOrbAnimation(containerEl);
@@ -4280,7 +4715,7 @@
     if (conversationType === "bot" && !_conversationMembersCache.has(conversationId)) {
       _fetchAndCacheConversationMembers(conversationId);
     }
-    let previousMessage = null;
+    let previousMessage = messageWindow.start > 0 ? allMessages[messageWindow.start - 1] : null;
     for (const msg of messages) {
       if (activeRunCoversProcessingMessage(conversationId, msg)) continue;
       const article = _buildMessageArticle(msg, color, members);
@@ -4291,8 +4726,11 @@
         previousMessage = msg;
       }
     }
-    const streaming = _buildCloudAgentStreamingArticle(conversationId, color, members);
+    const streaming = messageWindow.hasNewer
+      ? null
+      : _buildCloudAgentStreamingArticle(conversationId, color, members);
     if (streaming) containerEl.appendChild(streaming);
+    appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "bottom");
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     markRenderedTraceBlocks(containerEl);
     startPhaseOrbAnimation(containerEl);
@@ -4538,9 +4976,11 @@
   }
 
   function _reRenderActiveChat(options = {}) {
+    if (!rendererWorkActive()) return;
     const chatEl = document.getElementById("chat");
     if (options.force && chatEl?.dataset) {
       delete chatEl.dataset.conversationRenderSignature;
+      delete chatEl.dataset.conversationStreamRenderSignature;
     }
     if (chatEl && moduleState.activeConversationId) renderConversationChat(chatEl);
     renderAgentPermissionBanner();
@@ -4587,6 +5027,7 @@
   }
 
   async function _animateRemoveMessageFromActiveChat(messageId) {
+    if (!rendererWorkActive()) return false;
     const { chatEl, target } = _activeChatMessageTarget(messageId);
     if (!chatEl || !target || typeof target.remove !== "function") {
       _removeMessageFromActiveChat(messageId);
@@ -4693,6 +5134,7 @@
       // Restore the message and re-render so the user doesn't silently lose it.
       entry.messages.push(removed);
       entry.messages.sort((a, b) => a.seq - b.seq);
+      enforceMessageCachePolicy(conversationId, entry);
       syncConversationLastMessageMetadataFromCache(conversationId);
       if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
       if (deps && typeof deps.render === "function") deps.render();
@@ -4727,8 +5169,20 @@
   // has scrolled up to read history isn't yanked down — they only follow along
   // when already near the bottom.
   function _appendMessageToActiveChat(msg, { stick = true } = {}) {
+    if (!rendererWorkActive()) return;
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
+    const entry = moduleState.messageCache.get(moduleState.activeConversationId);
+    const cachedMessages = Array.isArray(entry?.messages) ? entry.messages : [];
+    const messageWindow = resolveConversationMessageWindow(
+      moduleState.activeConversationId,
+      cachedMessages,
+      { focusId: "" }
+    );
+    if (messageWindow.hasNewer || messageWindow.mode === "history") {
+      _reRenderActiveChat({ force: true });
+      return;
+    }
     const startBottomGap = chatBottomGap(chatEl);
     const nearBottom = isChatPinnedToBottom(chatEl);
     const previousMessageLayout = prefersReducedMotion() ? null : captureMessageLayout(chatEl);
@@ -4738,8 +5192,6 @@
     const members = _conversationMembersCache.get(moduleState.activeConversationId) || [];
     const shouldFollow = stick || nearBottom;
     const shouldAnimateTail = nearBottom && !prefersReducedMotion();
-    const entry = moduleState.messageCache.get(moduleState.activeConversationId);
-    const cachedMessages = Array.isArray(entry?.messages) ? entry.messages : [];
     const messageIndex = cachedMessages.findIndex((message) => message?.id === msg?.id);
     const previousMessage = messageIndex > 0
       ? cachedMessages[messageIndex - 1]
@@ -4755,6 +5207,8 @@
       if (shouldAnimateTail) animateMessageTailEnter(article);
       window.miaAvatar?.hydrateAvatarVideos?.(article);
       initNameBadgeLotties(article);
+      trimActiveTailMessageDom(chatEl);
+      refreshMessageWindowNavigation(chatEl, moduleState.activeConversationId, messageWindow);
       markChatRenderFresh(chatEl);
       if (shouldFollow) {
         if (shouldAnimateTail) {
@@ -4765,7 +5219,7 @@
         }
       }
       animateMessageLayoutShift(chatEl, previousMessageLayout);
-      rememberRenderedConversationMessages(moduleState.activeConversationId, entry?.messages || []);
+      rememberRenderedConversationMessages(moduleState.activeConversationId, cachedMessages, messageWindow);
     }
   }
 
@@ -4774,6 +5228,7 @@
     if (!conversationId || !prepared || (!prepared.bodyMd && !attachments.length)) return null;
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+      enforceMessageCachePolicy(conversationId);
     }
     const entry = moduleState.messageCache.get(conversationId);
     const msg = {
@@ -4794,6 +5249,7 @@
     };
     entry.messages.push(msg);
     sortMessagesByTimelineSeq(entry.messages);
+    enforceMessageCachePolicy(conversationId, entry);
     if (conversationId === moduleState.activeConversationId) _appendMessageToActiveChat(msg);
     if (deps && typeof deps.render === "function") deps.render();
     return msg;
@@ -4827,6 +5283,8 @@
     toEntry.messages.push(message);
     sortMessagesByTimelineSeq(fromEntry.messages);
     sortMessagesByTimelineSeq(toEntry.messages);
+    enforceMessageCachePolicy(fromId, fromEntry);
+    enforceMessageCachePolicy(toId, toEntry);
     if (moduleState.activeConversationId === fromId) {
       moduleState.activeConversationId = toId;
       rememberBotConversation(toId);
@@ -5080,6 +5538,7 @@
     _resequencePendingMessagesAfterServerSeq(entry, sentMsg.seq);
     sortMessagesByTimelineSeq(entry.messages);
     if (sentMsg.seq > entry.maxSeq) entry.maxSeq = sentMsg.seq;
+    enforceMessageCachePolicy(conversationId, entry);
     const nextIdx = entry.messages.findIndex((m) => m && m.id === sentMsg.id);
     const didSilentReconcile = canSilentReconcile
       && nextIdx === localIdx
@@ -5093,6 +5552,7 @@
     if (!conversationId || !sentMsg || !sentMsg.id) return false;
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+      enforceMessageCachePolicy(conversationId);
     }
     const entry = moduleState.messageCache.get(conversationId);
     const serverIdx = entry.messages.findIndex((m) => m.id === sentMsg.id);
@@ -5157,6 +5617,7 @@
     if (botMessage.sender_kind !== conversationKinds().SenderKind.Bot) return false;
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+      enforceMessageCachePolicy(conversationId);
     }
     const entry = moduleState.messageCache.get(conversationId);
     const incoming = { ...botMessage };
@@ -5180,6 +5641,7 @@
         sortMessagesByTimelineSeq(entry.messages);
         const seq = Number(incoming.seq) || 0;
         if (seq > entry.maxSeq) entry.maxSeq = seq;
+        enforceMessageCachePolicy(conversationId, entry);
         if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
         if (deps && typeof deps.render === "function") deps.render();
         return true;
@@ -5193,6 +5655,7 @@
     sortMessagesByTimelineSeq(entry.messages);
     const seq = Number(incoming.seq) || 0;
     if (seq > entry.maxSeq) entry.maxSeq = seq;
+    enforceMessageCachePolicy(conversationId, entry);
     if (conversationId === moduleState.activeConversationId) {
       if (existingIdx >= 0) {
         _reRenderActiveChat();
@@ -5867,6 +6330,7 @@
   function _mergeMessagesIntoCache(conversationId, incoming) {
     if (!moduleState.messageCache.has(conversationId)) {
       moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
+      enforceMessageCachePolicy(conversationId);
     }
     const entry = moduleState.messageCache.get(conversationId);
     if (!Array.isArray(incoming) || incoming.length === 0) return entry;
@@ -5895,6 +6359,7 @@
     if (changed) {
       entry.messages = [...byId.values()].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
     }
+    enforceMessageCachePolicy(conversationId, entry);
     if (mergedBotReplyCompletesActiveRun(conversationId, incoming)) {
       clearRunPermissions(moduleState.cloudAgentRunsByConversation.get(conversationId));
       moduleState.cloudAgentRunsByConversation.delete(conversationId);
@@ -6083,6 +6548,7 @@
     _lastRenderedConversationId = null;
     _lastRenderedConversationMessageCount = 0;
     _lastRenderedConversationMessageIds = [];
+    if (next) _messageRenderWindowStates.delete(next);
     moduleState.activeConversationId = next;
     if (typeof deps?.onActiveConversationChanged === "function") {
       try {
@@ -6092,6 +6558,7 @@
       }
     }
     if (id) {
+      enforceMessageCachePolicy(id);
       writeLastActiveConversationId(id);
       rememberBotConversation(id);
       markConversationRead(id);
@@ -6723,6 +7190,7 @@
     if (res?.ok) {
       moduleState.conversations = moduleState.conversations.filter((r) => r.id !== conversationId);
       moduleState.messageCache.delete(conversationId);
+      _messageRenderWindowStates.delete(conversationId);
       moduleState.unreadByConversation.delete(conversationId);
       _conversationMembersCache.delete(conversationId);
       if (conversationId === moduleState.activeConversationId) moduleState.activeConversationId = null;
@@ -6766,7 +7234,24 @@
   }
   // Expose the cached conversation member list so app.js can build a composite
   // avatar for cloud group conversations via the same path as local bot groups.
-  function getConversationMembers(conversationId) { return _conversationMembersCache.get(conversationId) || null; }
+  function getConversationMembers(conversationId) {
+    return resourceCache.touchMapValue(_conversationMembersCache, conversationId) || null;
+  }
+
+  function getPerformanceStats() {
+    let cachedMessages = 0;
+    for (const entry of moduleState.messageCache.values()) {
+      cachedMessages += Array.isArray(entry?.messages) ? entry.messages.length : 0;
+    }
+    return {
+      cachedConversations: moduleState.messageCache.size,
+      cachedMessages,
+      attachmentPreviews: moduleState.attachmentPreviewCache.size,
+      conversationMembers: _conversationMembersCache.size,
+      cloudRuns: moduleState.cloudAgentRunsByConversation.size,
+      bottomStickSessions: _activeChatBottomStickElements.size
+    };
+  }
 
   // ── exports ───────────────────────────────────────────────────────────────
 
@@ -6803,6 +7288,8 @@
     OTHER_DEVICE_CONVERSATION_FILTER,
     OTHER_DEVICE_CONVERSATION_LABEL,
     initSocialModule,
+    setLifecycleState,
+    getPerformanceStats,
     bootstrapAfterLogin,
     isBootstrapped,
     handleCloudEvent,

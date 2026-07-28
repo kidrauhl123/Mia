@@ -5,9 +5,30 @@ const {
   mergeTaskProjections,
   taskSourceFor
 } = require("./shared/task-projection");
+const { createMiaCoreDirectTransport } = require("./preload/mia-core-direct-transport.js");
 
 const miaCoreStartupState = ipcRenderer.sendSync(IpcChannel.MiaCoreStartupState) || {};
-const miaCoreRequest = (method, route, body) => ipcRenderer.invoke(IpcChannel.MiaCoreHttpRequest, { method, route, body });
+const miaCoreTransport = createMiaCoreDirectTransport({
+  port: miaCoreStartupState.port,
+  WebSocketImpl: globalThis.WebSocket || require("ws")
+});
+function coreMutationInvalidatesRuntimeSnapshot(method, route) {
+  const upper = String(method || "GET").toUpperCase();
+  if (upper === "GET" || upper === "HEAD" || upper === "OPTIONS") return false;
+  const path = String(route || "").split("?")[0];
+  const pathSegments = path.split("/").filter(Boolean);
+  return path === "/api/settings/model-selection"
+    || path === "/api/settings/client"
+    || (pathSegments[0] === "api" && pathSegments[1] === "providers");
+}
+
+async function miaCoreRequest(method, route, body) {
+  const result = await miaCoreTransport.request(method, route, body);
+  if (coreMutationInvalidatesRuntimeSnapshot(method, route)) {
+    ipcRenderer.send(IpcChannel.MiaCoreRuntimeSnapshotInvalidate);
+  }
+  return result;
+}
 const miaCoreGet = (route) => miaCoreRequest("GET", route);
 const miaCorePost = (route, body) => miaCoreRequest("POST", route, body);
 const miaCorePatch = (route, body) => miaCoreRequest("PATCH", route, body);
@@ -1198,7 +1219,7 @@ contextBridge.exposeInMainWorld("__miaCoreVersion", miaCoreStartupState.version 
 contextBridge.exposeInMainWorld("__miaCoreUserId", miaCoreStartupState.userId || "");
 
 contextBridge.exposeInMainWorld("mia", {
-  miaCoreRequest: (method, route, body) => ipcRenderer.invoke(IpcChannel.MiaCoreHttpRequest, { method, route, body }),
+  miaCoreRequest,
   initializeRuntime: () => ipcRenderer.invoke(IpcChannel.RuntimeInitialize),
   notifyFirstPaint: () => ipcRenderer.send(IpcChannel.UiFirstPaint),
   runtimeStatus: () => ipcRenderer.invoke(IpcChannel.RuntimeStatus),
@@ -1220,9 +1241,13 @@ contextBridge.exposeInMainWorld("mia", {
     return () => ipcRenderer.removeListener(IpcChannel.UpdateEvent, handler);
   },
   onCloudEvent: (handler) => {
+    const unsubscribeCore = miaCoreTransport.subscribeCloudEvents(handler);
     const listener = (_event, envelope) => { try { handler(envelope); } catch { /* ignore */ } };
     ipcRenderer.on(IpcChannel.CloudEvent, listener);
-    return () => ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
+    return () => {
+      unsubscribeCore();
+      ipcRenderer.removeListener(IpcChannel.CloudEvent, listener);
+    };
   },
   showDesktopNotification: (payload) => ipcRenderer.invoke(IpcChannel.DesktopNotificationShow, payload),
   onDesktopNotificationClick: (handler) => {
@@ -1350,11 +1375,7 @@ contextBridge.exposeInMainWorld("mia", {
     pause: (id, source) => changeTaskStatus(id, "pause", source),
     resume: (id, source) => changeTaskStatus(id, "resume", source),
     runNow: (id, source) => runTaskNow(id, source),
-    subscribe: (cb) => {
-      const wrapped = (_e, envelope) => cb(envelope);
-      ipcRenderer.on(IpcChannel.TasksEvent, wrapped);
-      return () => ipcRenderer.removeListener(IpcChannel.TasksEvent, wrapped);
-    }
+    subscribe: (cb) => miaCoreTransport.subscribeTaskEvents(cb)
   },
   conductor: {
     loadPrompts: () => ipcRenderer.invoke(IpcChannel.ConductorLoadPrompts),
@@ -1373,6 +1394,9 @@ contextBridge.exposeInMainWorld("mia", {
     deleteBot: (botId) => ipcRenderer.invoke(IpcChannel.SocialDeleteBot, botId),
     listPlatformModels: () => ipcRenderer.invoke(IpcChannel.SocialListPlatformModels),
     getConversation: (conversationId) => getConversationCompat(conversationId),
+    cacheConversationMessages: (conversationId, messages) => (
+      ipcRenderer.invoke(IpcChannel.SocialCacheConversationMessages, conversationId, messages)
+    ),
     listConversationMessages: (conversationId, sinceSeq, limit) => listConversationMessagesCompat(conversationId, sinceSeq, limit),
     searchConversationMessages: (query, limit) => ipcRenderer.invoke(IpcChannel.SocialSearchConversationMessages, query, limit),
     getCachedConversationMessages: (conversationId, limit) => ipcRenderer.invoke(IpcChannel.SocialGetCachedMessages, conversationId, limit),

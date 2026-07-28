@@ -1026,9 +1026,10 @@ test("Core control server uses the daemon compatibility Module behind a Mia Core
 
 test("Core task HTTP compatibility is retired from Node while task events use the Core event client", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
+  const directTransportSource = fs.readFileSync(path.join(root, "src/preload/mia-core-direct-transport.js"), "utf8");
   const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
   const compatClientSource = fs.readFileSync(path.join(root, "src/main/mia-core/compat-client.js"), "utf8");
-  const eventClientSource = fs.readFileSync(path.join(root, "src/main/mia-core/event-client.js"), "utf8");
+  const eventClientSource = fs.readFileSync(path.join(root, "src/shared/mia-core-event-client.js"), "utf8");
   const chatSendSource = fs.readFileSync(path.join(root, "src/main/chat-send-delegation.js"), "utf8");
   const retiredTaskBackendFiles = [
     "src/main/tasks-store.js",
@@ -1058,6 +1059,8 @@ test("Core task HTTP compatibility is retired from Node while task events use th
   assert.match(controlSource, /Legacy chat send is retired/, "control server should fail closed for legacy chat send");
   assert.doesNotMatch(controlSource, /handleChatSend|sendChat = null|createChatEventEmitter|text\/event-stream|emitStream/, "control server should not own legacy chat execution or SSE streaming");
   assert.match(eventClientSource, /rendererTaskEnvelope/, "Core event client should adapt task events for the renderer task panel");
+  assert.match(directTransportSource, /subscribeTaskEvents/, "renderer transport should own Core task event delivery");
+  assert.doesNotMatch(mainSource, /IpcChannel\.TasksEvent/, "main must not relay Core task events");
   assert.doesNotMatch(controlSource, /tasksClient|forwardCoreTaskRequest|coreTasksClient/, "control server should not forward legacy task HTTP through Node");
   assert.match(controlSource, /Rust Core \/ws/, "control server should point local task event clients to Core websocket events");
   for (const relativePath of retiredTaskBackendFiles) {
@@ -1070,17 +1073,22 @@ test("Core task HTTP compatibility is retired from Node while task events use th
   assert.doesNotMatch(mainSource, /\/api\/tasks\/events/, "main must not own the daemon task event stream route");
 });
 
-test("foreground local event subscription uses Rust Core websocket, not daemon SSE", () => {
+test("renderer owns the Core event stream while Main subscribes to control scope only", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
-  const eventClientSource = fs.readFileSync(path.join(root, "src/main/mia-core/event-client.js"), "utf8");
+  const directTransportSource = fs.readFileSync(path.join(root, "src/preload/mia-core-direct-transport.js"), "utf8");
+  const eventClientSource = fs.readFileSync(path.join(root, "src/shared/mia-core-event-client.js"), "utf8");
+  const realtimeSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/router/realtime.rs"), "utf8");
   const controlSource = fs.readFileSync(path.join(root, "src/main/mia-core/control-server.js"), "utf8");
 
   assert.equal(fs.existsSync(path.join(root, "src/main/daemon/local-events-client.js")), false, "daemon SSE local event client should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/daemon/local-event-renderer-router.js")), false, "daemon local event renderer router should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "tests/daemon-local-events.test.js")), false, "old daemon local-events client tests should stay deleted");
-  assert.match(eventClientSource, /coreWsUrl\(baseUrl\(\)\)/, "local event client should subscribe to Rust Core /ws");
+  assert.match(eventClientSource, /coreWsUrl\(baseUrl\(\), wsPath\)/, "local event client should support scoped Rust Core websocket paths");
   assert.match(eventClientSource, /type\.startsWith\("task\."\)/, "local event client should avoid duplicating Core task events");
-  assert.match(mainSource, /createMiaCoreLocalEventsClient/, "main should import the Core event client directly");
+  assert.match(directTransportSource, /includeTaskEvents:\s*true/, "renderer should receive the unfiltered task and conversation stream");
+  assert.match(mainSource, /wsPath:\s*"\/ws\?scope=control"/, "main should subscribe only to Core control events");
+  assert.match(realtimeSource, /control_only && !is_control_event\(&event\)/, "Core should filter hot-path events before sending them to Main");
+  assert.doesNotMatch(mainSource, /broadcastRendererEvent\(IpcChannel\.TasksEvent/, "main should not relay task events");
   assert.doesNotMatch(mainSource, /rendererChannelForLocalEvent|\/api\/local-events/, "main must not subscribe to the daemon local-events SSE path");
   assert.doesNotMatch(controlSource, /\/api\/local-events|text\/event-stream;\s*charset=utf-8"[\s\S]*localEvent/, "daemon compatibility server must not expose the obsolete local-events SSE path");
 });

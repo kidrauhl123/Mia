@@ -27,12 +27,14 @@
   const DEFAULT_AMBIENT_INTERVAL_MS = 14000;
   const DEFAULT_AMBIENT_INITIAL_DELAY_MS = 1800;
   const AMBIENT_STAGGER_MS = 850;
+  const MAX_ANIMATION_DATA_CACHE_ENTRIES = 32;
 
   const reg = new Map(); // container element -> { anim, open }
   const animationDataCache = new Map();
   const animationDataPromises = new Map();
   let playerPromise = null;
   let ambientMountCount = 0;
+  let externallyActive = true;
   const reducedMotion = window.matchMedia
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
     : { matches: false };
@@ -104,13 +106,21 @@
 
   async function loadTgsAnimationData(container, name, animationPath) {
     const cacheKey = animationPath || `status-badge:${name}`;
-    if (animationDataCache.has(cacheKey)) return animationDataCache.get(cacheKey);
+    if (animationDataCache.has(cacheKey)) {
+      const cached = animationDataCache.get(cacheKey);
+      animationDataCache.delete(cacheKey);
+      animationDataCache.set(cacheKey, cached);
+      return cached;
+    }
     if (animationDataPromises.has(cacheKey)) return animationDataPromises.get(cacheKey);
     const promise = loadTgsAnimationDataUncached(container, name, animationPath);
     animationDataPromises.set(cacheKey, promise);
     try {
       const animationData = await promise;
       animationDataCache.set(cacheKey, animationData);
+      while (animationDataCache.size > MAX_ANIMATION_DATA_CACHE_ENTRIES) {
+        animationDataCache.delete(animationDataCache.keys().next().value);
+      }
       return animationData;
     } finally {
       animationDataPromises.delete(cacheKey);
@@ -179,6 +189,7 @@
 
   function shouldPlayLoop(container, entry) {
     if (entry.triggerMode !== "loop") return false;
+    if (!externallyActive) return false;
     if (reducedMotion.matches) return false;
     if (typeof document !== "undefined" && document.hidden) return false;
     if (!isVisible(container)) return false;
@@ -213,6 +224,7 @@
 
   function shouldPlayAmbient(container, entry) {
     if (entry.triggerMode !== "ambient") return false;
+    if (!externallyActive) return false;
     if (reducedMotion.matches) return false;
     if (typeof document !== "undefined" && document.hidden) return false;
     if (!isVisible(container)) return false;
@@ -272,8 +284,16 @@
     scheduleAmbient(container, entry, ambientIntervalMs(container));
   }
 
-  function syncAllLoopPlayback() {
+  function syncPlayback() {
+    sweepOrphans();
     for (const [container, entry] of reg) {
+      if (
+        entry.triggerMode !== "loop"
+        && entry.triggerMode !== "ambient"
+        && (!externallyActive || (typeof document !== "undefined" && document.hidden) || !isVisible(container))
+      ) {
+        entry.anim?.pause?.();
+      }
       syncLoopPlayback(container, entry);
       syncAmbientPlayback(container, entry);
     }
@@ -445,8 +465,13 @@
       const details = event.target;
       if (details?.tagName === "DETAILS" && details.open) initSoon(details);
     }, true);
-    document.addEventListener("visibilitychange", syncAllLoopPlayback);
+    document.addEventListener("visibilitychange", syncPlayback);
   }
 
-  window.miaLottieIcons = { init, setOpen, destroy, loadPlayer };
+  function setActive(active) {
+    externallyActive = Boolean(active);
+    syncPlayback();
+  }
+
+  window.miaLottieIcons = { init, setOpen, destroy, loadPlayer, setActive, syncPlayback };
 })();

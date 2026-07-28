@@ -7,7 +7,7 @@ const {
   coreConversationRuntimeEnvelope,
   coreLocalEventEnvelope,
   createMiaCoreLocalEventsClient
-} = require("../src/main/mia-core/event-client.js");
+} = require("../src/shared/mia-core-event-client.js");
 
 class FakeSocket {
   static CONNECTING = 0;
@@ -450,4 +450,20 @@ test("Mia Core local events client stays idle when Core is disabled or unresolve
   assert.equal(FakeSocket.instances.length, 0);
   assert.equal(timers.length, 1);
   assert.equal(timers[0].delayMs, 1000);
+});
+
+test("Mia Core local events client supports a server-filtered control scope", () => {
+  FakeSocket.instances = [];
+  const client = createMiaCoreLocalEventsClient({
+    baseUrl: () => "http://127.0.0.1:27862",
+    enabled: () => true,
+    WebSocketImpl: FakeSocket,
+    wsPath: "/ws?scope=control",
+    setTimeoutFn: () => 0,
+    clearTimeoutFn: () => {}
+  });
+
+  client.start();
+  assert.equal(FakeSocket.instances[0].url, "ws://127.0.0.1:27862/ws?scope=control");
+  client.stop();
 });

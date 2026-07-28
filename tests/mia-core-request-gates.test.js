@@ -3,7 +3,7 @@ const { test } = require("node:test");
 
 let requestGates = {};
 try {
-  requestGates = require("../src/main/mia-core/request-gates.js");
+  requestGates = require("../src/shared/mia-core-request-policy.js");
 } catch {
   requestGates = {};
 }

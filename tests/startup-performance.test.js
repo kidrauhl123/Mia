@@ -61,11 +61,31 @@ test("system Hermes discovery uses non-blocking child processes", () => {
 
 test("social bootstrap renders metadata before on-demand message hydration", () => {
   const social = read("src/renderer/social/social.js");
-  const bootstrap = functionSource(social, "bootstrapAfterLogin");
+  const bootstrap = functionSource(social, "runBootstrapAfterLogin");
   const hydrateCache = functionSource(social, "hydrateCachedSocialBootstrap");
 
   assert.doesNotMatch(bootstrap, /listConversationMessages\(/);
   assert.doesNotMatch(bootstrap, /Promise\.all\(memberConversationsToFetch/);
   assert.match(bootstrap, /moduleState\.bootstrapped = true/);
   assert.doesNotMatch(hydrateCache, /getCachedConversationMessages/);
+});
+
+test("desktop typing stays off the Electron main-process input hot path", () => {
+  const main = read("src/main.js");
+  const app = read("src/renderer/app.js");
+  const messageHelpers = read("src/renderer/chat/message-helpers.js");
+  const resize = functionSource(messageHelpers, "resizeChatInput");
+
+  assert.doesNotMatch(main, /installPathPasteShortcut/);
+  assert.match(app, /createComposerInputScheduler/);
+  assert.match(app, /chatInput\.addEventListener\("input", \(\) => \{\s*composerInputRefreshScheduler\.schedule\(\)/);
+  assert.match(resize, /chatInputMetrics/);
+  assert.equal((resize.match(/input\.scrollHeight/g) || []).length, 1);
+});
+
+test("runtime polling remains a low-frequency control-plane fallback", () => {
+  const app = read("src/renderer/app.js");
+
+  assert.match(app, /RUNTIME_FALLBACK_REFRESH_MS = 60_000/);
+  assert.match(app, /const refreshControlPlane = envelope\.type === "events_ready"/);
 });

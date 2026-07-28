@@ -107,6 +107,18 @@ test("visible loop lotties opt out of autoplay and start through visibility sync
   assert.deepEqual(played, ["welcome"]);
 });
 
+test("renderer lifecycle pauses and resumes visible loop lotties", () => {
+  const visible = createElement({ visible: true, trigger: "loop" });
+  const { api, played, paused } = loadLottieIcons([visible]);
+
+  api.init();
+  api.setActive(false);
+  api.setActive(true);
+
+  assert.deepEqual(paused, ["welcome"]);
+  assert.deepEqual(played, ["welcome", "welcome"]);
+});
+
 test("ambient lotties render to canvas and schedule playback without hover dependency", () => {
   const visible = createElement({ name: "sparkle", visible: true, trigger: "ambient" });
   const { api, loadCalls, played, stopped, timers } = loadLottieIcons([visible]);

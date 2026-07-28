@@ -1,6 +1,6 @@
 "use strict";
 
-const { createMiaCoreHttpClientCache } = require("./http-client.js");
+const { createMiaCoreHttpClientCache } = require("../../shared/mia-core-http-client.js");
 
 function parseBody(body) {
   if (body == null || body === "") return undefined;

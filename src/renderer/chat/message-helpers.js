@@ -6,6 +6,7 @@
 
   let state, els;
   let activePersona, messagesForActive, renderSendButton;
+  let chatInputMetrics = null;
 
   // Composer IME composition tracker — used to ignore the Enter key that
   // commits a Chinese/Japanese candidate so it doesn't accidentally send.
@@ -91,18 +92,27 @@
     if (!els) return;
     const input = els.chatInput;
     if (!input) return;
-    const style = window.getComputedStyle(input);
-    const minHeight = Number.parseFloat(style.minHeight) || 41;
-    const maxHeight = Number.parseFloat(style.maxHeight) || 180;
+    if (!chatInputMetrics || chatInputMetrics.input !== input) {
+      const style = window.getComputedStyle(input);
+      chatInputMetrics = {
+        input,
+        minHeight: Number.parseFloat(style.minHeight) || 41,
+        maxHeight: Number.parseFloat(style.maxHeight) || 180
+      };
+    }
+    const { minHeight, maxHeight } = chatInputMetrics;
     if (!input.value) {
       input.style.height = `${minHeight}px`;
       input.style.overflowY = "hidden";
       return;
     }
     input.style.height = `${minHeight}px`;
-    const nextHeight = Math.max(minHeight, Math.min(input.scrollHeight, maxHeight));
+    // Reading scrollHeight forces layout. Read it once, then perform both
+    // writes from the same measurement.
+    const scrollHeight = input.scrollHeight;
+    const nextHeight = Math.max(minHeight, Math.min(scrollHeight, maxHeight));
     input.style.height = `${nextHeight}px`;
-    input.style.overflowY = input.scrollHeight > maxHeight ? "auto" : "hidden";
+    input.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
   function insertComposerText(text) {

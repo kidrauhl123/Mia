@@ -54,6 +54,7 @@ function loadComposer({ clipboardText = "", nativeClipboardText = null, includeN
   const source = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
   const window = {
     miaConversationKinds: { MemberKind: { Bot: "bot", User: "user" } },
+    miaResourceCache: require("../src/renderer/resource-cache.js"),
     miaEngineOptions: {
       activeAgentEngine: () => "hermes",
       isExternalAgentEngine: () => false
@@ -404,6 +405,23 @@ test("composer keeps unsent drafts isolated per conversation", () => {
 
   assert.equal(input.value, "draft for beta");
   assert.deepEqual(plain(composerState.pendingAttachments), [{ id: "file-beta", name: "beta.txt" }]);
+});
+
+test("composer keeps only the most recently used conversation drafts", () => {
+  const { composer } = loadComposer();
+  const input = mockInput("");
+  const counters = initComposer(composer, input);
+
+  for (let index = 0; index < 30; index += 1) {
+    input.value = `draft ${index}`;
+    composer.saveComposerDraft(`conversation-${index}`);
+  }
+
+  assert.equal(counters.state.composerDrafts.size, 24);
+  assert.equal(counters.state.composerDrafts.has("conversation-0"), false);
+  assert.equal(counters.state.composerDrafts.has("conversation-5"), false);
+  assert.equal(counters.state.composerDrafts.has("conversation-6"), true);
+  assert.equal(counters.state.composerDrafts.has("conversation-29"), true);
 });
 
 test("chat input wires the path paste shortcut before menu navigation", () => {

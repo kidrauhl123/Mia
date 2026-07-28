@@ -6,6 +6,7 @@
 
   let state;
   let renderContacts;
+  const MAX_MEMORY_CACHE_ENTRIES = 32;
 
   function initBotMemoryPanel(deps = {}) {
     state = deps.state;
@@ -29,6 +30,23 @@
   function memoryEntriesCache() {
     if (!(state?.botMemoryEntries instanceof Map)) state.botMemoryEntries = new Map();
     return state.botMemoryEntries;
+  }
+
+  function cachedMemoryEntry(key) {
+    const cache = memoryEntriesCache();
+    if (!cache.has(key)) return null;
+    return window.miaResourceCache?.touchMapValue?.(cache, key) ?? cache.get(key);
+  }
+
+  function cacheMemoryEntry(key, value) {
+    const cache = memoryEntriesCache();
+    cache.delete(key);
+    cache.set(key, value);
+    window.miaResourceCache?.pruneMap?.(cache, {
+      maxEntries: MAX_MEMORY_CACHE_ENTRIES,
+      protectedKeys: key ? [key] : []
+    });
+    return value;
   }
 
   function memoryLoadingKeys() {
@@ -68,7 +86,7 @@
 
   function panelData(bot) {
     const key = botKey(bot);
-    const data = memoryEntriesCache().get(key) || null;
+    const data = cachedMemoryEntry(key);
     if (!data && key) loadBotMemory(bot);
     return data;
   }
@@ -77,15 +95,14 @@
     const key = botKey(bot);
     const id = botId(bot);
     if (!key || !id || !state) return null;
-    const cache = memoryEntriesCache();
     const loading = memoryLoadingKeys();
-    const cached = cache.get(key) || null;
+    const cached = cachedMemoryEntry(key);
     const stillFresh = cached && Date.now() - Number(cached.loadedAt || 0) < 10_000;
     if (loading.has(key) || (!options.force && stillFresh)) return cached;
     const api = window.mia?.social?.getBotMemory;
     if (typeof api !== "function") {
       const unavailable = { mode: "mia", entries: [], error: "记忆功能暂不可用", loadedAt: Date.now() };
-      cache.set(key, unavailable);
+      cacheMemoryEntry(key, unavailable);
       renderContacts?.();
       return unavailable;
     }
@@ -94,7 +111,7 @@
       const result = await api(id);
       if (result?.ok === false) throw new Error(result.error || "读取记忆失败");
       const data = normalizeMemoryResponse(result);
-      cache.set(key, data);
+      cacheMemoryEntry(key, data);
       return data;
     } catch (error) {
       const failed = {
@@ -102,7 +119,7 @@
         error: "暂时无法读取记忆",
         loadedAt: Date.now()
       };
-      cache.set(key, failed);
+      cacheMemoryEntry(key, failed);
       return failed;
     } finally {
       loading.delete(key);
@@ -228,7 +245,7 @@
     try {
       const result = await api(botId(bot), { oldText: editor.oldText, content });
       if (result?.ok === false) throw new Error(result.error || "保存失败");
-      memoryEntriesCache().set(key, normalizeMemoryResponse(result));
+      cacheMemoryEntry(key, normalizeMemoryResponse(result));
       clearEditor();
     } catch {
       const active = currentEditor();

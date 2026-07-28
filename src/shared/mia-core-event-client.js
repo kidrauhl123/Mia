@@ -1,10 +1,13 @@
 "use strict";
 
+// Pure websocket adaptation/reconnect logic shared by Main and preload.
+
 const MAX_RECONNECT_DELAY_MS = 15000;
 
-function coreWsUrl(baseUrl) {
+function coreWsUrl(baseUrl, wsPath = "/ws") {
   const normalized = String(baseUrl || "").replace(/\/+$/, "");
-  return `${normalized.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}/ws`;
+  const path = String(wsPath || "/ws");
+  return `${normalized.replace(/^http:/, "ws:").replace(/^https:/, "wss:")}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 function websocketMessageData(event) {
@@ -370,7 +373,8 @@ function createMiaCoreLocalEventsClient({
   clearTimeoutFn = clearTimeout,
   initialReconnectDelayMs = 1000,
   includeTaskEvents = false,
-  eventMapper = coreLocalEventEnvelope
+  eventMapper = coreLocalEventEnvelope,
+  wsPath = "/ws"
 }) {
   let stopped = false;
   let timer = null;
@@ -450,7 +454,7 @@ function createMiaCoreLocalEventsClient({
     }
     let url;
     try {
-      url = coreWsUrl(baseUrl());
+      url = coreWsUrl(baseUrl(), wsPath);
     } catch {
       scheduleReconnect();
       return;

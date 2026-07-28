@@ -14,22 +14,28 @@ function extractFunctionSource(source, name) {
   return source.slice(start, next === -1 ? source.length : next);
 }
 
-test("preload exposes Rust Core startup state and a single HTTP request adapter", () => {
+test("preload exposes startup state and sends Core HTTP directly without Main IPC", () => {
   const channels = read("src/shared/ipc-channels.js");
   const preload = read("src/preload.js");
+  const directTransport = read("src/preload/mia-core-direct-transport.js");
   const main = read("src/main.js");
 
   assert.match(channels, /MiaCoreStartupState:\s*"mia-core:startup-state"/);
-  assert.match(channels, /MiaCoreHttpRequest:\s*"mia-core:http-request"/);
+  assert.doesNotMatch(channels, /MiaCoreHttpRequest|mia-core:http-request/);
   assert.match(preload, /const miaCoreStartupState = ipcRenderer\.sendSync\(IpcChannel\.MiaCoreStartupState\)/);
+  assert.match(preload, /createMiaCoreDirectTransport/);
+  assert.match(preload, /miaCoreTransport\.request\(method,\s*route,\s*body\)/);
+  assert.match(preload, /ipcRenderer\.send\(IpcChannel\.MiaCoreRuntimeSnapshotInvalidate\)/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\("__miaCorePort"/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\("__miaCoreStartupFailed"/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\("__miaCoreVersion"/);
   assert.match(preload, /contextBridge\.exposeInMainWorld\("__miaCoreUserId",\s*miaCoreStartupState\.userId \|\| ""\)/);
-  assert.match(preload, /miaCoreRequest:\s*\(method,\s*route,\s*body\)\s*=>\s*ipcRenderer\.invoke\(IpcChannel\.MiaCoreHttpRequest/);
+  assert.match(preload, /miaCoreRequest,/);
+  assert.match(directTransport, /createMiaCoreHttpClient/);
   assert.match(main, /ipcMain\.on\(IpcChannel\.MiaCoreStartupState/);
   assert.match(extractFunctionSource(main, "currentMiaCoreStartupState"), /userId:\s*currentMiaUserId\(\)/);
-  assert.match(main, /ipcMain\.handle\(IpcChannel\.MiaCoreHttpRequest/);
+  assert.doesNotMatch(main, /IpcChannel\.MiaCoreHttpRequest/);
+  assert.match(main, /ipcMain\.on\(IpcChannel\.MiaCoreRuntimeSnapshotInvalidate/);
   assert.match(main, /createMiaCoreHttpClient/);
 });
 

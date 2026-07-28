@@ -24,7 +24,26 @@ const botRuntimeControlOptionsCache = new Map();
 // bot cannot reuse a stale ACP session snapshot.
 const botRuntimeControlOptionsInFlight = new Map();
 const botRuntimeControlOptionsLoadStates = new Map();
+const MAX_RUNTIME_CONTROL_CACHE_ENTRIES = 32;
 const platformModelCatalog = { loaded: false, loading: false, entries: [] };
+
+function pruneRuntimeControlCaches(protectedKey = "") {
+  const protectedKeys = protectedKey ? [protectedKey] : [];
+  const prune = window.miaResourceCache?.pruneMap;
+  if (typeof prune !== "function") return;
+  prune(botRuntimeControlCache, {
+    maxEntries: MAX_RUNTIME_CONTROL_CACHE_ENTRIES,
+    protectedKeys
+  });
+  prune(botRuntimeControlOptionsCache, {
+    maxEntries: MAX_RUNTIME_CONTROL_CACHE_ENTRIES,
+    protectedKeys
+  });
+  prune(botRuntimeControlOptionsLoadStates, {
+    maxEntries: MAX_RUNTIME_CONTROL_CACHE_ENTRIES,
+    protectedKeys
+  });
+}
 const runtimeRequestBackoff = window.miaRequestBackoff?.createRequestBackoff?.({
   baseDelayMs: 1_000,
   maxDelayMs: 30_000
@@ -52,6 +71,7 @@ let conversationFolderSuppressClick = false;
 let cloudMobileScanRefreshTimer = 0;
 let cloudMobileScanPendingTimer = 0;
 const CLOUD_MOBILE_SCAN_PENDING_POLL_MS = 700;
+const RUNTIME_FALLBACK_REFRESH_MS = 60_000;
 const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
 const CONVERSATION_FOLDER_ALL_KEY = "__all__";
 const CONVERSATION_FOLDER_LONG_PRESS_MS = 260;
@@ -81,6 +101,39 @@ const state = window.miaAppState.createInitialState({
   sidebarWidth: savedSidebarWidth(),
   windowWidth: window.innerWidth
 });
+const rendererViewLifecycle = window.miaViewLifecycle?.createViewLifecycle?.({
+  document,
+  initialView: state.activeView
+}) || null;
+let rendererLifecycleSubscribed = false;
+const rendererPerformanceEnabled = (() => {
+  try {
+    return new URLSearchParams(window.location.search || "").get("perf") === "1"
+      || localStorage.getItem("mia.performanceDiagnostics") === "1";
+  } catch {
+    return false;
+  }
+})();
+const rendererPerformance = window.miaPerformanceDiagnostics?.createPerformanceDiagnostics?.({
+  enabled: rendererPerformanceEnabled,
+  performance: window.performance,
+  document,
+  window
+}) || {
+  enabled: false,
+  measure: (_name, operation) => operation(),
+  record: () => {},
+  snapshot: () => ({ enabled: false }),
+  start: () => {},
+  stop: () => {}
+};
+window.__miaPerformance = {
+  enabled: rendererPerformance.enabled,
+  snapshot: () => rendererPerformance.snapshot({
+    view: state.activeView,
+    social: window.miaSocial?.getPerformanceStats?.() || {}
+  })
+};
 let coreStartupProgressTimer = 0;
 let coreStartupSettleTimer = 0;
 let coreStartupNudgeTimer = 0;
@@ -3045,7 +3098,7 @@ function extractLocalFilePaths(text = "") {
 function generatedAttachmentsForMessage(message = {}) {
   if (message.role !== "assistant") return [];
   return extractLocalFilePaths(message.content).map((filePath) => {
-    const entry = state.generatedFiles.get(filePath);
+    const entry = generatedFileCacheEntry(filePath);
     if (entry?.status === "ready") return entry.attachment;
     if (entry?.status === "error") {
       return {
@@ -3071,17 +3124,34 @@ function hydrateAttachmentPreview(attachment = {}) {
   const cloudUrl = String(attachment.url || "").trim();
   if ((!filePath && !cloudUrl) || attachment.thumbnailDataUrl || attachment.thumbnail || attachment.previewDataUrl || attachment.dataUrl) return attachment;
   if (cloudUrl) {
-    const entry = state.generatedFiles.get(cloudUrl);
+    const entry = generatedFileCacheEntry(cloudUrl);
     if (entry?.status === "ready" && entry.attachment) {
       return { ...attachment, ...entry.attachment };
     }
     return attachment;
   }
-  const entry = state.generatedFiles.get(filePath);
+  const entry = generatedFileCacheEntry(filePath);
   if (entry?.status === "ready" && entry.attachment) {
     return { ...attachment, ...entry.attachment };
   }
   return attachment;
+}
+
+const MAX_GENERATED_FILE_CACHE_ENTRIES = 64;
+const MAX_GENERATED_FILE_CACHE_BYTES = 32 * 1024 * 1024;
+
+function generatedFileCacheEntry(key) {
+  if (!state.generatedFiles.has(key)) return undefined;
+  return window.miaResourceCache?.touchMapValue?.(state.generatedFiles, key) ?? state.generatedFiles.get(key);
+}
+
+function pruneGeneratedFileCache(protectedKey = "") {
+  window.miaResourceCache?.pruneMap?.(state.generatedFiles, {
+    maxEntries: MAX_GENERATED_FILE_CACHE_ENTRIES,
+    maxWeight: MAX_GENERATED_FILE_CACHE_BYTES,
+    weightOf: (entry) => window.miaResourceCache?.estimateValueBytes?.(entry) || 0,
+    protectedKeys: protectedKey ? [protectedKey] : []
+  });
 }
 
 function attachmentPreviewPaths(messages = []) {
@@ -3104,14 +3174,17 @@ function queueGeneratedFileFetches(messages = []) {
   for (const filePath of paths) {
     if (state.generatedFiles.has(filePath)) continue;
     state.generatedFiles.set(filePath, { status: "loading" });
+    pruneGeneratedFileCache(filePath);
     window.mia.fetchFileAttachment?.(filePath.startsWith("/api/files/") ? { url: filePath } : { path: filePath })
       .then((attachment) => {
         if (attachment?.error) throw new Error(attachment.message || "File not found.");
         state.generatedFiles.set(filePath, { status: "ready", attachment });
+        pruneGeneratedFileCache(filePath);
         renderChat();
       })
       .catch(() => {
         state.generatedFiles.set(filePath, { status: "error" });
+        pruneGeneratedFileCache(filePath);
         renderChat();
       });
   }
@@ -3262,7 +3335,8 @@ function codexAuthDetailsMarkdown(auth = {}) {
   return lines.join("\n\n");
 }
 
-function render() {
+function renderImpl({ conversationOnly = false, conversationScopes = [] } = {}) {
+  if (!conversationOnly) conversationRenderScheduler?.cancel?.();
   const runtime = state.runtime;
   if (!runtime) {
     if (window.miaSetupGuide?.shouldShowSetupGuide?.({ messages: [] })) {
@@ -3278,11 +3352,36 @@ function render() {
   updateStatusBadgeAssetBaseUrl(runtime);
   const cloudSignedIn = Boolean(runtime?.cloud?.enabled);
   els.appShell?.setAttribute("data-auth-state", cloudSignedIn ? "signed-in" : "signed-out");
+  const chatViewActive = state.activeView === "chat";
+  const rendererInteractive = desktopWindowFocused && !document.hidden;
+  if (conversationOnly && (!chatViewActive || !rendererInteractive)) {
+    renderNavigationBadges();
+    return;
+  }
+  if (conversationOnly && conversationScopes.length && !conversationScopes.includes("default")) {
+    rendererPerformance.record("render.conversation.scopeCount", conversationScopes.length);
+  }
+  const requestedConversationScopes = new Set(conversationScopes);
+  const renderWholeConversation = !conversationOnly
+    || !requestedConversationScopes.size
+    || requestedConversationScopes.has("default")
+    || requestedConversationScopes.has("conversation")
+    || requestedConversationScopes.has("activation");
+  const renderConversationChrome = renderWholeConversation
+    || requestedConversationScopes.has("chrome")
+    || requestedConversationScopes.has("header");
+  const renderConversationSidebar = renderWholeConversation
+    || requestedConversationScopes.has("sidebar");
+  const renderConversationChat = renderWholeConversation
+    || requestedConversationScopes.has("chat");
+  if (chatViewActive && (renderConversationChrome || renderConversationChat)) {
   renderSendButton();
   window.miaMessageHelpers.renderComposerReply();
   // Re-evaluate composer skill chips every render so switching conversations drops
   // chips that belonged to the previous conversation (self-heal in composer).
   window.miaComposer?.renderComposerSkills?.();
+  }
+  if (!conversationOnly) {
   const editingModel = els.modelForm.contains(document.activeElement);
   const editingProfile = Boolean(state.profileDialogOpen || els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
@@ -3408,8 +3507,12 @@ function render() {
     : "";
   applyComposerModelAvatar(document.querySelector(".model-avatar"), activeIcon);
   window.miaModelSettings.syncPermissionControl(runtime);
+  }
+  if (chatViewActive) {
+  if (renderConversationChrome) {
   syncConversationBotRuntimeControls();
   renderCoreStartupStatus();
+  }
 
   const personas = allOwnedBotsForIdentity();
   const social = window.miaSocial;
@@ -3443,6 +3546,7 @@ function render() {
       || [...syncedBotKeys][0]
       || "";
   }
+  if (renderConversationChrome) {
   els.personaCount.textContent = "";
   els.personaCount.classList.add("hidden");
   const active = cloudSignedIn ? null : (personas.find((persona) => persona.key === state.activeKey) || personas[0]);
@@ -3501,9 +3605,11 @@ function render() {
     els.newSession?.classList.add("hidden");
     if (composerBottom) composerBottom.classList.remove("hidden");
   }
+  }
   // Cloud-only: the sidebar lists cloud conversations exclusively. Local bot
   // personas are no longer a conversation source — a bot surfaces as its
   // cloud bot conversation once bootstrap completes.
+  if (renderConversationSidebar) {
   const cloudReady = !cloudSignedIn || !social || social.isBootstrapped?.();
   const socialRows = cloudReady ? (social?.renderSidebarRows?.() || []) : [];
   renderConversationSearchTools(cloudReady);
@@ -3551,12 +3657,125 @@ function render() {
     }
     renderPersonaListIfChanged(sidebarSpecs, emptyText, activeTagFilterName);
   }
-  renderView();
-  renderSessionMenu();
-  if (!window.miaMessageMenu?.hasActiveMessageTextSelection()) renderChat();
+  }
+  if (renderConversationChrome) renderSessionMenu();
+  if (renderConversationChat && !window.miaMessageMenu?.hasActiveMessageTextSelection()) renderChat();
+  }
+  if (!conversationOnly) renderView();
+  else renderNavigationBadges();
 }
 
-function renderView() {
+function render(options = {}) {
+  const label = options?.conversationOnly ? "render.conversation" : "render.full";
+  return rendererPerformance.measure(label, () => renderImpl(options));
+}
+
+const conversationRenderScheduler = window.miaRenderScheduler?.createRenderScheduler
+  ? window.miaRenderScheduler.createRenderScheduler({
+    render: (conversationScopes) => render({ conversationOnly: true, conversationScopes }),
+    requestFrame: (callback) => window.requestAnimationFrame(callback),
+    cancelFrame: (id) => window.cancelAnimationFrame(id)
+  })
+  : null;
+
+function scheduleConversationRender(scope = "conversation") {
+  if (conversationRenderScheduler) return conversationRenderScheduler.schedule(scope);
+  return render({ conversationOnly: true, conversationScopes: [scope] });
+}
+
+function renderNavigationBadges() {
+  const incomingCount = window.miaSocial?.moduleState?.incomingRequests?.length || 0;
+  if (els.contactsUnreadBadge) {
+    if (incomingCount > 0) {
+      els.contactsUnreadBadge.classList.remove("hidden");
+      els.contactsUnreadBadge.textContent = window.miaUnread.unreadBadgeText(incomingCount);
+    } else {
+      els.contactsUnreadBadge.classList.add("hidden");
+    }
+  }
+  if (els.sidebarExploreUnreadBadge) {
+    if (incomingCount > 0) {
+      els.sidebarExploreUnreadBadge.classList.remove("hidden");
+      els.sidebarExploreUnreadBadge.textContent = window.miaUnread.unreadBadgeText(incomingCount);
+    } else {
+      els.sidebarExploreUnreadBadge.classList.add("hidden");
+    }
+  }
+  syncDiscoverModeUnread(incomingCount);
+
+  const conversationUnread = window.miaSocial?.getTotalConversationUnread?.() || 0;
+  if (els.chatUnreadBadge) {
+    if (conversationUnread > 0) {
+      els.chatUnreadBadge.classList.remove("hidden");
+      els.chatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(conversationUnread);
+    } else {
+      els.chatUnreadBadge.classList.add("hidden");
+    }
+  }
+  if (els.sidebarChatUnreadBadge) {
+    if (conversationUnread > 0) {
+      els.sidebarChatUnreadBadge.classList.remove("hidden");
+      els.sidebarChatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(conversationUnread);
+    } else {
+      els.sidebarChatUnreadBadge.classList.add("hidden");
+    }
+  }
+
+  const tasksUnreadTotal = [...(state.tasksUnread?.values?.() || [])]
+    .reduce((sum, count) => sum + (Number(count) || 0), 0);
+  if (els.sidebarTasksUnreadBadge) {
+    if (tasksUnreadTotal > 0) {
+      els.sidebarTasksUnreadBadge.classList.remove("hidden");
+      els.sidebarTasksUnreadBadge.textContent = window.miaUnread.unreadBadgeText(tasksUnreadTotal);
+    } else {
+      els.sidebarTasksUnreadBadge.classList.add("hidden");
+    }
+  }
+}
+
+function pauseInactiveRendererMedia({ documentVisible = true } = {}) {
+  document.querySelectorAll("video").forEach((video) => {
+    const workspace = video.closest?.(".workspace");
+    const hiddenByView = Boolean(workspace?.classList?.contains("hidden"));
+    const hiddenByDialog = Boolean(video.closest?.(".hidden"));
+    if (!documentVisible || hiddenByView || hiddenByDialog) {
+      try { video.pause?.(); } catch { /* media teardown is best-effort */ }
+    }
+  });
+}
+
+function syncRendererViewLifecycle(lifecycleState = rendererViewLifecycle?.snapshot?.("render") || {
+  activeView: state.activeView,
+  documentVisible: !document.hidden,
+  reason: "render"
+}) {
+  const rendererVisible = lifecycleState.documentVisible && desktopWindowFocused;
+  const chatActive = rendererVisible && lifecycleState.activeView === "chat";
+  if (!chatActive) conversationRenderScheduler?.cancel?.();
+  window.miaSocial?.setLifecycleState?.({
+    active: chatActive,
+    visible: rendererVisible
+  });
+  window.miaLottieIcons?.setActive?.(rendererVisible);
+  pauseInactiveRendererMedia({ ...lifecycleState, documentVisible: rendererVisible });
+
+  const shouldScanMobile = rendererVisible
+    && lifecycleState.activeView === "settings"
+    && state.activeSettingsTab === "account"
+    && state.runtime?.cloud?.enabled;
+  if (shouldScanMobile) {
+    refreshCloudMobileScan().catch(() => {});
+    if (!cloudMobileScanPendingTimer) pollCloudMobileScanPending().catch(() => {});
+  } else {
+    clearCloudMobileScanTimers();
+  }
+
+  if (chatActive && (lifecycleState.reason === "view" || lifecycleState.reason === "visibility")) {
+    scheduleConversationRender("activation");
+  }
+}
+
+function renderViewImpl() {
   state.isNarrowWindow = window.innerWidth <= SHELL_SINGLE_MAX_WIDTH;
   normalizeNarrowPaneForView(state.activeView);
   state.shellLayout = shellLayoutForView(state.activeView);
@@ -3608,58 +3827,15 @@ function renderView() {
   els.newPersona?.classList.toggle("active", state.botMenuOpen);
   els.newContact?.setAttribute("aria-expanded", state.contactMenuOpen ? "true" : "false");
   els.newContact?.classList.toggle("active", state.contactMenuOpen);
-  // Contacts unread = number of pending incoming friend requests.
-  const incomingCount = window.miaSocial?.moduleState?.incomingRequests?.length || 0;
-  if (els.contactsUnreadBadge) {
-    if (incomingCount > 0) {
-      els.contactsUnreadBadge.classList.remove("hidden");
-      els.contactsUnreadBadge.textContent = window.miaUnread.unreadBadgeText(incomingCount);
-    } else {
-      els.contactsUnreadBadge.classList.add("hidden");
-    }
-  }
-  if (els.sidebarExploreUnreadBadge) {
-    if (incomingCount > 0) {
-      els.sidebarExploreUnreadBadge.classList.remove("hidden");
-      els.sidebarExploreUnreadBadge.textContent = window.miaUnread.unreadBadgeText(incomingCount);
-    } else {
-      els.sidebarExploreUnreadBadge.classList.add("hidden");
-    }
-  }
-  syncDiscoverModeUnread(incomingCount);
-  // Chat unread = total unread DM/group conversation messages.
-  const conversationUnread = window.miaSocial?.getTotalConversationUnread?.() || 0;
-  if (els.chatUnreadBadge) {
-    if (conversationUnread > 0) {
-      els.chatUnreadBadge.classList.remove("hidden");
-      els.chatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(conversationUnread);
-    } else {
-      els.chatUnreadBadge.classList.add("hidden");
-    }
-  }
-  if (els.sidebarChatUnreadBadge) {
-    if (conversationUnread > 0) {
-      els.sidebarChatUnreadBadge.classList.remove("hidden");
-      els.sidebarChatUnreadBadge.textContent = window.miaUnread.unreadBadgeText(conversationUnread);
-    } else {
-      els.sidebarChatUnreadBadge.classList.add("hidden");
-    }
-  }
-  const tasksUnreadTotal = [...(state.tasksUnread?.values?.() || [])].reduce((sum, count) => sum + (Number(count) || 0), 0);
-  if (els.sidebarTasksUnreadBadge) {
-    if (tasksUnreadTotal > 0) {
-      els.sidebarTasksUnreadBadge.classList.remove("hidden");
-      els.sidebarTasksUnreadBadge.textContent = window.miaUnread.unreadBadgeText(tasksUnreadTotal);
-    } else {
-      els.sidebarTasksUnreadBadge.classList.add("hidden");
-    }
-  }
+  renderNavigationBadges();
   els.botDialog?.classList.toggle("hidden", !state.botDialogOpen);
   els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
   els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
   window.miaBotManager.renderBotContextMenu();
-  window.miaPetDialog?.renderPetGenerateDialog();
-  window.miaPetDialog?.renderPetJobs();
+  if (state.petGenerateOpen) {
+    window.miaPetDialog?.renderPetGenerateDialog();
+    window.miaPetDialog?.renderPetJobs();
+  }
   document.querySelectorAll("[data-view]").forEach((button) => {
     // 联系人 图标在「联系人」和「发现 AI 助手」两个子页下都高亮
     const active = button.dataset.view === state.activeView
@@ -3673,19 +3849,25 @@ function renderView() {
   document.querySelectorAll("[data-settings-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.settingsPanel !== state.activeSettingsTab);
   });
-  window.miaSettingsMemory?.renderMemorySettings?.();
-  if (state.activeView === "settings" && state.activeSettingsTab === "account" && state.runtime?.cloud?.enabled) {
-    refreshCloudMobileScan().catch(() => {});
+  const lifecycleState = rendererViewLifecycle?.setActiveView?.(state.activeView) || {
+    activeView: state.activeView,
+    documentVisible: !document.hidden,
+    reason: "render"
+  };
+  if (lifecycleState.reason !== "view" || !rendererLifecycleSubscribed) {
+    syncRendererViewLifecycle(lifecycleState);
   }
-  if (state.runtime?.cloud?.enabled) {
-    if (!cloudMobileScanPendingTimer) pollCloudMobileScanPending().catch(() => {});
-  } else {
-    clearCloudMobileScanTimers();
+  if (!state.runtime?.cloud?.enabled) {
     closeCloudLoginApproveDialog();
   }
-  window.miaSkillLibrary.renderSkillLibrary();
-  window.miaBotManager.renderContacts();
-  window.miaTasksPanel?.renderTaskView();
+  if (state.activeView === "settings") window.miaSettingsMemory?.renderMemorySettings?.();
+  if (state.activeView === "skills") window.miaSkillLibrary.renderSkillLibrary();
+  if (state.activeView === "contacts") window.miaBotManager.renderContacts();
+  if (state.activeView === "tasks") window.miaTasksPanel?.renderTaskView();
+}
+
+function renderView() {
+  return rendererPerformance.measure(`render.view.${state.activeView || "unknown"}`, renderViewImpl);
 }
 
 function openSettingsView(tab = state.activeSettingsTab) {
@@ -5124,18 +5306,27 @@ function activeBotRuntimeSendConfig() {
 
 function runtimeControlOptionsForContext(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
-  return key ? botRuntimeControlOptionsCache.get(key) || null : null;
+  return key
+    ? (window.miaResourceCache?.touchMapValue?.(botRuntimeControlOptionsCache, key)
+      || botRuntimeControlOptionsCache.get(key)
+      || null)
+    : null;
 }
 
 function runtimeControlOptionsLoadStateForContext(context = activeBotRuntimeControlContext()) {
   const key = runtimeControlOptionsCacheKey(context);
-  return key ? botRuntimeControlOptionsLoadStates.get(key) || { status: "idle" } : { status: "idle" };
+  return key
+    ? (window.miaResourceCache?.touchMapValue?.(botRuntimeControlOptionsLoadStates, key)
+      || botRuntimeControlOptionsLoadStates.get(key)
+      || { status: "idle" })
+    : { status: "idle" };
 }
 
 function setRuntimeControlOptionsLoadState(context, status, error = "") {
   const key = runtimeControlOptionsCacheKey(context);
   if (!key) return;
   botRuntimeControlOptionsLoadStates.set(key, { status, error: String(error || "") });
+  pruneRuntimeControlCaches(key);
 }
 
 function runtimeControlOptionsStatusText(loadState = {}) {
@@ -5188,7 +5379,10 @@ function runtimeControlOptionsRequest(context = activeBotRuntimeControlContext()
   const bindingKey = context?.botKey
     ? botRuntimeCacheKey(context.botKey, context.runtimeKind || "cloud-claude-code")
     : "";
-  const binding = bindingKey ? botRuntimeControlCache.get(bindingKey) : null;
+  const binding = bindingKey
+    ? (window.miaResourceCache?.touchMapValue?.(botRuntimeControlCache, bindingKey)
+      || botRuntimeControlCache.get(bindingKey))
+    : null;
   return {
     runtimeKind: context?.runtimeKind || "cloud-claude-code",
     bot: context?.bot || {},
@@ -5365,6 +5559,7 @@ function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()
         : payload;
       if (!options || typeof options !== "object") throw new Error("Runtime control options response was empty");
       botRuntimeControlOptionsCache.set(key, options);
+      pruneRuntimeControlCaches(key);
       setRuntimeControlOptionsLoadState(context, "ready");
       runtimeRequestBackoff.succeed(backoffKey);
       const latest = activeConversationBotContext();
@@ -5593,7 +5788,10 @@ async function saveActiveBotRuntimeControl(field, value, pendingText, successTex
     if (result.runtime) state.runtime = result.runtime;
     if (confirmedNativeOptions) {
       const key = runtimeControlOptionsCacheKey(context);
-      if (key) botRuntimeControlOptionsCache.set(key, confirmedNativeOptions);
+      if (key) {
+        botRuntimeControlOptionsCache.set(key, confirmedNativeOptions);
+        pruneRuntimeControlCaches(key);
+      }
     } else {
       invalidateRuntimeControlOptions(context);
     }
@@ -5679,7 +5877,10 @@ async function setActiveHermesSessionYolo(enabled) {
       throw new Error("Hermes 未确认会话 YOLO 设置");
     }
     const key = runtimeControlOptionsCacheKey(context);
-    if (key) botRuntimeControlOptionsCache.set(key, confirmed);
+    if (key) {
+      botRuntimeControlOptionsCache.set(key, confirmed);
+      pruneRuntimeControlCaches(key);
+    }
     setModelSwitchStatusText(enabled ? "当前会话 YOLO 已开启" : "当前会话 YOLO 已关闭");
     render();
     return true;
@@ -5851,6 +6052,7 @@ async function openBotConversation(botKey) {
 window.miaOpenBotConversation = openBotConversation;
 
 let runtimeRefreshScheduler = null;
+let runtimeFallbackRefreshTimer = 0;
 let rendererModulesReady = false;
 
 async function performRefreshRuntime() {
@@ -6321,7 +6523,7 @@ async function initializeRuntime(options = {}) {
   if (window.miaSocial && window.miaSocial.initSocialModule) {
     window.miaSocial.initSocialModule({
       getState: () => state,
-      render,
+      render: scheduleConversationRender,
       els,
       appendTransientChat,
       maybeGenerateConversationTitle: maybeGenerateCloudConversationTitle,
@@ -6332,6 +6534,7 @@ async function initializeRuntime(options = {}) {
       isWindowFocused: () => desktopWindowFocused,
       showDesktopMessageNotification: (payload) => window.mia.showDesktopNotification?.(payload),
       paintHeaderStatus,
+      measurePerformance: (name, operation) => rendererPerformance.measure(name, operation),
     });
     // Bootstrap social data if signed in to cloud (token present).
     // (cloud.enabled, not cloud.loggedIn — the latter never existed, so
@@ -7000,10 +7203,12 @@ if (window.mia.onCloudEvent) {
       ? envelope.binding
       : envelope.payload?.binding;
     if (runtimeBinding?.botId && runtimeBinding?.runtimeKind) {
+      const runtimeKey = botRuntimeCacheKey(runtimeBinding.botId, runtimeBinding.runtimeKind);
       botRuntimeControlCache.set(
-        botRuntimeCacheKey(runtimeBinding.botId, runtimeBinding.runtimeKind),
+        runtimeKey,
         runtimeBinding
       );
+      pruneRuntimeControlCaches(runtimeKey);
     }
     if (String(envelope.type || "").startsWith("task.")) {
       window.miaTasksPanel?.handleTaskEvent?.(envelope);
@@ -7036,12 +7241,17 @@ if (window.mia.onCloudEvent) {
     // application of cloud message events; until that exists the local
     // device sees its own messages immediately and remote-device messages
     // on the next manual reload.
-    clearTimeout(cloudEventRefreshTimer);
-    cloudEventRefreshTimer = setTimeout(() => {
-      refreshRuntime().catch((error) => {
-        console.error("Failed to refresh runtime after Cloud event", error);
-      });
-    }, envelope.type === "events_ready" ? 500 : 120);
+    const refreshControlPlane = envelope.type === "events_ready"
+      || envelope.type === "device_updated"
+      || String(envelope.type || "").startsWith("daemon.");
+    if (refreshControlPlane) {
+      clearTimeout(cloudEventRefreshTimer);
+      cloudEventRefreshTimer = setTimeout(() => {
+        refreshRuntime().catch((error) => {
+          console.error("Failed to refresh runtime after Cloud event", error);
+        });
+      }, envelope.type === "events_ready" ? 500 : 120);
+    }
   });
 }
 
@@ -7776,8 +7986,30 @@ els.modelForm.addEventListener("submit", async (event) => {
   render();
 });
 
+function refreshComposerInputDerivedState() {
+  window.miaComposer.reconcilePathPasteRefsFromInput();
+  window.miaMessageHelpers.resizeChatInput();
+  window.miaComposer.updateSlashCommandState();
+  window.miaComposer.updateMentionMenuState();
+  renderSendButton();
+}
+
+const composerInputRefreshScheduler = window.miaComposerInputScheduler?.createComposerInputScheduler
+  ? window.miaComposerInputScheduler.createComposerInputScheduler({
+    refresh: refreshComposerInputDerivedState,
+    requestFrame: (callback) => window.requestAnimationFrame(callback),
+    cancelFrame: (id) => window.cancelAnimationFrame(id)
+  })
+  : {
+    flush: refreshComposerInputDerivedState,
+    schedule: refreshComposerInputDerivedState
+  };
+
 els.chatInput.addEventListener("keydown", (event) => {
   if (window.miaMessageHelpers.isComposerComposing(event)) return;
+  if (["Enter", "Tab", "ArrowDown", "ArrowUp", "Escape"].includes(event.key)) {
+    composerInputRefreshScheduler.flush();
+  }
   if (window.miaComposer.handleComposerEditorKeydown(event)) return;
   if (window.miaComposer.handleComposerSkillBackspace(event)) return;
   if (window.miaComposer.handlePathPasteRefBackspace(event)) return;
@@ -7862,19 +8094,11 @@ els.chatInput.addEventListener("compositionstart", () => {
 els.chatInput.addEventListener("compositionend", () => {
   window.miaMessageHelpers.noteCompositionEnded();
   els.chatInput.dataset.composing = "false";
-  window.miaComposer.reconcilePathPasteRefsFromInput();
-  window.miaMessageHelpers.resizeChatInput();
-  window.miaComposer.updateSlashCommandState();
-  window.miaComposer.updateMentionMenuState();
-  renderSendButton();
+  composerInputRefreshScheduler.schedule();
 });
 
 els.chatInput.addEventListener("input", () => {
-  window.miaComposer.reconcilePathPasteRefsFromInput();
-  window.miaMessageHelpers.resizeChatInput();
-  window.miaComposer.updateSlashCommandState();
-  window.miaComposer.updateMentionMenuState();
-  renderSendButton();
+  composerInputRefreshScheduler.schedule();
 });
 els.chatInput.addEventListener("contextmenu", (event) => {
   event.preventDefault();
@@ -8098,6 +8322,7 @@ function rememberSavedAttachmentDownload(attachmentEl, saved) {
   const cloudUrl = attachmentCloudFileUrl(attachmentEl) || String(saved.url || "").trim();
   if (cloudUrl) {
     state.generatedFiles.set(cloudUrl, { status: "ready", attachment: { ...saved, url: cloudUrl } });
+    pruneGeneratedFileCache(cloudUrl);
   }
   return true;
 }
@@ -8667,7 +8892,7 @@ if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
     // Live chat/task changes arrive over Core's event stream. Runtime status
     // is a fallback/control-plane refresh, so avoid rebuilding the whole shell
     // every five seconds while the window is sitting visibly idle.
-    intervalMs: 10000,
+    intervalMs: RUNTIME_FALLBACK_REFRESH_MS,
     refresh: performRefreshRuntime,
     isActive: () => desktopWindowFocused && !document.hidden,
     setInterval: (fn, ms) => window.setInterval(fn, ms),
@@ -8676,14 +8901,39 @@ if (window.miaRuntimeRefreshScheduler?.createRuntimeRefreshScheduler) {
   });
   runtimeRefreshScheduler.start();
 } else {
-  setInterval(refreshRuntime, 10000);
+  runtimeFallbackRefreshTimer = window.setInterval(refreshRuntime, RUNTIME_FALLBACK_REFRESH_MS);
 }
+rendererLifecycleSubscribed = Boolean(
+  rendererViewLifecycle?.subscribe?.(syncRendererViewLifecycle, { immediate: false })
+);
+rendererPerformance.start({
+  input: els.chatInput,
+  getGauges: () => {
+    const socialStats = window.miaSocial?.getPerformanceStats?.() || {};
+    return {
+      activeView: state.activeView,
+      ...Object.fromEntries(Object.entries(socialStats).map(([key, value]) => [`social.${key}`, value]))
+    };
+  }
+});
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     const task = runtimeRefreshScheduler?.runNow?.({ queueIfRunning: true });
     task?.catch?.(() => {});
   }
 });
+window.addEventListener("pagehide", () => {
+  conversationRenderScheduler?.cancel?.();
+  runtimeRefreshScheduler?.stop?.();
+  if (runtimeFallbackRefreshTimer) window.clearInterval(runtimeFallbackRefreshTimer);
+  runtimeFallbackRefreshTimer = 0;
+  rendererPerformance.stop();
+  window.miaSocial?.setLifecycleState?.({ active: false, visible: false });
+  window.miaLottieIcons?.destroy?.();
+  rendererViewLifecycle?.destroy?.();
+  rendererLifecycleSubscribed = false;
+  clearCloudMobileScanTimers();
+}, { once: true });
 
 (function wireTrafficLights() {
   const controls = document.getElementById("windowControls");
@@ -8728,6 +8978,13 @@ document.addEventListener("visibilitychange", () => {
   const applyFocus = (focused) => {
     desktopWindowFocused = Boolean(focused);
     document.body.classList.toggle("window-blurred", !focused);
+    syncRendererViewLifecycle({
+      ...(rendererViewLifecycle?.snapshot?.("focus") || {
+        activeView: state.activeView,
+        documentVisible: !document.hidden
+      }),
+      reason: "focus"
+    });
     if (desktopWindowFocused) {
       const task = runtimeRefreshScheduler?.runNow?.({ queueIfRunning: true });
       task?.catch?.(() => {});

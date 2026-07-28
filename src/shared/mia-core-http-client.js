@@ -1,5 +1,7 @@
 "use strict";
 
+// Pure loopback HTTP transport shared by Electron Main and renderer preload.
+
 function normalizeBaseUrl(baseUrl) {
   return String(baseUrl || "").replace(/\/+$/, "");
 }

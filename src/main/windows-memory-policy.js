@@ -1,7 +1,7 @@
 "use strict";
 
 const DEFAULT_OLD_SPACE_MB = 512;
-const DEFAULT_SEMI_SPACE_MB = 8;
+const DEFAULT_SEMI_SPACE_MB = 16;
 const MIN_OLD_SPACE_MB = 128;
 const MAX_OLD_SPACE_MB = 2048;
 const MIN_SEMI_SPACE_MB = 2;
@@ -39,7 +39,10 @@ function resolveWindowsMemoryBudget({
 
   return {
     enabled: true,
-    jsFlags: `--max-old-space-size=${oldSpaceMb} --max-semi-space-size=${semiSpaceMb} --optimize-for-size`,
+    // Keep a bounded heap without forcing V8's size-first compilation policy.
+    // Electron is an interactive UI: --optimize-for-size trades typing and
+    // rendering throughput for a small memory saving and is the wrong default.
+    jsFlags: `--max-old-space-size=${oldSpaceMb} --max-semi-space-size=${semiSpaceMb}`,
     oldSpaceMb,
     semiSpaceMb
   };

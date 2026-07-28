@@ -19,6 +19,8 @@
 
   // Module-local hover-close timer for the skill picker.
   let skillPickerHoverCloseTimer = 0;
+  const MAX_COMPOSER_DRAFTS = 24;
+  const MAX_COMPOSER_DRAFT_BYTES = 16 * 1024 * 1024;
 
   function initComposer(deps) {
     state = deps.state;
@@ -351,11 +353,18 @@
     const before = value.slice(0, cursor);
     const line = before.split(/\n/).pop() || "";
     const shouldOpen = /^\/[A-Za-z0-9_:/.-]*$/.test(line);
+    const nextFilter = shouldOpen ? line : "";
+    const stateChanged = state.slashMenuOpen !== shouldOpen || state.slashFilter !== nextFilter;
     state.slashMenuOpen = shouldOpen;
-    state.slashFilter = shouldOpen ? line : "";
+    state.slashFilter = nextFilter;
     if (shouldOpen && state.slashFilter.length <= 1) state.slashSelectedIndex = 0;
     const commands = filteredSlashCommands();
-    if (state.slashSelectedIndex >= commands.length) state.slashSelectedIndex = Math.max(0, commands.length - 1);
+    const nextSelectedIndex = state.slashSelectedIndex >= commands.length
+      ? Math.max(0, commands.length - 1)
+      : state.slashSelectedIndex;
+    const selectionChanged = nextSelectedIndex !== state.slashSelectedIndex;
+    state.slashSelectedIndex = nextSelectedIndex;
+    if (!stateChanged && !selectionChanged) return;
     renderSlashCommandMenu();
   }
 
@@ -530,6 +539,20 @@
     return state.composerDrafts;
   }
 
+  function composerDraft(map, conversationId) {
+    if (!map?.has(conversationId)) return undefined;
+    return window.miaResourceCache?.touchMapValue?.(map, conversationId) ?? map.get(conversationId);
+  }
+
+  function pruneComposerDrafts(map, protectedConversationId = "") {
+    window.miaResourceCache?.pruneMap?.(map, {
+      maxEntries: MAX_COMPOSER_DRAFTS,
+      maxWeight: MAX_COMPOSER_DRAFT_BYTES,
+      weightOf: (draft) => window.miaResourceCache?.estimateValueBytes?.(draft) || 0,
+      protectedKeys: protectedConversationId ? [protectedConversationId] : []
+    });
+  }
+
   function clonePlainObjectList(items) {
     return (Array.isArray(items) ? items : []).map((item) => (
       item && typeof item === "object" ? { ...item } : item
@@ -564,15 +587,20 @@
     const drafts = composerDraftMap();
     if (!id || !drafts || !state || !els?.chatInput) return;
     const draft = captureComposerDraft();
-    if (composerDraftHasContent(draft)) drafts.set(id, draft);
-    else drafts.delete(id);
+    if (composerDraftHasContent(draft)) {
+      drafts.delete(id);
+      drafts.set(id, draft);
+      pruneComposerDrafts(drafts, id);
+    } else {
+      drafts.delete(id);
+    }
   }
 
   function restoreComposerDraft(conversationId) {
     const id = String(conversationId || "").trim();
     const drafts = composerDraftMap();
     const draft = id && drafts?.has(id)
-      ? drafts.get(id)
+      ? composerDraft(drafts, id)
       : {
         text: "",
         pendingAttachments: [],

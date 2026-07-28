@@ -1,5 +1,6 @@
 const { fetch } = globalThis;
 const { randomUUID } = require("node:crypto");
+const { createCloudRequestCoordinator } = require("../cloud/request-coordinator.js");
 const {
   hasRuntimeConfigIntent,
   runtimeConfigInputForRequest
@@ -17,8 +18,8 @@ function withOpId(body = {}) {
   return body;
 }
 
-async function jsonFetch({ baseUrl, token, method, path, body, timeoutMs = 15000 }) {
-  const response = await fetch(`${baseUrl}${path}`, {
+async function jsonFetch({ baseUrl, token, method, path, body, timeoutMs = 15000, fetchImpl = fetch }) {
+  const response = await fetchImpl(`${baseUrl}${path}`, {
     method,
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -39,7 +40,11 @@ async function jsonFetch({ baseUrl, token, method, path, body, timeoutMs = 15000
   return response.json();
 }
 
-function createSocialApi({ getSettings, normalizeUrl }) {
+function createSocialApi({ getSettings, normalizeUrl, fetchImpl = fetch, maxConcurrentRequests = 6 }) {
+  const requests = createCloudRequestCoordinator({
+    maxConcurrent: maxConcurrentRequests,
+    execute: (request) => jsonFetch({ ...request, fetchImpl })
+  });
   function ctx(opts = {}) {
     const settings = getSettings();
     if (!settings || !settings.enabled || !settings.token) {
@@ -51,37 +56,38 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       ...opts
     };
   }
+  const jsonRequest = (input) => requests.request(input);
   return {
     async sendFriendRequest(toUserId) {
-      return jsonFetch({ ...ctx(), method: "POST", path: "/api/social/friend-requests", body: withOpId({ toUserId }) });
+      return jsonRequest({ ...ctx(), method: "POST", path: "/api/social/friend-requests", body: withOpId({ toUserId }) });
     },
     async respondFriendRequest(requestId, action) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}/respond`, body: withOpId({ action }) });
+      return jsonRequest({ ...ctx(), method: "POST", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}/respond`, body: withOpId({ action }) });
     },
     async cancelFriendRequest(requestId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}` });
+      return jsonRequest({ ...ctx(), method: "DELETE", path: `/api/social/friend-requests/${encodeURIComponent(requestId)}` });
     },
     async listFriendRequests(direction = "incoming") {
       const dir = direction === "outgoing" ? "outgoing" : "incoming";
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/social/friend-requests?direction=${dir}` });
+      return jsonRequest({ ...ctx(), method: "GET", path: `/api/social/friend-requests?direction=${dir}` });
     },
     async listFriends() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/social/friends" });
+      return jsonRequest({ ...ctx(), method: "GET", path: "/api/social/friends" });
     },
     async removeFriend(userId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/social/friends/${encodeURIComponent(userId)}` });
+      return jsonRequest({ ...ctx(), method: "DELETE", path: `/api/social/friends/${encodeURIComponent(userId)}` });
     },
     async listConversations() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/conversations" });
+      return jsonRequest({ ...ctx(), method: "GET", path: "/api/conversations" });
     },
     async listBots() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/bots?compact=1" });
+      return jsonRequest({ ...ctx(), method: "GET", path: "/api/me/bots?compact=1" });
     },
     async getBotIdentity(botId) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}` });
+      return jsonRequest({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },
     async saveBotIdentity(botId, body = {}) {
-      return jsonFetch({
+      return jsonRequest({
         ...ctx(),
         method: "PUT",
         path: `/api/me/bots/${encodeURIComponent(botId)}`,
@@ -89,33 +95,33 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       });
     },
     async deleteBot(botId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/me/bots/${encodeURIComponent(botId)}` });
+      return jsonRequest({ ...ctx(), method: "DELETE", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },
     async listPlatformModels() {
-      return jsonFetch({ ...ctx(), method: "GET", path: "/api/me/model-catalog" });
+      return jsonRequest({ ...ctx(), method: "GET", path: "/api/me/model-catalog" });
     },
     // Conversation ids are `dm:<a>:<b>` or `g_<hex>` — both match the cloud route
     // regex /api/conversations/([A-Za-z0-9_:-]+) literally. encodeURIComponent would
     // turn `:` into `%3A` which doesn't match and silently 404s, which is
     // why DM sends were being swallowed.
     async getConversation(conversationId) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}` });
+      return jsonRequest({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}` });
     },
     async listConversationMessages(conversationId, sinceSeq = 0, limit = 100) {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
+      return jsonRequest({ ...ctx(), method: "GET", path: `/api/conversations/${conversationId}/messages?since_seq=${Number(sinceSeq) || 0}&limit=${Number(limit) || 100}` });
     },
     async searchConversationMessages(query, limit = 80) {
-      return jsonFetch({
+      return jsonRequest({
         ...ctx({ timeoutMs: 20000 }),
         method: "GET",
         path: `/api/conversations/search?q=${encodeURIComponent(String(query || ""))}&limit=${Number(limit) || 80}`
       });
     },
     async postConversationMessage(conversationId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages`, body: withOpId(body) });
+      return jsonRequest({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages`, body: withOpId(body) });
     },
     async respondRunApproval(conversationId, runId, decision) {
-      return jsonFetch({
+      return jsonRequest({
         ...ctx(),
         method: "POST",
         path: `/api/conversations/${conversationId}/runs/${encodeURIComponent(runId)}/approval`,
@@ -123,7 +129,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       });
     },
     async cancelConversationRun(conversationId, runId) {
-      return jsonFetch({
+      return jsonRequest({
         ...ctx(),
         method: "POST",
         path: `/api/conversations/${conversationId}/runs/${encodeURIComponent(runId)}/cancel`,
@@ -131,7 +137,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       });
     },
     async deleteConversationMessage(conversationId, messageId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
+      return jsonRequest({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/messages/${encodeURIComponent(messageId)}` });
     },
     async createConversation({ name, memberBots, memberFriendUserIds, clientGroupId } = {}) {
       // clientGroupId is the conversation-creation-specific idempotency key (links
@@ -141,7 +147,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       // the server.
       const body = { name, memberBots, memberFriendUserIds };
       if (clientGroupId) body.clientGroupId = clientGroupId;
-      return jsonFetch({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
+      return jsonRequest({ ...ctx(), method: "POST", path: "/api/conversations", body: withOpId(body) });
     },
     async ensureBotConversation(botId, body = {}) {
       const id = String(botId || "").trim();
@@ -150,7 +156,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     },
     async ensureBotSessionConversation(sessionId, body = {}) {
       const botId = String(body.botId || body.botKey || "").trim();
-      return jsonFetch({
+      return jsonRequest({
         ...ctx(),
         method: "PUT",
         path: `/api/me/bot-conversations/${encodeURIComponent(sessionId)}`,
@@ -158,13 +164,13 @@ function createSocialApi({ getSettings, normalizeUrl }) {
       });
     },
     async getBotRuntime(botId, runtimeKind = "cloud-claude-code") {
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
+      return jsonRequest({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}` });
     },
     async saveBotRuntime(botId, body = {}) {
       const runtimeKind = String(body.runtimeKind || "cloud-claude-code").trim() || "cloud-claude-code";
       let requestBody = body;
       if (hasRuntimeConfigIntent(body)) {
-        const current = await jsonFetch({
+        const current = await jsonRequest({
           ...ctx(),
           method: "GET",
           path: `/api/me/bots/${encodeURIComponent(botId)}/runtime?kind=${encodeURIComponent(runtimeKind)}`
@@ -177,7 +183,7 @@ function createSocialApi({ getSettings, normalizeUrl }) {
           })
         };
       }
-      return jsonFetch({
+      return jsonRequest({
         ...ctx(),
         method: "PUT",
         path: `/api/me/bots/${encodeURIComponent(botId)}/runtime`,
@@ -186,22 +192,22 @@ function createSocialApi({ getSettings, normalizeUrl }) {
     },
     async listBridgeDevices({ includeOffline = false } = {}) {
       const query = includeOffline ? "?include=all" : "";
-      return jsonFetch({ ...ctx(), method: "GET", path: `/api/bridge/devices${query}` });
+      return jsonRequest({ ...ctx(), method: "GET", path: `/api/bridge/devices${query}` });
     },
     async updateConversation(conversationId, patch) {
-      return jsonFetch({ ...ctx(), method: "PATCH", path: `/api/conversations/${conversationId}`, body: patch || {} });
+      return jsonRequest({ ...ctx(), method: "PATCH", path: `/api/conversations/${conversationId}`, body: patch || {} });
     },
     async deleteConversation(conversationId) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}` });
+      return jsonRequest({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}` });
     },
     async addConversationMember(conversationId, { memberKind, memberRef, ownerId }) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef, ownerId } });
+      return jsonRequest({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef, ownerId } });
     },
     async removeConversationMember(conversationId, { memberKind, memberRef }) {
-      return jsonFetch({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef } });
+      return jsonRequest({ ...ctx(), method: "DELETE", path: `/api/conversations/${conversationId}/members`, body: { memberKind, memberRef } });
     },
     async postConversationMessageAsBot(conversationId, body) {
-      return jsonFetch({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-bot`, body: withOpId(body) });
+      return jsonRequest({ ...ctx(), method: "POST", path: `/api/conversations/${conversationId}/messages/as-bot`, body: withOpId(body) });
     }
   };
 }

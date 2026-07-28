@@ -19,6 +19,34 @@
     transform 190ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
+.chat-history-window-nav {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0 10px;
+}
+
+.chat-history-window-nav.is-bottom {
+  padding: 10px 0 6px;
+}
+
+.chat-history-window-button {
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--floor-faint) 24%, transparent);
+  border-radius: 999px;
+  color: var(--floor-muted);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  font: inherit;
+  font-size: 12px;
+}
+
+.chat-history-window-button:hover {
+  color: var(--floor-text);
+  background: var(--surface);
+}
+
 .chat-layout:has(.composer.has-attachments) .chat {
   animation: chatComposerLift 190ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }

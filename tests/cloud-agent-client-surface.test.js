@@ -9,26 +9,30 @@ function read(rel) {
   return fs.readFileSync(path.join(ROOT, rel), "utf8");
 }
 
-test("desktop forwards cloud agent run events over the existing CloudEvent IPC", () => {
-  const eventClient = read("src/main/mia-core/event-client.js");
+test("renderer transport receives cloud agent run events without Main IPC forwarding", () => {
+  const eventClient = read("src/shared/mia-core-event-client.js");
+  const directTransport = read("src/preload/mia-core-direct-transport.js");
   const main = read("src/main.js");
   assert.match(eventClient, /const type = String\(envelope\?\.name \|\| envelope\?\.type \|\| ""\)\.trim\(\)/);
   assert.match(eventClient, /payload,\s*coreEnvelope/s);
-  assert.match(main, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*envelope\)/);
+  assert.match(directTransport, /cloudEvents\.emit\(envelope\)/);
+  assert.doesNotMatch(main, /cacheLiveConversationMessageEvent/);
+  assert.doesNotMatch(main, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*envelope\)/);
 });
 
-test("desktop forwards local-events connection state so renderer can clear stale typing", () => {
-  const source = read("src/main.js");
+test("renderer transport emits local-events connection state so UI can clear stale typing", () => {
+  const source = read("src/preload/mia-core-direct-transport.js");
   assert.match(source, /type:\s*"daemon\.local_events_status"/);
-  assert.match(source, /connected:\s*Boolean\(connected\)/);
-  assert.match(source, /broadcastRendererEvent\(IpcChannel\.CloudEvent,\s*envelope\)/);
+  assert.match(source, /eventConnected = Boolean\(connected\)/);
+  assert.match(source, /connected:\s*eventConnected/);
+  assert.match(source, /cloudEvents\.emit/);
 });
 
 test("Core cloud status events synchronize state without recursively restarting lifecycle", () => {
   const source = read("src/main.js");
   const eventsStart = source.indexOf('if (envelope?.type === "daemon.cloud_events_status")');
   const runtimeStart = source.indexOf('if (envelope?.type === "daemon.cloud_runtime_status")', eventsStart);
-  const statusEnd = source.indexOf("cacheLiveConversationMessageEvent", runtimeStart);
+  const statusEnd = source.indexOf("    },\n    onStateChange:", runtimeStart);
   assert.ok(eventsStart >= 0 && runtimeStart > eventsStart && statusEnd > runtimeStart);
 
   const eventsBlock = source.slice(eventsStart, runtimeStart);

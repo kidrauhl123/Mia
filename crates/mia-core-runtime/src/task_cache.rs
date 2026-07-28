@@ -6,10 +6,11 @@ use anyhow::{Result, bail};
 use dashmap::DashMap;
 use tokio::sync::Mutex;
 
-// Native ACP and Hermes each own one cache. Keeping both at 16 leaves ample
-// headroom under macOS' common 256-FD soft limit while still preserving warm
-// sessions for recently used conversations.
-pub(crate) const DEFAULT_RUNTIME_TASK_CACHE_CAPACITY: usize = 16;
+// Native ACP and Hermes each own one cache, and every warm entry can retain an
+// agent process plus its MCP children. Four recent sessions per backend keeps
+// normal conversation switching warm without allowing a desktop app to retain
+// dozens of process trees.
+pub(crate) const DEFAULT_RUNTIME_TASK_CACHE_CAPACITY: usize = 4;
 
 pub(crate) struct BoundedTaskCache<T> {
     tasks: DashMap<String, Arc<Mutex<T>>>,

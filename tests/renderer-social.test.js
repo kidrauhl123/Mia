@@ -7,7 +7,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const sessionHistory = require("../src/shared/session-history");
-const { coreLocalEventEnvelope } = require("../src/main/mia-core/event-client.js");
+const { coreLocalEventEnvelope } = require("../src/shared/mia-core-event-client.js");
 
 function loadSocial(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
@@ -41,6 +41,7 @@ function loadSocial(options = {}) {
     miaSelfIdentity: require("../packages/shared/self-identity.js"),
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
     miaConversationTags: require("../src/shared/conversation-tags.js"),
+    miaResourceCache: require("../src/renderer/resource-cache.js"),
     miaMarkdown: {
       escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
       renderMarkdown: (v) => String(v || ""),
@@ -203,6 +204,103 @@ test("bootstrapAfterLogin does not import local runtime bots as cloud identities
   assert.deepEqual(calls.map((call) => call.kind), ["listConversations"]);
   assert.equal(s.moduleState.conversations.length, 1);
   assert.equal(s.moduleState.conversations[0].id, "botc_u_1_alice");
+});
+
+test("bootstrapAfterLogin shares one authoritative refresh across concurrent callers", async () => {
+  const s = loadSocial();
+  const identity = deferred();
+  const calls = {
+    me: 0,
+    friends: 0,
+    requests: 0,
+    bots: 0,
+    conversations: 0
+  };
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.__mockWindow.mia.social = {
+    myIdentity: async () => {
+      calls.me += 1;
+      return identity.promise;
+    },
+    listFriends: async () => {
+      calls.friends += 1;
+      return { ok: true, data: { friends: [] } };
+    },
+    listFriendRequests: async () => {
+      calls.requests += 1;
+      return { ok: true, data: { requests: [] } };
+    },
+    listBots: async () => {
+      calls.bots += 1;
+      return { ok: true, data: { bots: [] } };
+    },
+    listConversations: async () => {
+      calls.conversations += 1;
+      return { ok: true, data: { conversations: [] } };
+    },
+    settingsGet: async () => ({})
+  };
+
+  const first = s.bootstrapAfterLogin();
+  const second = s.bootstrapAfterLogin();
+
+  assert.equal(first, second);
+  await flushPromises();
+  assert.deepEqual(calls, {
+    me: 1,
+    friends: 1,
+    requests: 2,
+    bots: 1,
+    conversations: 0
+  });
+
+  identity.resolve({ ok: true, data: { id: "u_1", username: "jung" } });
+  await Promise.all([first, second]);
+  assert.equal(calls.conversations, 1);
+});
+
+test("events_ready bursts schedule at most one trailing social refresh", async () => {
+  const s = loadSocial();
+  let identityCalls = 0;
+  const timers = [];
+  s.initSocialModule({
+    getState: () => ({ runtime: {} }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.__mockWindow.mia.social = {
+    myIdentity: async () => {
+      identityCalls += 1;
+      return { ok: true, data: { id: "u_1", username: "jung" } };
+    },
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
+    listConversations: async () => ({ ok: true, data: { conversations: [] } }),
+    settingsGet: async () => ({})
+  };
+  await s.bootstrapAfterLogin();
+  s.__mockWindow.setTimeout = (callback, delayMs) => {
+    timers.push({ callback, delayMs });
+    return timers.length;
+  };
+
+  s.handleCloudEvent({ type: "events_ready", payload: {} });
+  s.handleCloudEvent({ type: "events_ready", payload: {} });
+  s.handleCloudEvent({ type: "events_ready", payload: {} });
+
+  assert.equal(timers.length, 1);
+  assert.ok(timers[0].delayMs > 0);
+  assert.equal(identityCalls, 1);
+  timers[0].callback();
+  await flushPromises(8);
+  assert.equal(identityCalls, 2);
 });
 
 test("adapterCtx uses Mia Core user id fallback for local Core conversations", () => {
@@ -4670,6 +4768,13 @@ test("sendInActiveConversation posts group mentions in cloud bot format", async 
 
 test("handleCloudEvent conversation.message_appended appends and tracks maxSeq", () => {
   const s = loadSocial();
+  const cached = [];
+  s.__mockWindow.mia.social = {
+    cacheConversationMessages: (conversationId, messages) => {
+      cached.push({ conversationId, messages });
+      return Promise.resolve({ ok: true });
+    }
+  };
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.handleCloudEvent({
     type: "conversation.message_appended",
@@ -4687,6 +4792,9 @@ test("handleCloudEvent conversation.message_appended appends and tracks maxSeq",
   const entry = s.moduleState.messageCache.get("dm:u_a:u_b");
   assert.equal(entry.messages.length, 2);
   assert.equal(entry.maxSeq, 2);
+  assert.equal(cached.length, 3);
+  assert.equal(cached[0].conversationId, "dm:u_a:u_b");
+  assert.equal(cached[0].messages[0].id, "m1");
 });
 
 test("handleCloudEvent conversation.message_deleted removes the cached message", () => {
@@ -7623,4 +7731,53 @@ test("message_appended skips desktop notification when disabled or muted", () =>
   });
 
   assert.equal(notifications.length, 0);
+});
+
+test("social lifecycle stops and resumes the active run status timer", () => {
+  const intervals = [];
+  const cleared = [];
+  const s = loadSocial({
+    setInterval: (callback, ms) => {
+      intervals.push({ callback, ms });
+      return intervals.length;
+    },
+    clearInterval: (id) => cleared.push(id)
+  });
+  s.moduleState.cloudAgentRunsByConversation.set("botc_active", {
+    status: "running",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+
+  s.setLifecycleState({ active: true, visible: true });
+  s.setLifecycleState({ active: false, visible: true });
+  s.setLifecycleState({ active: true, visible: true });
+
+  assert.equal(intervals.length, 2);
+  assert.deepEqual(cleared, [1]);
+});
+
+test("social message cache evicts inactive conversations beyond the renderer budget", () => {
+  const s = loadSocial();
+  s.initSocialModule({ render() {} });
+
+  for (let index = 0; index < 30; index += 1) {
+    s.handleCloudEvent({
+      type: "conversation.message_appended",
+      payload: {
+        conversationId: `dm_cache_${index}`,
+        message: {
+          id: `m_${index}`,
+          seq: 1,
+          sender_kind: "user",
+          sender_ref: "u_other",
+          body_md: `message ${index}`
+        }
+      }
+    });
+  }
+
+  assert.equal(s.getPerformanceStats().cachedConversations, 24);
+  assert.equal(s.moduleState.messageCache.has("dm_cache_0"), false);
+  assert.equal(s.moduleState.messageCache.has("dm_cache_29"), true);
 });

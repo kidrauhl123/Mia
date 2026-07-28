@@ -69,6 +69,7 @@ function loadSocial(options = {}) {
     requestAnimationFrame: options.requestAnimationFrame,
     ResizeObserver: options.ResizeObserver,
     MutationObserver: options.MutationObserver,
+    miaMessageWindow: require("../src/renderer/chat/message-window.js"),
     mia: {
       social: {
         settingsGet: async () => ({ ok: true, data: { settings: { version: 1 } } }),
@@ -145,6 +146,31 @@ test("renderConversationChat reuses unchanged message DOM instead of rebuilding 
   social.renderConversationChat(c);
 
   assert.equal(c.children[0], firstArticle, "unchanged re-render must keep the existing badge/lottie DOM");
+});
+
+test("renderConversationChat keeps long histories to a bounded DOM window", () => {
+  const { social, groupArticles } = loadSocial();
+  const messages = Array.from({ length: 300 }, (_, index) => ({
+    id: `m_${index + 1}`,
+    seq: index + 1,
+    sender_kind: "bot",
+    sender_ref: "mia",
+    body_md: `message ${index + 1}`,
+    created_at: ""
+  }));
+  social.moduleState.messageCache.set("g_1", { messages, maxSeq: 300 });
+
+  const c = scrollEl({ scrollTop: 0, scrollHeight: 5000, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  assert.equal(groupArticles.length, 160);
+  assert.equal(groupArticles[0].msg.id, "m_141");
+  assert.equal(groupArticles.at(-1).msg.id, "m_300");
+  assert.equal(
+    c.children.filter((child) => String(child.className || "").includes("chat-history-window-nav")).length,
+    1,
+    "the bounded tail exposes an explicit older-history control"
+  );
 });
 
 test("renderConversationChat jumps to the bottom on conversation switch even if metrics say not-near-bottom", () => {

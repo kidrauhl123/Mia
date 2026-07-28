@@ -1,5 +1,7 @@
 "use strict";
 
+// Transport ordering rules shared by every Core caller.
+
 function coreRequestMethod(payload = {}) {
   return String(payload.method || "GET").toUpperCase();
 }

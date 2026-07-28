@@ -20,9 +20,10 @@ test("Windows memory policy keeps a bounded heap with production-safe headroom",
   assert.equal(
     policy.jsFlags,
     `--max-old-space-size=${DEFAULT_OLD_SPACE_MB} `
-      + `--max-semi-space-size=${DEFAULT_SEMI_SPACE_MB} --optimize-for-size`
+      + `--max-semi-space-size=${DEFAULT_SEMI_SPACE_MB}`
   );
   assert.ok(policy.oldSpaceMb >= 512, "renderer heap must not return to the crash-prone 64 MB cap");
+  assert.doesNotMatch(policy.jsFlags, /optimize-for-size/);
 });
 
 test("Windows memory policy is disabled off Windows or through the compatibility escape hatch", () => {

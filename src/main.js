@@ -19,7 +19,7 @@ const memoryBudgetBootstrap = bootstrapWindowsMemoryBudget({
 });
 if (memoryBudgetBootstrap.relaunched) process.exit(0);
 
-const { BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
+const { BrowserWindow, dialog, ipcMain, Menu, nativeImage, screen, shell, Tray } = require("electron");
 const { execFile, spawn, spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -73,11 +73,10 @@ const {
   dialogResultToWindowCloseChoice,
   windowClosePromptOptions
 } = require("./main/window-close-policy.js");
-const { installPathPasteShortcut } = require("./main/path-paste-shortcut.js");
 const { createAutoUpdateService } = require("./main/updater/auto-update-service.js");
 const { createSkillsLoader } = require("./main/skills-loader.js");
 const { createSocialApi } = require("./main/social/social-api.js");
-const { cacheLiveConversationMessageEvent, registerSocialIpc } = require("./main/social/social-ipc.js");
+const { registerSocialIpc } = require("./main/social/social-ipc.js");
 const { openConversationMessageCache } = require("./main/social/conversation-message-cache.js");
 const { createCloudEventsClient } = require("./main/cloud/cloud-events-client.js");
 const { finalizeCloudLoginIpcResult } = require("./main/cloud-login-ipc.js");
@@ -98,12 +97,12 @@ const {
   coreNeedsReplacement,
   shouldReuseCore
 } = require("./main/mia-core/control-server.js");
-const { createMiaCoreHttpClientCache } = require("./main/mia-core/http-client.js");
+const { createMiaCoreHttpClientCache } = require("./shared/mia-core-http-client.js");
 const { createMiaCoreCompatibilityClient } = require("./main/mia-core/compat-client.js");
-const { createMiaCoreLocalEventsClient } = require("./main/mia-core/event-client.js");
+const { createMiaCoreLocalEventsClient } = require("./shared/mia-core-event-client.js");
 const { createMiaCoreProcessLauncher } = require("./main/mia-core/process-launcher.js");
 const { createMiaCoreResolver } = require("./main/mia-core/process-resolver.js");
-const { coreRequestShouldWaitForStreamingEvents } = require("./main/mia-core/request-gates.js");
+const { coreRequestShouldWaitForStreamingEvents } = require("./shared/mia-core-request-policy.js");
 const { windowsTitleBarOverlayForAppearance, applyWindowsTitleBarOverlay } = require("./main/windows-title-bar.js");
 const {
   compactModelFromClientSettings,
@@ -2070,11 +2069,6 @@ function createWindow() {
   const sendWindowEvent = (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
   };
-  installPathPasteShortcut(win, {
-    clipboard,
-    channel: IpcChannel.ComposerPathPaste,
-    platform: process.platform
-  });
   win.on("focus", () => sendWindowEvent(IpcChannel.WindowFocusState, true));
   win.on("blur", () => sendWindowEvent(IpcChannel.WindowFocusState, false));
   win.on("enter-full-screen", () => sendWindowEvent(IpcChannel.WindowFullscreen, true));
@@ -2336,7 +2330,9 @@ registerMcpIpc({ ipcMain, mcpService: userMcpService });
 ipcMain.on(IpcChannel.MiaCoreStartupState, (event) => {
   event.returnValue = currentMiaCoreStartupState();
 });
-ipcMain.handle(IpcChannel.MiaCoreHttpRequest, (_event, payload) => forwardMiaCoreHttpRequest(payload || {}));
+ipcMain.on(IpcChannel.MiaCoreRuntimeSnapshotInvalidate, () => {
+  runtimeStatusCoreSnapshot?.invalidate?.();
+});
 
 ipcMain.handle(IpcChannel.RuntimeInitialize, async () => {
   const status = initializeRuntime();
@@ -2531,20 +2527,15 @@ cloudEventSocketRuntime = createCloudEventsClient({
     body: {}
   })
 });
-// The window listens to Rust Core's websocket and replays Core-owned local
-// envelopes to its renderers. The legacy event name is kept for UI state.
+// Main keeps a control-only Core websocket for lifecycle health. Renderer
+// processes own the unfiltered conversation/task stream directly.
 if (!IS_CORE_PROCESS) {
   localEventsRuntime = createMiaCoreLocalEventsClient({
     baseUrl: () => getDaemonStatus().baseUrl,
     WebSocketImpl: WebSocket,
     enabled: () => settingsStore.coreSettings().enabled,
-    includeTaskEvents: true,
+    wsPath: "/ws?scope=control",
     onEnvelope: (envelope) => {
-      const coreEventType = String(envelope?.coreEnvelope?.name || envelope?.coreEnvelope?.type || "").trim();
-      if (coreEventType.startsWith("task.")) {
-        broadcastRendererEvent(IpcChannel.TasksEvent, envelope);
-        return;
-      }
       if (envelope?.type === "daemon.cloud_events_status") {
         daemonCloudEventsStatus = envelope.payload || null;
         // This frame is the result of the Core lifecycle. Starting again here
@@ -2558,20 +2549,9 @@ if (!IS_CORE_PROCESS) {
         cloudEventSocketRuntime?.syncStatus?.(daemonCloudEventsStatus);
         return;
       }
-      cacheLiveConversationMessageEvent({
-        messageCache: conversationMessageCache,
-        envelope,
-        log: (line) => appendCloudLog(line)
-      });
-      broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
     },
     onStateChange: (connected) => {
       if (connected) cleanupLegacyScheduledMessageCache();
-      const envelope = {
-        type: "daemon.local_events_status",
-        payload: { connected: Boolean(connected) }
-      };
-      broadcastRendererEvent(IpcChannel.CloudEvent, envelope);
       if (connected) startCloudRuntimeSockets();
     }
   });
