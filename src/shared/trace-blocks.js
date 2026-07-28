@@ -205,6 +205,14 @@
     return html;
   }
 
+  function renderTraceMarkdown(value) {
+    // Trace prose is preformatted, so keep the existing path/URL linkification
+    // and only opt into the inline Markdown needed by reasoning/recap text.
+    // The source has already been escaped by renderTraceText, which makes this
+    // replacement safe even when agent output contains raw HTML.
+    return renderTraceText(value).replace(/\*\*([\s\S]+?)\*\*/g, "<strong>$1</strong>");
+  }
+
   function isMiaMemoryTool(name) {
     const normalized = String(name || "").trim().toLowerCase();
     return normalized === "memory"
@@ -272,7 +280,7 @@
           traceBodyHtml({
             key,
             open: stateForKey.open,
-            render: () => `<pre class="trace-body">${renderTraceText(reasoningText)}</pre>`
+            render: () => `<pre class="trace-body">${renderTraceMarkdown(reasoningText)}</pre>`
           }) +
         `</details>`
       );
@@ -417,7 +425,7 @@
         traceBodyHtml({
           key: scopeKey,
           open: stateForKey.open,
-          render: () => `<pre class="trace-body">${renderTraceText(text)}</pre>`
+          render: () => `<pre class="trace-body">${renderTraceMarkdown(text)}</pre>`
         }) +
       `</details>` +
     `</div>`;

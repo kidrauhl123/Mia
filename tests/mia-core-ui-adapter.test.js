@@ -33,7 +33,10 @@ test("preload exposes startup state and sends Core HTTP directly without Main IP
   assert.match(preload, /miaCoreRequest,/);
   assert.match(directTransport, /createMiaCoreHttpClient/);
   assert.match(main, /ipcMain\.on\(IpcChannel\.MiaCoreStartupState/);
-  assert.match(extractFunctionSource(main, "currentMiaCoreStartupState"), /userId:\s*currentMiaUserId\(\)/);
+  const startupStateSource = extractFunctionSource(main, "currentMiaCoreStartupState");
+  assert.match(startupStateSource, /port:\s*Number\(miaCoreStartupState\.port \|\| configuredMiaCorePort\(\)\)/);
+  assert.match(startupStateSource, /userId:\s*currentMiaUserId\(\)/);
+  assert.match(extractFunctionSource(main, "configuredMiaCorePort"), /settingsStore\?\.coreSettings\?\.\(\)\.port \|\| MIA_CORE_DEFAULT_PORT/);
   assert.doesNotMatch(main, /IpcChannel\.MiaCoreHttpRequest/);
   assert.match(main, /ipcMain\.on\(IpcChannel\.MiaCoreRuntimeSnapshotInvalidate/);
   assert.match(main, /createMiaCoreHttpClient/);

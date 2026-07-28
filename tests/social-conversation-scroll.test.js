@@ -61,6 +61,10 @@ function dispatchMockScroll(el) {
   for (const handler of el?._listeners?.scroll || []) handler({ target: el });
 }
 
+function dispatchMockEvent(el, type, event = {}) {
+  for (const handler of el?._listeners?.[type] || []) handler({ target: el, ...event });
+}
+
 function loadSocial(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
   let chatEl = mockEl();
@@ -79,6 +83,9 @@ function loadSocial(options = {}) {
     miaMarkdown: {
       escapeHtml: (v) => String(v || ""),
       renderMarkdown: (v) => String(v || ""),
+    },
+    miaReactPermissionBanner: {
+      publish() {},
     },
     miaSocialGroups: {
       fetchAndCacheConversationMembers() {},
@@ -228,6 +235,29 @@ test("renderConversationChat preserves a small upward user scroll during near-bo
   assert.equal(c.scrollTop, 590, "background rerenders must not treat a small upward user scroll as bottom-pinned");
 });
 
+test("renderConversationChat pauses streaming bottom follow as soon as an upward wheel gesture starts", () => {
+  const { social } = loadSocial();
+  const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  dispatchMockEvent(c, "wheel", { deltaY: -120 });
+  c.scrollHeight = 1100;
+  social.renderConversationChat(c);
+
+  assert.equal(c.scrollTop, 1000, "stream growth must not win the race against an upward wheel gesture");
+});
+
+test("renderConversationChat detects an upward DOM scroll before its delayed scroll event", () => {
+  const { social } = loadSocial();
+  const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+  social.renderConversationChat(c);
+
+  c.scrollTop = 590;
+  social.renderConversationChat(c);
+
+  assert.equal(c.scrollTop, 590, "streaming paint must preserve an upward scroll even before the scroll event fires");
+});
+
 test("renderConversationChat keeps a new conversation pinned after delayed narrow-pane layout growth", () => {
   const frames = [];
   const { social, setChat } = loadSocial({
@@ -338,6 +368,12 @@ test("appendMessageToActiveChat does not yank a scrolled-up reader to the bottom
   const { social, setChat } = loadSocial();
   const chat = scrollEl({ scrollTop: 100, scrollHeight: 1000, clientHeight: 400 }); // scrolled up
   setChat(chat);
+  const existing = { id: "m0", sender_kind: "user", sender_ref: "u_other", body_md: "earlier", created_at: "" };
+  social.moduleState.messageCache.set("g_1", { messages: [existing], maxSeq: 1 });
+  social.renderConversationChat(chat);
+  chat.scrollTop = 100;
+  dispatchMockScroll(chat);
+  social.moduleState.messageCache.set("g_1", { messages: [existing, incoming], maxSeq: 2 });
   social._internalCtx.appendMessageToActiveChat(incoming, { stick: false });
   assert.equal(chat.scrollTop, 100, "an incoming message from someone else must not steal scroll");
 });
@@ -362,6 +398,7 @@ test("appendMessageToActiveChat uses group renderer for active group conversatio
   const { social, groupArticles, setChat } = loadSocial();
   const chat = scrollEl({ scrollTop: 100, scrollHeight: 1000, clientHeight: 400 });
   setChat(chat);
+  social.moduleState.messageCache.set("g_1", { messages: [incoming], maxSeq: 1 });
   social._internalCtx.conversationMembersCache.set("g_1", [
     { member_kind: "user", member_ref: "u_other", username: "other" }
   ]);

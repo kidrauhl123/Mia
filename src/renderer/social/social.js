@@ -2713,21 +2713,44 @@
       intent = {
         installed: false,
         lastScrollTop: Number(chatEl.scrollTop) || 0,
+        lastTouchY: null,
         userMovedAwayFromBottom: false
       };
       _chatScrollIntents.set(chatEl, intent);
     }
     if (intent.installed || typeof chatEl.addEventListener !== "function") return intent;
     intent.installed = true;
+    const pauseBottomFollow = () => {
+      intent.userMovedAwayFromBottom = true;
+      stopChatBottomStickSession(chatEl);
+    };
     chatEl.addEventListener("scroll", () => {
       const currentTop = Number(chatEl.scrollTop) || 0;
       const previousTop = Number(intent.lastScrollTop) || 0;
       if (chatBottomGap(chatEl) <= 1) {
         intent.userMovedAwayFromBottom = false;
       } else if (currentTop < previousTop - 1) {
-        intent.userMovedAwayFromBottom = true;
+        pauseBottomFollow();
       }
       intent.lastScrollTop = currentTop;
+    }, { passive: true });
+    // Scroll events may be delivered after the next streaming animation frame.
+    // Record upward input synchronously so that frame cannot pull the viewport
+    // back to the bottom before the native scroll position changes.
+    chatEl.addEventListener("wheel", (event) => {
+      if ((Number(event?.deltaY) || 0) < 0) pauseBottomFollow();
+    }, { passive: true });
+    chatEl.addEventListener("touchstart", (event) => {
+      const nextY = Number(event?.touches?.[0]?.clientY);
+      intent.lastTouchY = Number.isFinite(nextY) ? nextY : null;
+    }, { passive: true });
+    chatEl.addEventListener("touchmove", (event) => {
+      const nextY = Number(event?.touches?.[0]?.clientY);
+      if (!Number.isFinite(nextY)) return;
+      if (Number.isFinite(intent.lastTouchY) && nextY > intent.lastTouchY + 1) {
+        pauseBottomFollow();
+      }
+      intent.lastTouchY = nextY;
     }, { passive: true });
     return intent;
   }
@@ -2748,10 +2771,27 @@
   function isChatPinnedToBottom(chatEl) {
     if (!chatEl) return false;
     const intent = installChatScrollIntentTracker(chatEl);
+    const currentTop = Number(chatEl.scrollTop) || 0;
+    const previousTop = Number(intent?.lastScrollTop) || 0;
+    if (intent && currentTop < previousTop - 1) {
+      intent.userMovedAwayFromBottom = true;
+      intent.lastScrollTop = currentTop;
+      stopChatBottomStickSession(chatEl);
+      return false;
+    }
+    if (intent?.userMovedAwayFromBottom) {
+      // Resume live following only after the user actually returns to the
+      // bottom. Merely remaining inside the generous near-bottom threshold is
+      // not enough to override an explicit upward gesture.
+      if (chatBottomGap(chatEl) > 1 || currentTop <= previousTop + 1) return false;
+      intent.userMovedAwayFromBottom = false;
+    }
     if (chatBottomGap(chatEl) <= 1) {
       if (intent) intent.userMovedAwayFromBottom = false;
+      if (intent) intent.lastScrollTop = currentTop;
       return true;
     }
+    if (intent) intent.lastScrollTop = currentTop;
     return !intent?.userMovedAwayFromBottom && isChatNearBottom(chatEl);
   }
 

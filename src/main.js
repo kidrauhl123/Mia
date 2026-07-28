@@ -296,9 +296,20 @@ let miaCoreStartupState = {
   error: null
 };
 
+function configuredMiaCorePort() {
+  const configured = Number(settingsStore?.coreSettings?.().port || MIA_CORE_DEFAULT_PORT);
+  return Number.isInteger(configured) && configured > 0 && configured <= 65535
+    ? configured
+    : MIA_CORE_DEFAULT_PORT;
+}
+
 function currentMiaCoreStartupState() {
   return {
-    port: Number(miaCoreStartupState.port || 0),
+    // The renderer owns its Core HTTP/WebSocket connection, so it needs the
+    // configured endpoint before Core finishes starting. Runtime readiness is
+    // reported separately by daemon status; a zero port would permanently
+    // construct an unusable preload transport even after Core comes online.
+    port: Number(miaCoreStartupState.port || configuredMiaCorePort()),
     failed: Boolean(miaCoreStartupState.failed),
     version: miaCoreStartupState.version || null,
     error: miaCoreStartupState.error || null,
@@ -311,7 +322,7 @@ function currentMiaCoreBaseUrl() {
   if (port > 0) return `http://127.0.0.1:${port}`;
   const coreSettings = settingsStore?.coreSettings?.() || {};
   const host = coreSettings.host || "127.0.0.1";
-  const fallbackPort = Number(coreSettings.port || MIA_CORE_DEFAULT_PORT);
+  const fallbackPort = configuredMiaCorePort();
   return `http://${host}:${fallbackPort}`;
 }
 

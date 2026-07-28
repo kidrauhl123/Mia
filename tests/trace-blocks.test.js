@@ -241,6 +241,25 @@ test("renderTraceBlocks linkifies URL and local path text only inside trace bodi
   );
 });
 
+test("renderTraceBlocks renders safe bold Markdown in prose but leaves tool output literal", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderTraceBlocks({
+    reasoning: "**Planning** the next step <script>alert(1)</script>",
+    tools: [{
+      id: "tool_1",
+      name: "shell",
+      status: "completed",
+      preview: "**literal tool output**"
+    }],
+    expanded: true,
+    scopeKey: "msg:m_markdown"
+  });
+
+  assert.match(html, /<strong>Planning<\/strong> the next step &lt;script&gt;alert\(1\)&lt;/);
+  assert.match(html, /<pre class="trace-body">\*\*literal tool output\*\*<\/pre>/);
+  assert.doesNotMatch(html, /<script>/);
+});
+
 test("renderAssistantContentBlocks keeps thinking, text, tool, text render order", () => {
   const { traceBlocks } = loadTraceBlocks();
   const html = traceBlocks.renderAssistantContentBlocks({
@@ -347,6 +366,24 @@ test("renderAssistantContentBlocks displays agent-provided recap blocks", () => 
   assert.match(html, /<span class="trace-cmd">Recap<\/span>/);
   assert.match(html, /You asked how to share phone VPN/);
   assert.match(html, /data-trace-key="msg:m_recap::block::1::recap::recap_1"/);
+});
+
+test("renderAssistantContentBlocks renders bold Markdown inside recap prose", () => {
+  const { traceBlocks } = loadTraceBlocks();
+  const html = traceBlocks.renderAssistantContentBlocks({
+    blocks: [{
+      type: "recap",
+      id: "recap_1",
+      text: "**Decision:** keep the current layout."
+    }],
+    expanded: true,
+    scopeKey: "msg:m_recap_markdown",
+    renderTextBlock() {
+      return "";
+    }
+  });
+
+  assert.match(html, /<pre class="trace-body"><strong>Decision:<\/strong> keep the current layout\.<\/pre>/);
 });
 
 test("renderAssistantContentBlocks hides thinking that duplicates the final message", () => {
