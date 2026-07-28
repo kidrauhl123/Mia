@@ -2,14 +2,20 @@ function assertReactRendererReady() {
   const requiredGlobals = [
     "miaReactRenderer",
     "miaReactBridge",
-    "miaReactSurface",
     "miaReactMessageList",
     "miaReactConversationList",
     "miaReactConversationFolders",
     "miaReactComposerMenus",
     "miaReactComposerContent",
     "miaReactPermissionBanner",
-    "miaReactSelectMenu"
+    "miaReactSelectMenu",
+    "miaReactBotStore",
+    "miaReactContacts",
+    "miaReactSkills",
+    "miaReactTasks",
+    "miaReactSettingsCompat",
+    "miaReactChatMenus",
+    "miaReactDialogs"
   ];
   const missing = requiredGlobals.filter((name) => !window[name]);
   const framework = document.documentElement?.dataset?.rendererFramework;
@@ -38,13 +44,7 @@ const SIDEBAR_WIDTH_DEFAULT = 320;
 const SHELL_SINGLE_MAX_WIDTH = 720;
 const messageLinkSelector = "a.message-link[data-external-link], a.message-link[data-local-file-path]";
 let skillPickerHoverCloseTimer = 0;
-let profilePopoverHideTimer = 0;
-let profileSaveDebounceTimer = 0;
 let lastNativeControlsLayout = "";
-let profileSaveInFlight = false;
-let profileSaveRequested = false;
-let profileLastSaveSignature = "";
-let avatarTrimDrag = null;
 const botRuntimeControlCache = new Map();
 const botRuntimeControlInFlight = new Set();
 const botRuntimeControlOptionsCache = new Map();
@@ -92,11 +92,7 @@ let shellLayoutTransitionTimer = 0;
 let lastConversationFolderKey = null;
 let conversationFolderMotion = { key: "", direction: 1 };
 let personaFolderAnimationTimer = 0;
-let personaListRenderSignature = "";
 let chatConversationMenuRenderSignature = "";
-let cloudMobileScanRefreshTimer = 0;
-let cloudMobileScanPendingTimer = 0;
-const CLOUD_MOBILE_SCAN_PENDING_POLL_MS = 700;
 const RUNTIME_FALLBACK_REFRESH_MS = 60_000;
 const CONVERSATION_FOLDER_ORDER_KEY = "mia.conversationFolderOrder.v1";
 const CONVERSATION_FOLDER_ALL_KEY = "__all__";
@@ -222,38 +218,6 @@ const els = {
   addBot: document.getElementById("addBot"),
   convMenuAddFriend: document.getElementById("convMenuAddFriend"),
   convMenuNewGroup: document.getElementById("convMenuNewGroup"),
-  botDialog: document.getElementById("botDialog"),
-  botForm: document.getElementById("botForm"),
-  botDialogTitle: document.getElementById("botDialogTitle"),
-  botKey: document.getElementById("botKey"),
-  botName: document.getElementById("botName"),
-  botRuntimeTargetField: document.getElementById("botRuntimeTargetField"),
-  botRuntimeTarget: document.getElementById("botRuntimeTarget"),
-  botAvatar: document.getElementById("botAvatar"),
-  botAvatarFile: document.getElementById("botAvatarFile"),
-  chooseBotAvatar: document.getElementById("chooseBotAvatar"),
-  botAvatarDrop: document.getElementById("botAvatarDrop"),
-  botAvatarPreview: document.getElementById("botAvatarPreview"),
-  botAvatarDefaultTabs: document.getElementById("botAvatarDefaultTabs"),
-  botAvatarDefaults: document.getElementById("botAvatarDefaults"),
-  profileAvatarDefaultTabs: document.getElementById("profileAvatarDefaultTabs"),
-  profileAvatarDefaults: document.getElementById("profileAvatarDefaults"),
-  botPersonaDetails: document.getElementById("botPersonaDetails"),
-  botSeed: document.getElementById("botSeed"),
-  closeBotDialog: document.getElementById("closeBotDialog"),
-  cancelBot: document.getElementById("cancelBot"),
-  avatarCropDialog: document.getElementById("avatarCropDialog"),
-  avatarCropStage: document.getElementById("avatarCropStage"),
-  avatarTrimControls: document.getElementById("avatarTrimControls"),
-  avatarTrimTimeline: document.getElementById("avatarTrimTimeline"),
-  avatarTrimFrames: document.getElementById("avatarTrimFrames"),
-  avatarTrimPreview: document.getElementById("avatarTrimPreview"),
-  avatarTrimLabel: document.getElementById("avatarTrimLabel"),
-  avatarTrimStart: document.getElementById("avatarTrimStart"),
-  avatarTrimDuration: document.getElementById("avatarTrimDuration"),
-  confirmAvatarCrop: document.getElementById("confirmAvatarCrop"),
-  cancelAvatarCrop: document.getElementById("cancelAvatarCrop"),
-  resetAvatarCrop: document.getElementById("resetAvatarCrop"),
   conversationSidebar: document.getElementById("conversationSidebar"),
   contactsSidebar: document.getElementById("contactsSidebar"),
   exploreSidebar: document.getElementById("exploreSidebar"),
@@ -301,35 +265,6 @@ const els = {
   skillContextMenu: document.getElementById("skillContextMenu"),
   botContextMenu: document.getElementById("botContextMenu"),
   messageContextMenu: document.getElementById("messageContextMenu"),
-  profileDialog: document.getElementById("profileDialog"),
-  profileForm: document.getElementById("profileForm"),
-  profileNameText: document.getElementById("profileNameText"),
-  profileDisplayName: document.getElementById("profileDisplayName"),
-  profileStatusBadge: document.getElementById("profileStatusBadge"),
-  profileStatusBadgeDetails: document.getElementById("profileStatusBadgeDetails"),
-  profileStatusBadgeTrigger: document.getElementById("profileStatusBadgeTrigger"),
-  profileUidValue: document.getElementById("profileUidValue"),
-  profileAvatarImage: document.getElementById("profileAvatarImage"),
-  profileAvatarFile: document.getElementById("profileAvatarFile"),
-  chooseProfileAvatar: document.getElementById("chooseProfileAvatar"),
-  profileAvatarDrop: document.getElementById("profileAvatarDrop"),
-  profileAvatarPreview: document.getElementById("profileAvatarPreview"),
-  closeProfileDialog: document.getElementById("closeProfileDialog"),
-  botNameText: document.getElementById("botNameText"),
-  botStatusBadge: document.getElementById("botStatusBadge"),
-  botStatusBadgeDetails: document.getElementById("botStatusBadgeDetails"),
-  botStatusBadgeTrigger: document.getElementById("botStatusBadgeTrigger"),
-  petGenerateDialog: document.getElementById("petGenerateDialog"),
-  petGenerateForm: document.getElementById("petGenerateForm"),
-  petGenerateTitle: document.getElementById("petGenerateTitle"),
-  petGenerateSubtitle: document.getElementById("petGenerateSubtitle"),
-  closePetGenerateDialog: document.getElementById("closePetGenerateDialog"),
-  cancelPetGenerate: document.getElementById("cancelPetGenerate"),
-  petPrompt: document.getElementById("petPrompt"),
-  petStylePreset: document.getElementById("petStylePreset"),
-  addPetReference: document.getElementById("addPetReference"),
-  petReferenceFile: document.getElementById("petReferenceFile"),
-  petReferenceList: document.getElementById("petReferenceList"),
   petJobButton: document.getElementById("petJobButton"),
   petJobPanel: document.getElementById("petJobPanel"),
   sessionMenuButton: document.getElementById("sessionMenuButton"),
@@ -411,10 +346,6 @@ const els = {
   cloudMobileScanMeta: document.getElementById("cloudMobileScanMeta"),
   cloudMobileScanQr: document.getElementById("cloudMobileScanQr"),
   cloudMobileScanRefresh: document.getElementById("cloudMobileScanRefresh"),
-  cloudLoginApproveDialog: document.getElementById("cloudLoginApproveDialog"),
-  cloudLoginApproveCopy: document.getElementById("cloudLoginApproveCopy"),
-  cloudLoginApproveDeny: document.getElementById("cloudLoginApproveDeny"),
-  cloudLoginApproveAllow: document.getElementById("cloudLoginApproveAllow"),
   cloudLogout: document.getElementById("cloudLogout"),
   checkUpdates: document.getElementById("checkUpdates"),
   daemonRestart: document.getElementById("daemonRestart"),
@@ -690,343 +621,20 @@ function statusBadgeForPreset(value) {
   return window.miaStatusBadgeAssets?.statusBadgeForValue?.(value) || null;
 }
 
-function statusBadgePresetValue(badge) {
-  return window.miaStatusBadgeAssets?.statusBadgeValue?.(badge) || "";
-}
-
-function identityNameEls(kind) {
-  return kind === "bot"
-    ? { input: els.botName, text: els.botNameText, fallback: "未命名伙伴" }
-    : { input: els.profileDisplayName, text: els.profileNameText, fallback: "Mia" };
-}
-
-function identityBadgeEls(kind) {
-  return kind === "bot"
-    ? { select: els.botStatusBadge, trigger: els.botStatusBadgeTrigger, details: els.botStatusBadgeDetails }
-    : { select: els.profileStatusBadge, trigger: els.profileStatusBadgeTrigger, details: els.profileStatusBadgeDetails };
-}
-
-function syncIdentityNameText(kind) {
-  const { input, text, fallback } = identityNameEls(kind);
-  if (!input || !text) return;
-  text.textContent = input.value.trim() || fallback;
-}
-
-function beginIdentityNameEdit(kind) {
-  const { input, text } = identityNameEls(kind);
-  if (!input || !text) return;
-  syncIdentityNameText(kind);
-  text.classList.add("hidden");
-  input.classList.remove("hidden");
-  input.focus();
-  input.select?.();
-}
-
-function shouldKeepIdentityNameInputVisible(kind) {
-  return kind === "bot"
-    && state.botDialogMode === "create";
-}
-
-function endIdentityNameEdit(kind) {
-  const { input, text } = identityNameEls(kind);
-  if (!input || !text) return;
-  if (shouldKeepIdentityNameInputVisible(kind)) {
-    text.classList.add("hidden");
-    input.classList.remove("hidden");
-    return;
-  }
-  input.classList.add("hidden");
-  text.classList.remove("hidden");
-  syncIdentityNameText(kind);
-}
-
-function refreshStatusBadgeLotties(root) {
-  if (!root) return;
-  const run = () => {
-    try { window.miaLottieIcons?.init?.(root); } catch { /* badge animation is optional */ }
-  };
-  run();
-  const defer = window.requestAnimationFrame || window.setTimeout;
-  if (typeof defer === "function") defer(run, 0);
-}
-
-function statusBadgeGlyphKey(badge) {
-  if (!badge) return "empty";
-  if (badge.kind === "emoji") return `emoji:${badge.emoji || ""}`;
-  if (badge.kind === "lottie") {
-    const assetId = String(badge.assetId || "").trim();
-    const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId) || "json";
-    const path = window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId) || "";
-    return `lottie:${assetId}:${format}:${path}`;
-  }
-  return `${badge.kind || ""}:${JSON.stringify(badge)}`;
-}
-
-function renderStatusBadgeGlyph(target, badge) {
-  if (!target) return;
-  const key = statusBadgeGlyphKey(badge);
-  if (target.dataset.statusBadgeGlyphKey === key) return;
-  target.dataset.statusBadgeGlyphKey = key;
-  target.innerHTML = "";
-  target.classList.toggle("empty", !badge);
-  if (!badge) {
-    renderEmptyStatusBadgeGlyph(target);
-    return;
-  }
-  if (badge.kind === "emoji") {
-    target.textContent = badge.emoji || "";
-    return;
-  }
-  if (badge.kind === "lottie") {
-    const assetId = String(badge.assetId || "").trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(assetId)) {
-      target.classList.add("empty");
-      renderEmptyStatusBadgeGlyph(target);
-      return;
-    }
-    const span = document.createElement("span");
-    span.className = "name-with-badge-badge name-with-badge-badge-lottie";
-    span.dataset.assetId = assetId;
-    span.dataset.lottie = assetId;
-    span.dataset.lottieTrigger = "loop";
-    span.dataset.lottieRenderer = "canvas";
-    const format = window.miaNameWithBadge?.statusBadgeAssetFormat?.(assetId);
-    if (format === "tgs") {
-      span.dataset.lottieFormat = "tgs";
-      span.dataset.lottieLocal = "status-badge";
-    }
-    const remotePath = window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId);
-    if (remotePath) span.dataset.lottiePath = remotePath;
-    span.setAttribute("aria-hidden", "true");
-    target.appendChild(span);
-    window.miaNameWithBadge?.initLottieBadges?.(target);
-  }
-}
-
-function renderEmptyStatusBadgeGlyph(target) {
-  if (!target) return;
-  target.innerHTML = `
-    <span class="identity-badge-empty-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" focusable="false">
-        <circle class="identity-badge-empty-ring" cx="12" cy="12" r="8.25"></circle>
-        <circle class="identity-badge-empty-eye" cx="9.4" cy="10.5" r=".78"></circle>
-        <circle class="identity-badge-empty-eye" cx="14.6" cy="10.5" r=".78"></circle>
-        <path class="identity-badge-empty-smile" d="M8.9 14.3c1.4 1.5 4.8 1.5 6.2 0"></path>
-      </svg>
-    </span>`;
-}
-
-function statusBadgeChoices() {
-  return window.miaStatusBadgeAssets?.statusBadgeChoices?.({ includeEmpty: true }) || [
-    { value: "", label: "无", badge: null }
-  ];
-}
-
-function statusBadgeChoiceCatalogKey() {
-  return statusBadgeChoices()
-    .map((choice) => `${choice.value}:${choice.kind || ""}:${choice.label || ""}:${choice.assetId || ""}:${choice.emoji || ""}`)
-    .join("|");
-}
-
-function renderStatusBadgeChoicePreview(target, choice) {
-  if (!target) return;
-  if (!choice?.badge) {
-    target.innerHTML = `<span class="identity-badge-choice-empty">无</span>`;
-    return;
-  }
-  if (choice.badge.kind === "emoji") {
-    const emoji = document.createElement("span");
-    emoji.className = "identity-badge-choice-emoji";
-    emoji.textContent = choice.badge.emoji || "";
-    target.replaceChildren(emoji);
-    return;
-  }
-  const preview = document.createElement("span");
-  preview.className = "identity-badge-choice-preview";
-  target.replaceChildren(preview);
-  renderStatusBadgeGlyph(preview, choice.badge);
-}
-
-function renderStatusBadgeChoiceLists(kind) {
-  const { select, details } = identityBadgeEls(kind);
-  const panel = details?.querySelector?.(".identity-badge-choices");
-  const key = statusBadgeChoiceCatalogKey();
-  if (select && select.dataset.statusBadgeCatalogKey !== key) {
-    const value = select.value || "";
-    select.replaceChildren(...statusBadgeChoices().map((choice) => {
-      const option = document.createElement("option");
-      option.value = choice.value || "";
-      option.textContent = choice.label || "无";
-      return option;
-    }));
-    select.value = statusBadgeChoices().some((choice) => choice.value === value) ? value : "";
-    select.dataset.statusBadgeCatalogKey = key;
-  }
-  if (!panel || panel.dataset.statusBadgeCatalogKey === `${kind}:${key}`) return;
-  panel.replaceChildren(...statusBadgeChoices().map((choice) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.statusBadgeChoice = choice.value || "";
-    button.dataset.statusBadgeTarget = kind;
-    button.setAttribute("aria-label", choice.value ? `${choice.label || choice.value}徽章` : "无徽章");
-    renderStatusBadgeChoicePreview(button, choice);
-    return button;
-  }));
-  panel.dataset.statusBadgeCatalogKey = `${kind}:${key}`;
-  refreshStatusBadgeLotties(panel);
-}
-
-function syncStatusBadgeControl(kind) {
-  const { select, trigger, details } = identityBadgeEls(kind);
-  if (!select || !trigger) return;
-  renderStatusBadgeChoiceLists(kind);
-  const badge = statusBadgeForPreset(select.value);
-  renderStatusBadgeGlyph(trigger, badge);
-  document.querySelectorAll(`[data-status-badge-target="${kind}"]`).forEach((button) => {
-    button.classList.toggle("active", button.dataset.statusBadgeChoice === select.value);
-  });
-  refreshStatusBadgeLotties(details || trigger);
-}
-
-function bindStatusBadgeDetailsDismissal(details) {
-  if (!details || details.dataset.statusBadgeDismissBound === "1") return;
-  details.dataset.statusBadgeDismissBound = "1";
-  let hideTimer = 0;
-  const cancelHide = () => {
-    if (!hideTimer) return;
-    window.clearTimeout(hideTimer);
-    hideTimer = 0;
-  };
-  const scheduleHide = () => {
-    cancelHide();
-    hideTimer = window.setTimeout(() => {
-      details.open = false;
-      hideTimer = 0;
-    }, 90);
-  };
-  details.addEventListener("mouseenter", cancelHide);
-  details.addEventListener("mouseleave", scheduleHide);
-  details.addEventListener("toggle", () => {
-    if (!details.open) {
-      cancelHide();
-      return;
-    }
-    document.querySelectorAll(".identity-badge-details[open]").forEach((node) => {
-      if (node !== details) node.open = false;
-    });
-    refreshStatusBadgeLotties(details);
-  });
-}
-
-document.querySelectorAll(".identity-badge-details").forEach(bindStatusBadgeDetailsDismissal);
-renderStatusBadgeChoiceLists("profile");
-renderStatusBadgeChoiceLists("bot");
-
 function openProfileDialogFromRenderer() {
-  clearProfilePopoverDismiss();
   if (state.profileDialogOpen) {
     window.miaBotDialog.closeProfileDialog();
     return;
   }
   window.miaBotDialog.openProfileDialog();
-  const user = runtimeUserIdentity();
-  if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
-  syncIdentityNameText("profile");
-  syncStatusBadgeControl("profile");
-  profileSaveRequested = false;
-  profileLastSaveSignature = JSON.stringify(profileDraftPayload());
-}
-
-function clearProfilePopoverDismiss() {
-  if (!profilePopoverHideTimer) return;
-  window.clearTimeout(profilePopoverHideTimer);
-  profilePopoverHideTimer = 0;
-}
-
-function profilePopoverHasEditingFocus() {
-  const active = document.activeElement;
-  if (!active || !els.profileForm?.contains(active)) return false;
-  return ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName);
-}
-
-function scheduleProfilePopoverDismiss() {
-  clearProfilePopoverDismiss();
-  profilePopoverHideTimer = window.setTimeout(() => {
-    profilePopoverHideTimer = 0;
-    if (!state.profileDialogOpen || state.avatarCropEditor?.open || profilePopoverHasEditingFocus()) return;
-    if (els.profileDialog?.matches?.(":hover") || els.userAvatar?.matches?.(":hover")) return;
-    window.miaBotDialog.closeProfileDialog();
-  }, 160);
 }
 
 function closeProfilePopoverFromOutside(event) {
   if (!state.profileDialogOpen || state.avatarCropEditor?.open) return;
   const target = event.target;
-  if (els.profileDialog?.contains(target) || els.userAvatar?.contains(target) || els.avatarCropDialog?.contains(target)) return;
-  clearProfilePopoverDismiss();
+  if (target?.closest?.(".profile-popover, .avatar-crop-dialog") || els.userAvatar?.contains(target)) return;
   window.miaBotDialog.closeProfileDialog();
 }
-
-function profileDraftPayload() {
-  const displayName = (els.profileDisplayName?.value || "").trim();
-  return {
-    displayName,
-    avatarText: displayName ? window.miaAvatar.initials(displayName) : "",
-    avatarImage: state.profileAvatarDraft?.image || els.profileAvatarImage?.value || "",
-    avatarCrop: window.miaAvatar.normalizeCrop(state.profileAvatarDraft?.crop),
-    avatarColor: state.profileAvatarDraft?.color || "",
-    statusBadge: statusBadgeForPreset(els.profileStatusBadge?.value || "")
-  };
-}
-
-async function saveProfileDraft() {
-  if (profileSaveDebounceTimer) {
-    window.clearTimeout(profileSaveDebounceTimer);
-    profileSaveDebounceTimer = 0;
-  }
-  profileSaveRequested = true;
-  if (profileSaveInFlight) return;
-  profileSaveInFlight = true;
-  try {
-    while (profileSaveRequested) {
-      profileSaveRequested = false;
-      const payload = profileDraftPayload();
-      const signature = JSON.stringify(payload);
-      if (signature === profileLastSaveSignature) continue;
-      profileLastSaveSignature = signature;
-      try {
-        state.runtime = await window.mia.saveProfile(payload);
-        render();
-      } catch (error) {
-        profileLastSaveSignature = "";
-        console.error("[profile] save failed:", error);
-      }
-    }
-  } finally {
-    profileSaveInFlight = false;
-  }
-}
-
-function scheduleProfileDraftSave(delay = 520) {
-  if (profileSaveDebounceTimer) window.clearTimeout(profileSaveDebounceTimer);
-  profileSaveDebounceTimer = window.setTimeout(() => {
-    profileSaveDebounceTimer = 0;
-    saveProfileDraft();
-  }, delay);
-}
-
-window.miaProfileControls = {
-  saveDraft: saveProfileDraft
-};
-
-window.miaStatusBadgeControls = {
-  statusBadgeForPreset,
-  statusBadgePresetValue,
-  syncIdentityNameText,
-  syncStatusBadgeControl,
-  beginIdentityNameEdit,
-  endIdentityNameEdit
-};
 
 function nameBadgeIdentity(kind, record, displayName, fallbackId = "") {
   const source = record && typeof record === "object" ? record : {};
@@ -1350,7 +958,7 @@ function shellLayoutForView(view) {
   return viewHasIndexPane(view) ? "dual" : "workspace";
 }
 
-function legacyGridLayoutForView(view) {
+function gridLayoutForView(view) {
   return viewHasIndexPane(view) ? "index-workspace" : "workspace";
 }
 
@@ -2399,13 +2007,6 @@ function sidebarCardRenderSignature(spec) {
   };
 }
 
-function syncPersonaListActiveState(specs) {
-  const cards = Array.from(els.personaList?.querySelectorAll?.(".persona.message-card") || []);
-  specs.forEach((spec, index) => {
-    cards[index]?.classList.toggle("active", Boolean(spec?.active));
-  });
-}
-
 function conversationListEntryKey(spec, index) {
   const attrs = spec?.dataAttrs || {};
   const stableId = [
@@ -2425,56 +2026,21 @@ function renderPersonaListIfChanged(specs, emptyText, activeTagFilterName) {
   const renderedSpecs = groupByDevice && typeof deviceGroups?.orderedConversationSpecs === "function"
     ? deviceGroups.orderedConversationSpecs(specs)
     : specs;
-  const signature = safeRenderSignature({
-    emptyText,
+  window.miaReactConversationList.publish({
     activeTagFilterName,
-    groupByDevice,
-    rows: specs.map(sidebarCardRenderSignature)
+    createCard: createConversationCardFromSpec,
+    emptyText,
+    entries: renderedSpecs.map((spec, index) => ({
+      active: Boolean(spec?.active),
+      key: conversationListEntryKey(spec, index),
+      signature: safeRenderSignature(sidebarCardRenderSignature(spec)),
+      spec
+    })),
+    grouped: groupByDevice,
+    renderGrouped: groupByDevice
+      ? (options) => deviceGroups.appendGroupedConversationCards(options)
+      : undefined
   });
-  if (window.miaReactConversationList?.publish) {
-    window.miaReactConversationList.publish({
-      activeTagFilterName,
-      createCard: createConversationCardFromSpec,
-      emptyText,
-      entries: renderedSpecs.map((spec, index) => ({
-        active: Boolean(spec?.active),
-        key: conversationListEntryKey(spec, index),
-        signature: safeRenderSignature(sidebarCardRenderSignature(spec)),
-        spec
-      })),
-      grouped: groupByDevice,
-      renderGrouped: groupByDevice
-        ? (options) => deviceGroups.appendGroupedConversationCards(options)
-        : undefined
-    });
-    personaListRenderSignature = signature;
-    animatePersonaListFolderPage(activeTagFilterName);
-    return;
-  }
-  if (personaListRenderSignature === signature) {
-    syncPersonaListActiveState(renderedSpecs);
-    return;
-  }
-  personaListRenderSignature = signature;
-  els.personaList.innerHTML = "";
-  if (groupByDevice && typeof deviceGroups?.appendGroupedConversationCards === "function") {
-    deviceGroups.appendGroupedConversationCards({
-      root: els.personaList,
-      specs,
-      createCard: createConversationCardFromSpec
-    });
-  } else {
-    for (const spec of specs) {
-      els.personaList.appendChild(createConversationCardFromSpec(spec));
-    }
-  }
-  syncPersonaListActiveState(renderedSpecs);
-  if (!specs.length && emptyText) {
-    const empty = document.createElement("div");
-    empty.className = "persona-empty";
-    empty.textContent = emptyText;
-    els.personaList.appendChild(empty);
-  }
   animatePersonaListFolderPage(activeTagFilterName);
 }
 
@@ -2486,13 +2052,7 @@ function renderChatConversationMenu(rows = [], personas = []) {
   els.chatConversationMenu?.classList.toggle("hidden", !open);
   syncTopbarClickCapture();
   if (!canOpen || !open) {
-    if (els.chatConversationList) {
-      if (window.miaReactSurface?.clear) {
-        window.miaReactSurface.clear(els.chatConversationList, "chat-conversation-menu:closed");
-      } else {
-        els.chatConversationList.innerHTML = "";
-      }
-    }
+    window.miaReactChatMenus?.publish?.({ conversationRows: [] });
     chatConversationMenuRenderSignature = "";
     return;
   }
@@ -2517,47 +2077,41 @@ function renderChatConversationMenu(rows = [], personas = []) {
     });
   }
 
-  const signature = safeRenderSignature({
+  chatConversationMenuRenderSignature = safeRenderSignature({
     rows: compactSpecs.map(sidebarCardRenderSignature)
   });
-  if (chatConversationMenuRenderSignature === signature) {
-    syncChatConversationMenuActiveState(compactSpecs);
-    return;
-  }
-  chatConversationMenuRenderSignature = signature;
-  const menuNodes = [];
-  for (const compactSpec of compactSpecs) {
-    const card = createConversationCardFromSpec(compactSpec);
-    card.classList.add("chat-conversation-menu-row");
-    card.setAttribute("role", "option");
-    card.setAttribute("aria-selected", compactSpec.active ? "true" : "false");
-    const status = card.querySelector(".persona-side:not(.empty)");
-    const nameRow = card.querySelector(".persona-name-row");
-    if (status && nameRow) nameRow.appendChild(status);
-    card.querySelector(".persona-preview-row")?.remove();
-    card.querySelector(".persona-tag-row")?.remove();
-    menuNodes.push(card);
-  }
-
-  if (!menuNodes.length) {
-    const empty = document.createElement("div");
-    empty.className = "chat-conversation-menu-empty";
-    empty.textContent = "暂无对话";
-    menuNodes.push(empty);
-  }
-  if (window.miaReactSurface?.renderNodes) {
-    window.miaReactSurface.renderNodes(els.chatConversationList, menuNodes, `chat-conversation-menu:${signature}`);
-  } else {
-    els.chatConversationList.innerHTML = "";
-    menuNodes.forEach((node) => els.chatConversationList.appendChild(node));
-  }
-}
-
-function syncChatConversationMenuActiveState(specs) {
-  const cards = Array.from(els.chatConversationList?.querySelectorAll?.(".chat-conversation-menu-row.persona") || []);
-  specs.forEach((spec, index) => {
-    cards[index]?.classList.toggle("active", Boolean(spec?.active));
-    cards[index]?.setAttribute("aria-selected", spec?.active ? "true" : "false");
+  window.miaReactChatMenus?.publish?.({
+    conversationRows: compactSpecs.map((spec, index) => ({
+      active: Boolean(spec.active),
+      avatar: spec.avatar
+        ? {
+            color: spec.avatar.color || "#5e5ce6",
+            crop: spec.avatar.crop || null,
+            image: spec.avatar.image || "",
+            text: spec.avatar.text || spec.name || ""
+          }
+        : null,
+      badge: spec.statusBadge || null,
+      customAvatar: spec.customAvatar
+        ? {
+            color: spec.customAvatar.color || "#5e5ce6",
+            crop: spec.customAvatar.crop || null,
+            image: spec.customAvatar.image || "",
+            text: spec.customAvatar.text || spec.name || ""
+          }
+        : null,
+      id: String(spec.dataAttrs?.conversationId || `${spec.kind}:${index}`),
+      kind: spec.kind === "group" ? "group" : "private",
+      members: Array.isArray(spec.members) ? spec.members : [],
+      muted: Boolean(spec.muted),
+      name: spec.name || "",
+      open: spec.onClick || (() => {}),
+      openContextMenu: spec.onContextMenu || (() => {}),
+      pinned: Boolean(spec.pinned),
+      time: spec.time || "",
+      typeLabel: spec.typeLabel || (spec.kind === "group" ? "群聊" : "私聊"),
+      unread: Number(spec.unread) || 0
+    }))
   });
 }
 
@@ -3235,11 +2789,7 @@ function focusedSidebarTagInput() {
 }
 
 function renderChatHtml(html = "") {
-  if (window.miaReactMessageList?.renderHtml) {
-    window.miaReactMessageList.renderHtml(html);
-    return;
-  }
-  if (els.chat) els.chat.innerHTML = html;
+  window.miaReactMessageList.renderHtml(html);
 }
 
 function codexAuthDetailsMarkdown(auth = {}) {
@@ -3300,7 +2850,6 @@ function renderImpl({ conversationOnly = false, conversationScopes = [] } = {}) 
   }
   if (!conversationOnly) {
   const editingModel = els.modelForm.contains(document.activeElement);
-  const editingProfile = Boolean(state.profileDialogOpen || els.profileForm?.contains(document.activeElement));
   const editingAppearance = Boolean(els.appearanceForm?.contains(document.activeElement));
   const appearance = runtime.appearance || {
     theme: "light",
@@ -3325,14 +2874,6 @@ function renderImpl({ conversationOnly = false, conversationScopes = [] } = {}) 
   window.miaAvatar.applyUserAvatar(els.userAvatar, user);
   window.miaAvatar.applyUserAvatar(els.sidebarUserAvatar, user);
   setText(els.userDisplayName, user.displayName || "");
-  if (els.profileUidValue) els.profileUidValue.textContent = user.id || "未登录";
-  if (!editingProfile && els.profileForm) {
-    els.profileDisplayName.value = user.displayName || "";
-    if (els.profileStatusBadge) els.profileStatusBadge.value = statusBadgePresetValue(user.statusBadge);
-    syncIdentityNameText("profile");
-    syncStatusBadgeControl("profile");
-    window.miaBotDialog.setProfileAvatarDraft(user.avatarImage || "", user.avatarCrop);
-  }
 
   if (els.engineStatus) {
     els.engineStatus.textContent = runtime.engineRunning
@@ -3689,7 +3230,7 @@ function syncRendererViewLifecycle(lifecycleState = rendererViewLifecycle?.snaps
     && state.runtime?.cloud?.enabled;
   if (shouldScanMobile) {
     refreshCloudMobileScan().catch(() => {});
-    if (!cloudMobileScanPendingTimer) pollCloudMobileScanPending().catch(() => {});
+    window.miaCloudMobileLogin?.ensurePolling?.();
   } else {
     clearCloudMobileScanTimers();
   }
@@ -3732,12 +3273,10 @@ function renderViewImpl() {
   els.tasksView?.classList.toggle("hidden", state.activeView !== "tasks");
   els.settingsView?.classList.toggle("hidden", state.activeView !== "settings");
   els.appShell?.setAttribute("data-active-view", state.activeView);
-  els.appShell?.setAttribute("data-layout", legacyGridLayoutForView(state.activeView));
+  els.appShell?.setAttribute("data-layout", gridLayoutForView(state.activeView));
   els.appShell?.setAttribute("data-shell-layout", state.shellLayout);
   syncNavLayoutState();
   syncSidebarCollapseState();
-  els.profileDialog?.classList.toggle("hidden", !state.profileDialogOpen);
-  els.profileDialog?.classList.toggle("is-open", state.profileDialogOpen);
   els.userAvatar?.setAttribute("aria-expanded", state.profileDialogOpen ? "true" : "false");
   document.querySelectorAll("[data-settings-tab]").forEach((button) => {
     button.classList.toggle("active", button.dataset.settingsTab === state.activeSettingsTab);
@@ -3752,9 +3291,6 @@ function renderViewImpl() {
   els.newContact?.setAttribute("aria-expanded", state.contactMenuOpen ? "true" : "false");
   els.newContact?.classList.toggle("active", state.contactMenuOpen);
   renderNavigationBadges();
-  els.botDialog?.classList.toggle("hidden", !state.botDialogOpen);
-  els.petGenerateDialog?.classList.toggle("hidden", !state.petGenerateOpen);
-  els.avatarCropDialog?.classList.toggle("hidden", !state.avatarCropEditor.open);
   window.miaBotManager.renderBotContextMenu();
   if (state.petGenerateOpen) {
     window.miaPetDialog?.renderPetGenerateDialog();
@@ -3903,537 +3439,41 @@ function messagesForActive() {
   }));
 }
 
-function agentInventoryById(runtime) {
-  const agents = runtime?.agentInventory?.agents || [];
-  return Object.fromEntries(agents.map((agent) => [agent.id, agent]));
-}
-
-function shortAgentVersion(agent) {
-  const version = String(agent?.version || "").trim();
-  if (!version) return "";
-  return version.split(/\s+/).slice(0, 2).join(" ");
-}
-
-function agentInstallMessageFor(engineId) {
-  if (typeof state === "undefined" || !state) return "";
-  const id = String(engineId || "").trim();
-  if (!id) return "";
-  if (state.agentSetupInstallInFlight && state.agentSetupInstallEngine === id) {
-    return state.agentSetupInstallMessage || "Installing...";
-  }
-  const errors = state.agentSetupInstallErrors || {};
-  if (errors[id]) return String(errors[id]);
-  if (id === "hermes" && state.hermesInstallError) return state.hermesInstallError;
-  return "";
-}
-
-function escapeEngineHtml(value) {
-  if (typeof window !== "undefined" && window.miaMarkdown?.escapeHtml) {
-    return window.miaMarkdown.escapeHtml(value);
-  }
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function installProgressPercentFor(engineId) {
-  if (typeof state === "undefined" || !state) return null;
-  if (!state.agentSetupInstallInFlight) return null;
-  if (state.agentSetupInstallEngine !== engineId) return null;
-  const percent = Number(state.agentSetupInstallPercent);
-  if (!Number.isFinite(percent)) return null;
-  return Math.max(0, Math.min(100, Math.round(percent)));
-}
-
-function setEngineStatusText(element, text) {
-  if (!element) return;
-  const next = String(text || "");
-  element.textContent = next;
-  element.title = next;
-}
-
-function detectedAgentLine(agent, engineId = agent?.id) {
-  const installMessage = agentInstallMessageFor(engineId);
-  if (installMessage) return installMessage;
-  if (!agent) return "未检测到";
-  const readiness = agent.readiness || {};
-  const readinessText = String(readiness.summary || readiness.detail || "").trim();
-  if ((agent.health === "blocked" || readiness.status === "blocked") && readinessText) return readinessText;
-  if (readiness.status === "repairable" && readinessText) return readinessText;
-  if (agent.usableInMia) {
-    const source = agent.source === "mia-managed" ? "Mia 稳定版" : "本机版本";
-    const parts = [source, shortAgentVersion(agent)].filter(Boolean);
-    return parts.join(" · ");
-  }
-  if (agent.installed && agent.detectionOnly) return "已就绪";
-  if (agent.installed) return "已检测到 · 当前不可直接用于 Mia";
-  if (agent.installable) return "未检测到本机版本 · 可启用 Mia 稳定版";
-  return "未检测到";
-}
-
-function legacyAgentStatus(id, legacy) {
-  if (!legacy) return null;
-  const installed = Boolean(legacy.installed ?? legacy.available);
-  const detectionOnly = Boolean(legacy.detectionOnly);
-  const usableInMia = legacy.usableInMia === undefined
-    ? Boolean(legacy.available && !detectionOnly)
-    : Boolean(legacy.usableInMia);
-  return { id, ...legacy, installed, detectionOnly, usableInMia };
-}
-
-function hermesDetectionLine(runtime, hermes) {
-  const installMessage = agentInstallMessageFor("hermes");
-  if (installMessage) return installMessage;
-  if (hermes) {
-    if (hermes.usableInMia || hermes.installed) return detectedAgentLine(hermes);
-    return "未检测到本机版本 · 可启用 Mia 稳定版";
-  }
-  const legacySource = String(runtime?.engineSource || "");
-  const legacyUsable = Boolean(
-    runtime?.engineInstalled
-    || ["bundled", "managed", "mia-managed", "local-source", "maintained-local-source", "system"].includes(legacySource)
-  );
-  return legacyUsable ? "已接入 Mia" : "未检测到本机版本 · 可启用 Mia 稳定版";
-}
-
 function renderHermesInstallState(runtime = state.runtime) {
-  const installMessage = agentInstallMessageFor("hermes");
-  if (installMessage) return installMessage;
-  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
-  if (state.hermesInstallError) return state.hermesInstallError;
-  if (!hermes) return "";
-  if (hermes.health === "blocked" || hermes.readiness?.status === "blocked") {
-    return String(hermes.readiness?.summary || hermes.readiness?.detail || "Hermes 不可用").trim();
-  }
-  if (hermes.health === "broken") return "官方 Hermes 状态异常，可修复。";
-  if (hermes.source === "system" && !hermes.usableInMia) return "检测到 Hermes，但当前安装方式暂不能用于 Mia。";
-  return "";
+  return window.miaEngineDetectionController?.renderHermesInstallState?.(runtime) || "";
 }
 
 function hermesSetupAction(runtime = state.runtime) {
-  const hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes");
-  if (hermes?.health === "broken") {
-    return { action: "repair-hermes", label: "启用 Mia 稳定版" };
-  }
-  if (state.hermesInstallError) {
-    return { action: "retry-install-hermes", label: "重试启用稳定版" };
-  }
-  if (hermes?.usableInMia || hermes?.installed || hermes?.health === "blocked" || hermes?.readiness?.status === "blocked") {
-    return null;
-  }
-  return { action: "install-hermes", label: "启用 Mia 稳定版" };
-}
-
-function agentInstallLabel(agent) {
-  if (!agent) return "启用 Mia 稳定版";
-  return "启用 Mia 稳定版";
-}
-
-function agentInstallAction(agent) {
-  if (!agent) return null;
-  if (agent.id === "hermes" && agent.health === "broken") {
-    return { action: "repair-hermes", label: agentInstallLabel(agent), engineId: "hermes" };
-  }
-  if (agent.usableInMia) return null;
-  if (agent.health === "blocked" || agent.readiness?.status === "blocked") return null;
-  if (agent.id === "hermes" && agent.installAction === "repair-hermes") {
-    return { action: "repair-hermes", label: agentInstallLabel(agent), engineId: "hermes" };
-  }
-  if (agent.installed && agent.installAction) {
-    return { action: agent.installAction, label: agentInstallLabel(agent), engineId: agent.id };
-  }
-  if (agent.installed) return null;
-  if (agent.id === "hermes" && (agent.installable || agent.installAction)) {
-    const action = agent.health === "broken" || agent.installAction === "repair-hermes"
-      ? "repair-hermes"
-      : "install-hermes";
-    return { action, label: agentInstallLabel(agent), engineId: "hermes" };
-  }
-  if (agent.installable && agent.installAction) {
-    return { action: agent.installAction, label: agentInstallLabel(agent), engineId: agent.id };
-  }
-  return null;
-}
-
-function engineRowActionElement(engineId) {
-  if (!els) return null;
-  if (engineId === "hermes") return els.engineRowHermesActions;
-  if (engineId === "claude-code") return els.engineRowClaudeActions;
-  if (engineId === "codex") return els.engineRowCodexActions;
-  return null;
-}
-
-function renderEngineInstallProgress(engineId) {
-  const percent = installProgressPercentFor(engineId);
-  if (percent === null) return "";
-  const width = Math.max(4, percent);
-  return `
-    <span class="engine-install-progress" aria-label="安装进度 ${percent}%">
-      <span class="engine-install-progress-track" aria-hidden="true">
-        <span style="width: ${width}%"></span>
-      </span>
-      <span class="engine-install-progress-text">${percent}%</span>
-    </span>
-  `;
-}
-
-function renderEngineRowAction(engineId, action) {
-  const target = engineRowActionElement(engineId);
-  if (!target) return;
-  if (!action) {
-    if (window.miaReactSurface?.clear) {
-      window.miaReactSurface.clear(target, `engine-row-action:${engineId}:empty`);
-    } else {
-      target.innerHTML = "";
-    }
-    return;
-  }
-  const installing = Boolean(typeof state !== "undefined" && state?.agentSetupInstallInFlight);
-  const isCurrentInstall = installing && state?.agentSetupInstallEngine === engineId;
-  const percent = installProgressPercentFor(engineId);
-  const label = isCurrentInstall
-    ? `安装中${percent === null ? "..." : ` ${percent}%`}`
-    : action.label;
-  const html = `
-    <span class="engine-action-stack">
-      <button class="engine-install-action row" type="button"
-        data-engine-settings-install="${escapeEngineHtml(action.engineId)}"
-        data-setup-action="${escapeEngineHtml(action.action)}"
-        data-engine="${escapeEngineHtml(action.engineId)}"${installing ? " disabled" : ""}${isCurrentInstall ? ' aria-busy="true"' : ""}>${escapeEngineHtml(label)}</button>
-      ${isCurrentInstall ? renderEngineInstallProgress(engineId) : ""}
-    </span>
-  `;
-  if (window.miaReactSurface?.renderHtml) {
-    window.miaReactSurface.renderHtml(target, html, `engine-row-action:${engineId}:${html}`);
-  } else {
-    target.innerHTML = html;
-  }
+  return window.miaEngineDetectionController?.hermesSetupAction?.(runtime) || null;
 }
 
 function hermesCanConfigure(runtime, hermes = runtime?.agentInventory?.agents?.find((agent) => agent.id === "hermes")) {
-  if (hermes) return Boolean(hermes.usableInMia);
-  const legacySource = String(runtime?.engineSource || "");
-  return Boolean(
-    runtime?.engineInstalled
-    || ["bundled", "managed", "mia-managed", "local-source", "maintained-local-source", "system"].includes(legacySource)
-  );
-}
-
-function syncHermesConfigAvailability(runtime, hermes) {
-  const row = els.engineRowHermesButton;
-  const canConfigure = hermesCanConfigure(runtime, hermes);
-  if (row) {
-    row.classList?.toggle("config-disabled", !canConfigure);
-    row.setAttribute?.("aria-disabled", canConfigure ? "false" : "true");
-    if ("tabIndex" in row) row.tabIndex = canConfigure ? 0 : -1;
-  }
-  if (!canConfigure && els.modelForm) {
-    row?.setAttribute?.("aria-expanded", "false");
-    if (typeof window !== "undefined" && window.miaAccordion?.setElementOpen) window.miaAccordion.setElementOpen(els.modelForm, false);
-    else els.modelForm.classList.toggle("hidden", true);
-  }
-}
-
-function renderEngineInstallActions(runtime) {
-  const inventory = agentInventoryById(runtime);
-  for (const engineId of ["hermes", "claude-code", "codex"]) {
-    renderEngineRowAction(engineId, agentInstallAction(inventory[engineId]));
-  }
-  if (els.engineInstallActions) {
-    els.engineInstallActions.classList?.add?.("hidden");
-    if (window.miaReactSurface?.clear) {
-      window.miaReactSurface.clear(els.engineInstallActions, "engine-install-actions:hidden");
-    } else {
-      els.engineInstallActions.innerHTML = "";
-    }
-  }
+  return Boolean(window.miaEngineDetectionController?.canConfigureHermes?.(runtime, hermes));
 }
 
 function renderEngineDetection(runtime) {
-  const engines = runtime?.agentEngines || {};
-  const inventory = agentInventoryById(runtime);
-
-  if (els.engineRowHermes) {
-    setEngineStatusText(els.engineRowHermes, hermesDetectionLine(runtime, inventory.hermes));
-  }
-  syncHermesConfigAvailability(runtime, inventory.hermes);
-
-  if (els.engineRowClaude) {
-    setEngineStatusText(els.engineRowClaude, detectedAgentLine(
-      inventory["claude-code"] || legacyAgentStatus("claude-code", engines.claudeCode),
-      "claude-code"
-    ));
-  }
-
-  if (els.engineRowCodex) {
-    setEngineStatusText(els.engineRowCodex, detectedAgentLine(inventory.codex || legacyAgentStatus("codex", engines.codex), "codex"));
-  }
-
-  renderEngineInstallActions(runtime);
+  return window.miaEngineDetectionController?.renderDetection?.(runtime);
 }
 
 function renderSessionMenu() {
-  if (!els.sessionMenu || !els.sessionList) return;
-  els.sessionMenu.classList.toggle("hidden", !state.sessionMenuOpen);
   syncTopbarClickCapture();
-  const cloudConversation = activeCloudConversationForSessionMenu();
-  if (cloudConversation) {
-    renderCloudConversationSessionMenu(cloudConversation);
-    return;
-  }
-  // Cloud-only: with no active conversation the menu is empty.
-  if (window.miaReactSurface?.clear) {
-    window.miaReactSurface.clear(els.sessionList, "session-list:no-active-conversation");
-  } else {
-    els.sessionList.innerHTML = "";
-  }
-  updateSessionUnreadBadge(0);
-  updateCurrentSessionTitle("新对话");
+  return window.miaSessionMenuController?.renderMenu?.();
 }
 
 function activeCloudConversationForSessionMenu() {
-  const social = window.miaSocial;
-  const conversationId = social?.getActiveConversationId?.();
-  if (!conversationId) return null;
-  return social?.getConversationById?.(conversationId) || null;
-}
-
-function cloudConversationSortTime(conversation) {
-  return sessionHistory.conversationSortTime(conversation, window.miaSocial?.moduleState?.messageCache);
-}
-
-function cloudSessionTitle(conversation) {
-  return sessionHistory.sessionTitle(conversation, {
-    bots: window.miaBotManager?.allOwnedBots?.() || [],
-    defaultTitle: "新对话",
-    groupTitle: "群聊",
-    dmTitleFallback: "私聊"
-  });
-}
-
-function cloudSessionConversationsForConversation(conversation) {
-  return sessionHistory.sessionConversationsForConversation(conversation, window.miaSocial?.moduleState?.conversations || [], {
-    messageCache: window.miaSocial?.moduleState?.messageCache,
-    activeConversationId: window.miaSocial?.getActiveConversationId?.()
-  });
-}
-
-function resetCloudSessionRename() {
-  state.sessionRename = { conversationId: "", draft: "", saving: false, error: "" };
-}
-
-function focusCloudSessionRenameInput() {
-  requestAnimationFrame(() => {
-    const input = els.sessionList?.querySelector?.(".session-row-rename-input");
-    input?.focus?.();
-    input?.select?.();
-  });
-}
-
-function startCloudSessionRename(conversation) {
-  if (!conversation?.id) return;
-  state.sessionRename = {
-    conversationId: conversation.id,
-    draft: cloudSessionTitle(conversation),
-    saving: false,
-    error: ""
-  };
-  renderSessionMenu();
-  focusCloudSessionRenameInput();
-}
-
-function cancelCloudSessionRename() {
-  resetCloudSessionRename();
-  renderSessionMenu();
-}
-
-async function commitCloudSessionRename(conversation) {
-  const rename = state.sessionRename || {};
-  if (!conversation?.id || rename.conversationId !== conversation.id) return;
-  const title = String(rename.draft || "").trim();
-  if (!title) {
-    state.sessionRename = { ...rename, saving: false, error: "名称不能为空" };
-    renderSessionMenu();
-    focusCloudSessionRenameInput();
-    return;
-  }
-  if (title === cloudSessionTitle(conversation).trim()) {
-    cancelCloudSessionRename();
-    return;
-  }
-
-  state.sessionRename = { ...rename, draft: title, saving: true, error: "" };
-  renderSessionMenu();
-  try {
-    const response = await window.mia.social.updateConversation(conversation.id, { name: title });
-    if (!response?.ok) throw new Error(response?.error || "未知错误");
-    resetCloudSessionRename();
-    window.miaSocial?.upsertBotConversation?.(response.data?.conversation || response.conversation || { ...conversation, name: title });
-    renderSessionMenu();
-  } catch (error) {
-    state.sessionRename = { ...rename, draft: title, saving: false, error: `重命名失败：${error?.message || error}` };
-    renderSessionMenu();
-    focusCloudSessionRenameInput();
-  }
+  return window.miaSessionMenuController?.activeConversation?.() || null;
 }
 
 async function selectCloudSessionConversation(conversation, { skipMessageLoad = false } = {}) {
-  if (!conversation?.id) return;
-  window.miaSocial?.setActiveConversationId?.(conversation.id);
-  state.sessionMenuOpen = false;
-  state.replyDraft = null;
-  state.forceScrollToBottom = true;
-  const cache = window.miaSocial?.moduleState?.messageCache;
-  if (cache && !cache.has(conversation.id)) cache.set(conversation.id, { messages: [], maxSeq: 0 });
-  // A freshly created session has no messages yet, so skip the (network)
-  // listConversationMessages round-trip — the empty cache set above is correct.
-  if (skipMessageLoad) {
-    render();
-    return;
-  }
-  try {
-    const res = await window.mia.social.listConversationMessages(conversation.id, 0, 100);
-    const messages = (res?.ok ? res.data?.messages : res?.messages) || [];
-    const ordered = messages.slice().sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
-    const maxSeq = ordered.reduce((max, msg) => Math.max(max, Number(msg.seq) || 0), 0);
-    cache?.set(conversation.id, { messages: ordered, maxSeq });
-  } catch (error) {
-    console.warn("[renderer] cloud session messages load failed:", error?.message || error);
-  }
-  render();
-}
-
-function shouldHoldCloudSessionRenameDom(conversations) {
-  const rename = state.sessionRename || {};
-  if (!state.sessionMenuOpen || !rename.conversationId || rename.saving) return false;
-  if (!conversations.some((conversation) => conversation?.id === rename.conversationId)) return false;
-  const rows = Array.from(els.sessionList?.querySelectorAll?.(".session-row.editing") || []);
-  const row = rows.find((candidate) => candidate.dataset.cloudSessionSelect === rename.conversationId);
-  return Boolean(row?.querySelector?.("[data-cloud-session-rename-input]"));
-}
-
-function renderCloudConversationSessionMenu(activeConversation) {
-  const conversations = cloudSessionConversationsForConversation(activeConversation);
-  const activeId = activeConversation.id;
-  const botUnread = window.miaSocial?.getUnreadForBot?.(sessionHistory.botId(activeConversation)) || 0;
-  updateSessionUnreadBadge(botUnread);
-  updateCurrentSessionTitle(cloudSessionTitle(activeConversation));
-  if (shouldHoldCloudSessionRenameDom(conversations)) return;
-  const sessionRows = [];
-  for (const conversation of conversations) {
-    const rename = state.sessionRename || {};
-    const isRenaming = rename.conversationId === conversation.id;
-    const savingRename = Boolean(isRenaming && rename.saving);
-    const escapedConversationId = window.miaMarkdown.escapeHtml(conversation.id);
-    const sessionUnread = window.miaSocial?.getUnreadForConversation?.(conversation.id) || 0;
-    const sessionUnreadText = window.miaUnread?.unreadBadgeText?.(sessionUnread) || "";
-    const row = document.createElement("div");
-    row.className = `session-row${conversation.id === activeId ? " active" : ""}${isRenaming ? " editing" : ""}`;
-    row.setAttribute("role", "option");
-    row.setAttribute("tabindex", "0");
-    row.dataset.cloudSessionSelect = conversation.id;
-    if (isRenaming) {
-      row.innerHTML = `
-        <form class="session-row-rename" data-cloud-session-rename="${escapedConversationId}">
-          <input class="session-row-rename-input" data-cloud-session-rename-input value="${window.miaMarkdown.escapeHtml(rename.draft || "")}" aria-label="会话名称" ${savingRename ? "disabled" : ""}>
-          <button class="session-row-rename-save" type="submit" data-cloud-session-rename-save ${savingRename ? "disabled" : ""}>确定</button>
-          <button class="session-row-rename-cancel" type="button" data-cloud-session-rename-cancel ${savingRename ? "disabled" : ""}>取消</button>
-          ${rename.error ? `<small class="session-row-rename-error">${window.miaMarkdown.escapeHtml(rename.error)}</small>` : ""}
-        </form>
-      `;
-    } else {
-      row.innerHTML = `
-        <span>
-          <strong>${window.miaMarkdown.escapeHtml(cloudSessionTitle(conversation))}</strong>
-          <small>${window.miaMarkdown.escapeHtml(new Date(cloudConversationSortTime(conversation) || Date.now()).toLocaleString())}</small>
-        </span>
-        <span class="session-row-actions">
-          ${sessionUnreadText ? `<span class="session-row-unread" aria-label="${sessionUnread} 条未读消息">${window.miaMarkdown.escapeHtml(sessionUnreadText)}</span>` : ""}
-          <button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit="${escapedConversationId}">${window.miaMarkdown.iconParkIcon("edit", "session-row-edit-icon")}</button>
-        </span>
-      `;
-    }
-    row.addEventListener("click", async (event) => {
-      if (event.target.closest("[data-cloud-session-rename-cancel]")) {
-        event.preventDefault();
-        event.stopPropagation();
-        cancelCloudSessionRename();
-        return;
-      }
-      if (event.target.closest("[data-cloud-session-rename]")) return;
-      const editTarget = event.target.closest("[data-cloud-session-edit]");
-      if (editTarget) {
-        event.preventDefault();
-        event.stopPropagation();
-        startCloudSessionRename(conversation);
-        return;
-      } else {
-        await selectCloudSessionConversation(conversation);
-      }
-      render();
-    });
-    row.addEventListener("input", (event) => {
-      if (!event.target.closest("[data-cloud-session-rename-input]")) return;
-      state.sessionRename = { ...state.sessionRename, draft: event.target.value, error: "" };
-    });
-    row.addEventListener("submit", async (event) => {
-      if (!event.target.closest("[data-cloud-session-rename]")) return;
-      event.preventDefault();
-      event.stopPropagation();
-      await commitCloudSessionRename(conversation);
-    });
-    row.addEventListener("keydown", async (event) => {
-      if (event.target.closest("[data-cloud-session-rename-input]")) {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          cancelCloudSessionRename();
-        }
-        return;
-      }
-      if (event.key !== "Enter" && event.key !== " ") return;
-      if (event.target.closest("[data-cloud-session-edit], [data-cloud-session-rename]")) return;
-      event.preventDefault();
-      await selectCloudSessionConversation(conversation);
-      render();
-    });
-    sessionRows.push(row);
-  }
-  const sessionSignature = safeRenderSignature({
-    activeId,
-    rows: conversations.map((conversation) => ({
-      id: conversation.id,
-      title: cloudSessionTitle(conversation),
-      updatedAt: cloudConversationSortTime(conversation),
-      unread: window.miaSocial?.getUnreadForConversation?.(conversation.id) || 0
-    })),
-    rename: state.sessionRename || {}
-  });
-  if (window.miaReactSurface?.renderNodes) {
-    window.miaReactSurface.renderNodes(els.sessionList, sessionRows, `session-list:${sessionSignature}`);
-  } else {
-    els.sessionList.innerHTML = "";
-    sessionRows.forEach((row) => els.sessionList.appendChild(row));
-  }
+  return window.miaSessionMenuController?.selectConversation?.(conversation, { skipMessageLoad });
 }
 
 function updateSessionUnreadBadge(count) {
-  if (!els.sessionUnreadBadge) return;
-  const unread = Math.max(0, Number(count) || 0);
-  const text = window.miaUnread?.unreadBadgeText?.(unread) || "";
-  els.sessionUnreadBadge.textContent = text;
-  els.sessionUnreadBadge.classList.toggle("hidden", !text);
-  els.sessionUnreadBadge.setAttribute("aria-label", text ? `${unread} 条未读消息` : "");
+  return window.miaSessionMenuController?.updateUnreadBadge?.(count);
 }
 
 function updateCurrentSessionTitle(title) {
-  if (!els.currentSessionTitle) return;
-  const next = title || "新对话";
-  if ((els.currentSessionTitle.dataset?.slotTextValue || els.currentSessionTitle.textContent) === next) return;
-  setAnimatedText(els.currentSessionTitle, next, { direction: "up", stagger: 18, duration: 240 });
-  els.currentSessionTitle.classList.remove("title-updated");
-  requestAnimationFrame(() => els.currentSessionTitle.classList.add("title-updated"));
+  return window.miaSessionMenuController?.updateTitle?.(title);
 }
 
 // Once the bot has actually replied, summarize the opening exchange into a
@@ -5861,150 +4901,13 @@ function refreshRuntime() {
   return performRefreshRuntime();
 }
 
-function clearCloudMobileScanTimers() {
-  if (cloudMobileScanRefreshTimer) {
-    clearTimeout(cloudMobileScanRefreshTimer);
-    cloudMobileScanRefreshTimer = 0;
-  }
-  if (cloudMobileScanPendingTimer) {
-    clearTimeout(cloudMobileScanPendingTimer);
-    cloudMobileScanPendingTimer = 0;
-  }
-}
-
-function cloudMobileScanErrorCopy(error) {
-  let message = String(error?.message || error || "").trim();
-  if (/Mia Core 未运行|Mia 暂不可用/i.test(message)) return "需要先启动 Mia Core";
-  if (/Error invoking remote method 'cloud:login'/i.test(message)) {
-    let normalized = message.replace(/^Error invoking remote method 'cloud:login':\s*/i, "").trim();
-    normalized = normalized.replace(/^Error:\s*/i, "").trim();
-    if (/Mia Core 未运行|Mia 暂不可用/i.test(normalized)) return "需要先启动 Mia Core";
-    if (/fetch failed|failed to fetch/i.test(normalized)) return "连接 Mia Cloud 失败，请检查网络后重试。";
-    return normalized || "二维码生成失败";
-  }
-  message = message.replace(/^Error:\s*/i, "").trim();
-  if (/fetch failed|failed to fetch/i.test(message)) return "连接 Mia Cloud 失败，请检查网络后重试。";
-  return message || "二维码生成失败";
-}
-
-function closeCloudLoginApproveDialog() {
-  if (els.cloudLoginApproveDialog) els.cloudLoginApproveDialog.classList.add("hidden");
-  delete state.pendingCloudLoginRequest;
-}
-
-function openCloudLoginApproveDialog(request = {}) {
-  state.pendingCloudLoginRequest = request;
-  if (els.cloudLoginApproveCopy) {
-    const deviceLabel = String(request.deviceLabel || "").trim();
-    els.cloudLoginApproveCopy.textContent = deviceLabel
-      ? `允许 ${deviceLabel} 登录当前账号？`
-      : "允许这台设备登录当前账号？";
-  }
-  els.cloudLoginApproveDialog?.classList.remove("hidden");
-}
-
-function scheduleCloudMobileScanRefresh(expiresAt = "") {
-  if (cloudMobileScanRefreshTimer) clearTimeout(cloudMobileScanRefreshTimer);
-  const expireMs = Date.parse(String(expiresAt || ""));
-  if (!Number.isFinite(expireMs)) return;
-  const delay = Math.max(1000, expireMs - Date.now() + 250);
-  cloudMobileScanRefreshTimer = setTimeout(() => {
-    cloudMobileScanRefreshTimer = 0;
-    refreshCloudMobileScan(true).catch(() => {});
-  }, delay);
-}
-
 function renderCloudAccountFromState() {
   window.miaSettingsRemote.renderCloudAccount(state.runtime?.cloud || {});
 }
 
-async function refreshCloudMobileScan(force = false) {
-  const cloud = state.runtime?.cloud || {};
-  if (!cloud.enabled) {
-    clearCloudMobileScanTimers();
-    closeCloudLoginApproveDialog();
-    return;
-  }
-  const current = cloud.mobileScan || {};
-  const expiresAtMs = Date.parse(String(current.expiresAt || ""));
-  const stillValid = Number.isFinite(expiresAtMs) && expiresAtMs > Date.now() + 1000;
-  if (!force && current.qrCodeUrl && stillValid) {
-    scheduleCloudMobileScanRefresh(current.expiresAt);
-    return;
-  }
-  try {
-    const started = await window.mia.cloudLogin({ action: "mobile-scan-start" });
-    state.runtime = {
-      ...state.runtime,
-      cloud: {
-        ...cloud,
-        mobileScan: started
-      }
-    };
-    renderCloudAccountFromState();
-    scheduleCloudMobileScanRefresh(started.expiresAt);
-  } catch (error) {
-    state.runtime = {
-      ...state.runtime,
-      cloud: {
-        ...cloud,
-        mobileScan: {
-          ...current,
-          error: cloudMobileScanErrorCopy(error)
-        }
-      }
-    };
-    renderCloudAccountFromState();
-  }
-}
-
-async function pollCloudMobileScanPending() {
-  const cloud = state.runtime?.cloud || {};
-  if (!cloud.enabled) {
-    clearCloudMobileScanTimers();
-    closeCloudLoginApproveDialog();
-    return;
-  }
-  try {
-    const pending = await window.mia.cloudLogin({ action: "mobile-scan-pending" });
-    if (pending?.requestId) openCloudLoginApproveDialog(pending);
-    else closeCloudLoginApproveDialog();
-  } catch {
-    closeCloudLoginApproveDialog();
-  } finally {
-    if (state.runtime?.cloud?.enabled) {
-      cloudMobileScanPendingTimer = setTimeout(() => {
-        cloudMobileScanPendingTimer = 0;
-        pollCloudMobileScanPending().catch(() => {});
-      }, CLOUD_MOBILE_SCAN_PENDING_POLL_MS);
-    }
-  }
-}
-
-async function respondCloudLoginApproval(decision) {
-  const pending = state.pendingCloudLoginRequest || null;
-  if (!pending?.requestId) return;
-  if (els.cloudLoginApproveAllow) els.cloudLoginApproveAllow.disabled = true;
-  if (els.cloudLoginApproveDeny) els.cloudLoginApproveDeny.disabled = true;
-  try {
-    await window.mia.cloudLogin({
-      action: "mobile-scan-decision",
-      requestId: pending.requestId,
-      decision
-    });
-    closeCloudLoginApproveDialog();
-    if (decision === "approve") {
-      await refreshCloudMobileScan(true);
-    }
-  } catch (error) {
-    if (els.cloudLoginApproveCopy) {
-      els.cloudLoginApproveCopy.textContent = `操作失败：${error.message || error}`;
-    }
-  } finally {
-    if (els.cloudLoginApproveAllow) els.cloudLoginApproveAllow.disabled = false;
-    if (els.cloudLoginApproveDeny) els.cloudLoginApproveDeny.disabled = false;
-  }
-}
+function clearCloudMobileScanTimers() { window.miaCloudMobileLogin?.clear?.(); }
+function closeCloudLoginApproveDialog() { window.miaCloudMobileLogin?.closeApproval?.(); }
+function refreshCloudMobileScan(force = false) { return window.miaCloudMobileLogin?.refresh?.(force) || Promise.resolve(); }
 
 function maybeBootstrapSocialAfterRuntime(runtime) {
   if (!runtime?.cloud?.enabled) return;
@@ -6118,6 +5021,14 @@ async function initializeRuntime(options = {}) {
       activePersona,
     });
   }
+  window.miaCloudMobileLogin?.init?.({
+    state,
+    mia: window.mia,
+    renderCloudAccount: renderCloudAccountFromState
+  });
+  if (window.miaEngineDetectionController?.init) {
+    window.miaEngineDetectionController.init({ state, els });
+  }
   if (window.miaSetupGuide && window.miaSetupGuide.initSetupGuide) {
     window.miaSetupGuide.initSetupGuide({ state, escapeHtml: window.miaMarkdown.escapeHtml });
   }
@@ -6133,8 +5044,23 @@ async function initializeRuntime(options = {}) {
       providerLabels,
     });
   }
+  if (window.miaSessionMenuController?.init) {
+    window.miaSessionMenuController.init({
+      state,
+      els,
+      render,
+      setAnimatedText,
+      sessionHistory,
+      allOwnedBots: () => window.miaBotManager?.allOwnedBots?.() || []
+    });
+  }
   if (window.miaBotDialog && window.miaBotDialog.initBotDialog) {
-    window.miaBotDialog.initBotDialog({ state, els, renderView, render });
+    window.miaBotDialog.initBotDialog({
+      state,
+      renderView,
+      render,
+      saveBotDialog: saveBotDialogDraft
+    });
   }
   if (window.miaTraceBlocks && window.miaTraceBlocks.initTraceBlocks) {
     window.miaTraceBlocks.initTraceBlocks({ state });
@@ -6681,12 +5607,6 @@ els.cloudLogout?.addEventListener("click", async () => {
 els.cloudMobileScanRefresh?.addEventListener("click", () => {
   refreshCloudMobileScan(true).catch(() => {});
 });
-els.cloudLoginApproveAllow?.addEventListener("click", () => {
-  respondCloudLoginApproval("approve").catch(() => {});
-});
-els.cloudLoginApproveDeny?.addEventListener("click", () => {
-  respondCloudLoginApproval("deny").catch(() => {});
-});
 window.miaAppUpdate?.initAppUpdate({ els, api: window.mia, setText });
 
 function renderDaemonStatus(status = {}) {
@@ -7003,315 +5923,17 @@ els.contactMenuNewGroup?.addEventListener("click", () => {
   renderView();
   window.miaSocial?.openCreateGroupDialog?.();
 });
-els.userAvatar?.addEventListener("mouseenter", clearProfilePopoverDismiss);
-els.userAvatar?.addEventListener("mouseleave", scheduleProfilePopoverDismiss);
-els.profileDialog?.addEventListener("mouseenter", clearProfilePopoverDismiss);
-els.profileDialog?.addEventListener("mouseleave", scheduleProfilePopoverDismiss);
-els.profileDialog?.addEventListener("focusin", clearProfilePopoverDismiss);
 els.userAvatar?.addEventListener("click", openProfileDialogFromRenderer);
 els.userAvatar?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   openProfileDialogFromRenderer();
 });
-els.closeProfileDialog?.addEventListener("click", () => window.miaBotDialog.closeProfileDialog());
-els.closeBotDialog?.addEventListener("click", () => window.miaBotDialog.closeBotDialog());
-els.cancelBot?.addEventListener("click", () => window.miaBotDialog.closeBotDialog());
-els.closePetGenerateDialog?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
-els.cancelPetGenerate?.addEventListener("click", () => window.miaPetDialog?.closePetGenerateDialog());
-els.addPetReference?.addEventListener("click", () => els.petReferenceFile?.click());
-els.petReferenceFile?.addEventListener("change", () => {
-  window.miaPetDialog?.readPetReferenceFile(els.petReferenceFile.files?.[0]);
-  els.petReferenceFile.value = "";
-});
 els.petJobButton?.addEventListener("click", (event) => {
   event.stopPropagation();
   state.petJobPanelOpen = !state.petJobPanelOpen;
   window.miaPetDialog?.renderPetJobs();
 });
-els.petGenerateForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const bot = window.miaBotManager.botByKey(state.petGenerateBotKey);
-  if (!bot) return;
-  const job = await window.mia.generateBotPet({
-    botKey: bot.key,
-    bot: {
-      id: bot.id || bot.key,
-      key: bot.key,
-      name: bot.name || bot.displayName || bot.key,
-      displayName: bot.displayName || bot.name || bot.key,
-      avatarImage: bot.avatarImage || "",
-      avatarCrop: bot.avatarCrop || null
-    },
-    prompt: els.petPrompt?.value || "",
-    stylePreset: els.petStylePreset?.value || "codex",
-    referenceImages: state.petReferences.map((item) => item.src)
-  });
-  state.petJobs = [job, ...state.petJobs.filter((item) => item.id !== job.id)];
-  state.petJobPanelOpen = true;
-  window.miaPetDialog?.closePetGenerateDialog();
-  window.miaPetDialog?.renderPetJobs();
-});
-els.chooseBotAvatar?.addEventListener("click", () => els.botAvatarFile?.click());
-els.botAvatarFile?.addEventListener("change", () => {
-  window.miaBotDialog.readBotAvatarFile(els.botAvatarFile.files?.[0]);
-  els.botAvatarFile.value = "";
-});
-els.botAvatarPreview?.addEventListener("click", () => {
-  const draft = state.botAvatarDraft;
-  if (!draft?.image) return;
-  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop);
-});
-els.botAvatarPreview?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  const draft = state.botAvatarDraft;
-  if (!draft?.image) return;
-  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop);
-});
-
-function hasDraggedFiles(event) {
-  return Array.from(event.dataTransfer?.types || []).includes("Files");
-}
-
-els.botForm?.addEventListener("dragover", (event) => {
-  if (!hasDraggedFiles(event)) return;
-  event.preventDefault();
-});
-els.botForm?.addEventListener("drop", (event) => {
-  if (!hasDraggedFiles(event)) return;
-  event.preventDefault();
-  window.miaBotDialog.readBotAvatarFile(event.dataTransfer?.files?.[0]);
-});
-els.chooseProfileAvatar?.addEventListener("click", () => els.profileAvatarFile?.click());
-els.profileAvatarFile?.addEventListener("change", () => {
-  window.miaBotDialog.readProfileAvatarFile(els.profileAvatarFile.files?.[0]);
-  els.profileAvatarFile.value = "";
-});
-els.profileAvatarPreview?.addEventListener("click", () => {
-  const draft = state.profileAvatarDraft;
-  if (!draft?.image) {
-    els.profileAvatarFile?.click();
-    return;
-  }
-  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
-});
-els.profileAvatarPreview?.addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  const draft = state.profileAvatarDraft;
-  if (!draft?.image) {
-    els.profileAvatarFile?.click();
-    return;
-  }
-  window.miaBotDialog.openAvatarCropEditor(draft.image, draft.crop, "profile");
-});
-els.profileForm?.addEventListener("dragover", (event) => {
-  if (!hasDraggedFiles(event)) return;
-  event.preventDefault();
-});
-els.profileForm?.addEventListener("drop", (event) => {
-  if (!hasDraggedFiles(event)) return;
-  event.preventDefault();
-  window.miaBotDialog.readProfileAvatarFile(event.dataTransfer?.files?.[0]);
-});
-els.avatarCropStage?.addEventListener("pointerdown", (event) => {
-  event.preventDefault();
-  state.avatarCropEditor.dragging = true;
-  state.avatarCropEditor.lastX = event.clientX;
-  state.avatarCropEditor.lastY = event.clientY;
-  els.avatarCropStage.setPointerCapture?.(event.pointerId);
-});
-els.avatarCropStage?.addEventListener("pointermove", (event) => {
-  if (!state.avatarCropEditor.dragging) return;
-  const dx = event.clientX - state.avatarCropEditor.lastX;
-  const dy = event.clientY - state.avatarCropEditor.lastY;
-  state.avatarCropEditor.lastX = event.clientX;
-  state.avatarCropEditor.lastY = event.clientY;
-  const stageSize = els.avatarCropStage?.clientWidth || 320;
-  const zoom = state.avatarCropEditor.crop.zoom || 1;
-  // Pan range in pixels = how far the image extends beyond the stage on one side.
-  const panRangePx = stageSize * Math.max(zoom - 1, 0);
-  if (panRangePx < 0.5) return; // no pan conversation; image fits the stage
-  // Mathematically 1px drag = 100/panRangePx percent. At low zoom that ratio
-  // explodes (e.g. zoom=1.01 → ~31% per pixel) which feels chaotic. Cap the
-  // felt sensitivity at 3% per pixel — the user just has to drag farther to
-  // span the full crop range, but every pixel of drag stays smooth.
-  const rawPerPx = 100 / panRangePx;
-  const sensitivity = Math.min(rawPerPx, 3);
-  // Negative: dragging image right exposes its left side (crop x decreases).
-  const percentPerPx = -sensitivity;
-  window.miaBotDialog.updateAvatarCropEditor({
-    x: state.avatarCropEditor.crop.x + dx * percentPerPx,
-    y: state.avatarCropEditor.crop.y + dy * percentPerPx
-  });
-});
-els.avatarCropStage?.addEventListener("pointerup", (event) => {
-  state.avatarCropEditor.dragging = false;
-  els.avatarCropStage.releasePointerCapture?.(event.pointerId);
-});
-els.avatarCropStage?.addEventListener("pointercancel", () => {
-  state.avatarCropEditor.dragging = false;
-});
-els.avatarCropStage?.addEventListener("wheel", (event) => {
-  event.preventDefault();
-  const direction = event.deltaY > 0 ? -1 : 1;
-  window.miaBotDialog.updateAvatarCropEditor({
-    zoom: state.avatarCropEditor.crop.zoom + direction * 0.03
-  });
-});
-function avatarTrimTimelineDuration() {
-  const metadataDuration = Number(els.avatarTrimPreview?.duration) || 0;
-  const crop = state.avatarCropEditor?.crop || {};
-  const trim = window.miaAvatarMedia?.normalizeTrim?.(crop) || { start: 0, duration: 3 };
-  return Math.max(metadataDuration, trim.start + trim.duration, window.miaAvatarMedia?.MAX_TRIM_DURATION || 5);
-}
-function avatarTrimSecondsFromPointer(event) {
-  const rect = els.avatarTrimTimeline?.getBoundingClientRect?.();
-  if (!rect || rect.width <= 0) return 0;
-  const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-  return ratio * avatarTrimTimelineDuration();
-}
-function setAvatarTrimRange(start, duration) {
-  const media = window.miaAvatarMedia;
-  const total = avatarTrimTimelineDuration();
-  const minDuration = media?.MIN_TRIM_DURATION || 1;
-  const maxDuration = Math.min(media?.MAX_TRIM_DURATION || 5, total || 5);
-  const nextDuration = Math.max(minDuration, Math.min(maxDuration, Number(duration) || maxDuration));
-  const maxStart = Math.max(0, total - nextDuration);
-  const nextStart = Math.max(0, Math.min(maxStart, Number(start) || 0));
-  const trim = media?.normalizeTrim?.({ start: nextStart, duration: nextDuration }) || { start: nextStart, duration: nextDuration };
-  if (els.avatarTrimStart) els.avatarTrimStart.value = String(trim.start);
-  if (els.avatarTrimDuration) els.avatarTrimDuration.value = String(trim.duration);
-  window.miaBotDialog.updateAvatarCropEditor(trim);
-}
-function beginAvatarTrimDrag(event) {
-  if (!state.avatarCropEditor?.open || !window.miaAvatarMedia?.isVideo?.(state.avatarCropEditor.image)) return;
-  const timeline = els.avatarTrimTimeline;
-  if (!timeline) return;
-  event.preventDefault();
-  const crop = state.avatarCropEditor.crop || {};
-  const trim = window.miaAvatarMedia.normalizeTrim(crop);
-  const seconds = avatarTrimSecondsFromPointer(event);
-  const mode = event.target?.dataset?.avatarTrimHandle || "track";
-  if (mode === "selection") {
-    avatarTrimDrag = { mode, start: trim.start, duration: trim.duration, offset: seconds - trim.start };
-  } else if (mode === "start" || mode === "end") {
-    avatarTrimDrag = { mode, start: trim.start, duration: trim.duration };
-  } else {
-    const nextStart = seconds - trim.duration / 2;
-    setAvatarTrimRange(nextStart, trim.duration);
-    avatarTrimDrag = { mode: "selection", start: nextStart, duration: trim.duration, offset: trim.duration / 2 };
-  }
-  timeline.setPointerCapture?.(event.pointerId);
-}
-function updateAvatarTrimDrag(event) {
-  if (!avatarTrimDrag) return;
-  event.preventDefault();
-  const seconds = avatarTrimSecondsFromPointer(event);
-  const minDuration = window.miaAvatarMedia?.MIN_TRIM_DURATION || 1;
-  const maxDuration = window.miaAvatarMedia?.MAX_TRIM_DURATION || 5;
-  if (avatarTrimDrag.mode === "start") {
-    const end = avatarTrimDrag.start + avatarTrimDrag.duration;
-    const lower = Math.max(0, end - maxDuration);
-    const upper = Math.max(lower, end - minDuration);
-    const nextStart = Math.max(lower, Math.min(seconds, upper));
-    setAvatarTrimRange(nextStart, end - nextStart);
-    return;
-  }
-  if (avatarTrimDrag.mode === "end") {
-    const nextEnd = Math.max(avatarTrimDrag.start + minDuration, Math.min(seconds, avatarTrimDrag.start + maxDuration, avatarTrimTimelineDuration()));
-    setAvatarTrimRange(avatarTrimDrag.start, nextEnd - avatarTrimDrag.start);
-    return;
-  }
-  setAvatarTrimRange(seconds - avatarTrimDrag.offset, avatarTrimDrag.duration);
-}
-function endAvatarTrimDrag(event) {
-  if (!avatarTrimDrag) return;
-  avatarTrimDrag = null;
-  els.avatarTrimTimeline?.releasePointerCapture?.(event.pointerId);
-}
-els.avatarTrimTimeline?.addEventListener("pointerdown", beginAvatarTrimDrag);
-els.avatarTrimTimeline?.addEventListener("pointermove", updateAvatarTrimDrag);
-els.avatarTrimTimeline?.addEventListener("pointerup", endAvatarTrimDrag);
-els.avatarTrimTimeline?.addEventListener("pointercancel", endAvatarTrimDrag);
-els.avatarTrimPreview?.addEventListener("loadedmetadata", () => {
-  window.miaBotDialog.updateAvatarTrimControls?.();
-});
-if (els.avatarTrimStart) els.avatarTrimStart.addEventListener("input", () => {
-  const trim = window.miaAvatarMedia?.normalizeTrim?.({
-    ...state.avatarCropEditor.crop,
-    start: els.avatarTrimStart.value
-  }) || { start: 0, duration: 3 };
-  window.miaBotDialog.updateAvatarCropEditor(trim);
-});
-if (els.avatarTrimDuration) els.avatarTrimDuration.addEventListener("input", () => {
-  const trim = window.miaAvatarMedia?.normalizeTrim?.({
-    ...state.avatarCropEditor.crop,
-    duration: els.avatarTrimDuration.value
-  }) || { start: 0, duration: 3 };
-  window.miaBotDialog.updateAvatarCropEditor(trim);
-});
-els.confirmAvatarCrop?.addEventListener("click", async () => {
-  if (state.avatarCropEditor.target === "groupConversation") {
-    const image = state.avatarCropEditor.image;
-    const crop = state.avatarCropEditor.crop;
-    window.miaBotDialog.closeAvatarCropEditor();
-    window.miaGroupInfoDialog?.applyAvatarFromCropEditor(image, crop);
-    return;
-  }
-  if (state.avatarCropEditor.target === "profile") {
-    window.miaBotDialog.setProfileAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
-    await saveProfileDraft();
-  } else {
-    window.miaBotDialog.setBotAvatarDraft(state.avatarCropEditor.image, state.avatarCropEditor.crop);
-  }
-  window.miaBotDialog.closeAvatarCropEditor();
-});
-els.cancelAvatarCrop?.addEventListener("click", () => window.miaBotDialog.closeAvatarCropEditor());
-els.resetAvatarCrop?.addEventListener("click", () => {
-  state.avatarCropEditor.crop = window.miaAvatar.normalizeCrop(window.miaAvatar.avatarDefaultCropForSrc(state.avatarCropEditor.image));
-  window.miaBotDialog.renderAvatarCropEditor();
-});
-
-// Live-update the avatar preview as the name is typed, so a generated avatar
-// follows the name instead of freezing the previous name's initials.
-els.profileDisplayName?.addEventListener("input", () => {
-  window.miaBotDialog?.renderProfileAvatarDraft?.();
-  syncIdentityNameText("profile");
-  scheduleProfileDraftSave();
-});
-els.profileNameText?.addEventListener("click", () => beginIdentityNameEdit("profile"));
-els.profileDisplayName?.addEventListener("blur", () => {
-  endIdentityNameEdit("profile");
-  saveProfileDraft();
-});
-els.profileDisplayName?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    els.profileDisplayName.blur();
-  }
-  if (event.key === "Escape") {
-    event.preventDefault();
-    els.profileDisplayName.blur();
-  }
-});
-els.profileStatusBadge?.addEventListener("change", () => {
-  syncStatusBadgeControl("profile");
-  saveProfileDraft();
-});
-document.addEventListener("click", (event) => {
-  const button = event.target?.closest?.("[data-status-badge-choice]");
-  if (!button) return;
-  const kind = button.dataset.statusBadgeTarget || "profile";
-  const { select, details } = identityBadgeEls(kind);
-  if (!select) return;
-  select.value = button.dataset.statusBadgeChoice || "";
-  syncStatusBadgeControl(kind);
-  if (details) details.open = false;
-  if (kind === "profile") saveProfileDraft();
-});
-
 els.appearanceForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   window.miaSettingsAppearance.scheduleAppearanceSave(0);
@@ -7419,63 +6041,42 @@ els.appearanceShowAssistantAvatar?.addEventListener("click", () => {
   window.miaSettingsAppearance.toggleSettingsSwitch(els.appearanceShowAssistantAvatar);
 });
 
-// Live-update the bot avatar preview as the name is typed (mirrors the
-// profile dialog), so a generated avatar follows the name in create mode.
-els.botName?.addEventListener("input", () => {
-  window.miaBotDialog?.renderBotAvatarDraft?.();
-  syncIdentityNameText("bot");
-});
-els.botNameText?.addEventListener("click", () => beginIdentityNameEdit("bot"));
-els.botName?.addEventListener("blur", () => endIdentityNameEdit("bot"));
-els.botName?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    event.preventDefault();
-    els.botName.blur();
-  }
-  if (event.key === "Escape") {
-    event.preventDefault();
-    els.botName.blur();
-  }
-});
-els.botStatusBadge?.addEventListener("change", () => syncStatusBadgeControl("bot"));
-
-els.botForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
+async function saveBotDialogDraft(draft) {
   try {
-    const existingBot = els.botKey?.value
-      ? window.miaBotManager?.botByKey?.(els.botKey.value)
+    const existingBot = draft.key
+      ? window.miaBotManager?.botByKey?.(draft.key)
       : null;
     const existingBotBio = existingBot?.bio || existingBot?.description || "";
-    const selectedRuntime = window.miaBotDialog?.readSelectedRuntimeTarget?.() || {};
+    const selectedRuntime = draft.runtime || {};
     const runtimeKind = selectedRuntime.runtimeKind || existingBot?.runtimeKind || "desktop-local";
     const targetDeviceId = selectedRuntime.targetDeviceId || state.runtime?.localDevice?.id || "";
     const targetDeviceName = selectedRuntime.targetDeviceName || state.runtime?.localDevice?.name || "";
     const agentEngine = selectedRuntime.agentEngine || "hermes";
     const existingTargetDeviceId = existingBot?.targetDeviceId || existingBot?.target_device_id || existingBot?.deviceId || existingBot?.device_id || "";
-    const runtimeChanged = state.botDialogMode !== "edit"
+    const runtimeChanged = draft.mode !== "edit"
       || runtimeKind !== (existingBot?.runtimeKind || existingBot?.runtime_kind || "desktop-local")
       || (runtimeKind === "desktop-local" && String(targetDeviceId || "") !== String(existingTargetDeviceId || ""))
       || (runtimeKind === "desktop-local" && String(agentEngine || "") !== String(existingBot?.agentEngine || existingBot?.agent_engine || "hermes"));
     const bot = {
-      key: els.botKey?.value || "",
-      name: els.botName.value,
+      key: draft.key || "",
+      name: draft.name,
       sourceKinds: existingBot?.sourceKinds || [],
       agentEngine,
       targetDeviceId,
       targetDeviceName,
-      avatarImage: state.botAvatarDraft.image || els.botAvatar.value,
-      avatarCrop: window.miaAvatar.normalizeCrop(state.botAvatarDraft.crop),
-      color: state.botAvatarDraft.color || "",
-      statusBadge: statusBadgeForPreset(els.botStatusBadge?.value || ""),
-      bio: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
-      description: state.botDialogMode === "create" ? els.botSeed.value : existingBotBio,
-      personaText: els.botSeed.value
+      avatarImage: draft.avatar?.image || "",
+      avatarCrop: window.miaAvatar.normalizeCrop(draft.avatar?.crop),
+      color: draft.avatar?.color || "",
+      statusBadge: statusBadgeForPreset(draft.badgeValue || ""),
+      bio: draft.mode === "create" ? draft.persona : existingBotBio,
+      description: draft.mode === "create" ? draft.persona : existingBotBio,
+      personaText: draft.persona
     };
     const saved = await window.miaBotCommands.saveBot({
       state,
       bot,
       runtimeKind,
-      isCreate: state.botDialogMode !== "edit",
+      isCreate: draft.mode !== "edit",
       activateRuntime: runtimeChanged,
       api: window.mia,
       social: window.miaSocial,
@@ -7484,7 +6085,6 @@ els.botForm?.addEventListener("submit", async (event) => {
     const savedKey = saved.key || "";
     const cloudConversation = saved.conversation || null;
     if (runtimeKind !== "cloud-claude-code" && savedKey) state.activeKey = savedKey;
-    state.botDialogOpen = false;
     // If this was the initial onboarding create-bot step, mark onboarding done.
     if (state.onboardingStep && state.onboardingStep !== "done") {
       advanceOnboarding("done");
@@ -7499,11 +6099,12 @@ els.botForm?.addEventListener("submit", async (event) => {
       render();
     } else if (savedKey) await openBotConversation(savedKey);
     else render();
+    return "";
   } catch (error) {
     console.error("Failed to save bot", error);
-    window.alert(`保存伙伴失败：${error?.message || error}`);
+    return `保存伙伴失败：${error?.message || error}`;
   }
-});
+}
 
 els.modelForm.addEventListener("submit", async (event) => {
   event.preventDefault();

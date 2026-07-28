@@ -59,12 +59,9 @@
       els.cloudMobileScanMeta.textContent = "登录后可扫码登录 Mia App 或 Mia Web。";
     }
     if (els?.cloudMobileScanQr) {
-      if (window.miaReactSurface?.clear) {
-        window.miaReactSurface.clear(els.cloudMobileScanQr, "cloud-mobile-qr:signed-out");
-      } else {
-        els.cloudMobileScanQr.textContent = "";
-      }
-      if (els.cloudMobileScanQr.dataset) delete els.cloudMobileScanQr.dataset.qrUrl;
+      window.miaReactSettingsCompat?.publish?.({
+        mobileQr: { imageUrl: "", loginUrl: "", status: "" }
+      });
     }
   }
 
@@ -87,29 +84,13 @@
         : "正在生成二维码。";
     }
     if (els?.cloudMobileScanQr) {
-      if (qrCodeUrl) {
-        const qrHtml = `<img src="${qrCodeUrl.replaceAll('"', "&quot;")}" alt="扫码登录 Mia">`;
-        if (window.miaReactSurface?.renderHtml) {
-          window.miaReactSurface.renderHtml(els.cloudMobileScanQr, qrHtml, `cloud-mobile-qr:${qrCodeUrl}`);
-        } else {
-          els.cloudMobileScanQr.innerHTML = qrHtml;
+      window.miaReactSettingsCompat?.publish?.({
+        mobileQr: {
+          imageUrl: qrCodeUrl,
+          loginUrl: qrUrl,
+          status: error ? "二维码生成失败" : qrUrl ? "二维码已就绪" : "二维码准备中…"
         }
-      } else {
-        const status = error ? "二维码生成失败" : qrUrl ? "二维码已就绪" : "二维码准备中…";
-        if (window.miaReactSurface?.renderHtml) {
-          window.miaReactSurface.renderHtml(
-            els.cloudMobileScanQr,
-            `<span>${status}</span>`,
-            `cloud-mobile-qr:status:${status}`
-          );
-        } else {
-          els.cloudMobileScanQr.textContent = status;
-        }
-      }
-      if (els.cloudMobileScanQr.dataset) {
-        if (qrUrl) els.cloudMobileScanQr.dataset.qrUrl = qrUrl;
-        else delete els.cloudMobileScanQr.dataset.qrUrl;
-      }
+      });
     }
   }
 

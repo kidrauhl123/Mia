@@ -3,12 +3,31 @@
 (function () {
   "use strict";
 
-  let state, els, mia, escapeHtml, loadSkills, openBotConversation, render;
+  let state, els, mia, loadSkills, openBotConversation, render;
   let lastCategoryKey = "";
   let activeCat = "全部";
   let pageTurnDirection = 0;
   let adding = false;
   let libraryRequested = false;
+  let activeSheetPreset = null;
+  let activeEnrollmentTarget = null;
+  let sheetState = {
+    adding: false,
+    category: "",
+    description: "",
+    emoji: "",
+    engineAccent: "",
+    engineSummary: "",
+    key: "",
+    mode: "closed",
+    name: "",
+    plannedKey: "",
+    primaryColor: "#5e5ce6",
+    skills: [],
+    stamped: false,
+    status: "",
+    surfaceColor: "#ecebfc"
+  };
 
   // 样例预设：官方库还没加载时使用；正式数据来自 resources/official-library/library.json。
   // capabilities.enabledSkills 要和官方库保持同一套 id，保存后会进入运行时 Skill 注入链路。
@@ -263,10 +282,6 @@
     return String(skill.name || skill.title || skill.id || "").trim();
   }
 
-  function skillSummary(f = {}) {
-    return resolvedSkillRecords(f).map(skillLabel).filter(Boolean).join(" / ");
-  }
-
   function assistantTemplates() {
     return window.miaAssistantTemplate || {};
   }
@@ -290,10 +305,28 @@
     return String(f.desc || f.description || f.line || f.responsibility || "").trim();
   }
 
-  function skillChipHtml(f = {}) {
-    return resolvedSkillRecords(f)
-      .map((skill) => `<span class="bot-store-skill-chip" data-skill-id="${escapeHtml(skill.id || skill.requestedId || "")}">${escapeHtml(skillLabel(skill))}</span>`)
-      .join("");
+  function skillItems(f = {}) {
+    return resolvedSkillRecords(f).map((skill) => ({
+      id: String(skill.id || skill.requestedId || ""),
+      label: skillLabel(skill)
+    }));
+  }
+
+  function assistantView(f = {}) {
+    return {
+      category: String(f.cat || f.category || "推荐"),
+      description: assistantDisplayDescription(f),
+      emoji: assistantAvatarEmoji(f) || String(f.emoji || "●").trim() || "●",
+      key: String(f.key || ""),
+      name: String(f.name || ""),
+      primaryColor: safeColor(f.c2, "#5e5ce6"),
+      surfaceColor: safeColor(f.c1, "#ecebfc")
+    };
+  }
+
+  function publishSheet(patch = {}) {
+    sheetState = { ...sheetState, ...patch };
+    window.miaReactBotStore?.publish?.({ sheet: sheetState });
   }
 
   function defaultConversationTagName(f = {}) {
@@ -405,11 +438,39 @@
     state = deps.state;
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
-    escapeHtml = deps.escapeHtml || ((s) => String(s == null ? "" : s));
     loadSkills = deps.loadSkills;
     openBotConversation = deps.openBotConversation;
     render = deps.render || (() => {});
 
+    window.miaReactBotStore?.publish?.({
+      addAssistant: (key) => {
+        const preset = presets().find((item) => item.key === key);
+        if (preset) addPresetBot(preset);
+      },
+      closeSheet,
+      confirmAssistant: () => {
+        if (activeSheetPreset && activeEnrollmentTarget) {
+          addBot(activeSheetPreset, activeEnrollmentTarget, sheetState.plannedKey);
+        }
+      },
+      openAssistant: (key) => {
+        const preset = presets().find((item) => item.key === key);
+        if (preset) openSheet(preset);
+      },
+      returnToDetail: () => {
+        if (activeSheetPreset) openSheet(activeSheetPreset);
+      },
+      selectCategory: (category) => {
+        const cats = categories();
+        if (activeCat === category || !cats.includes(category)) return;
+        const fromIndex = Math.max(0, cats.indexOf(activeCat));
+        const toIndex = Math.max(0, cats.indexOf(category));
+        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
+        window.miaMasonryGrid?.capture(els.botStoreGrid, pageTurnDirection);
+        activeCat = category;
+        renderGrid();
+      }
+    });
     renderCategories();
 
     els.botStoreScrim?.addEventListener("click", (event) => {
@@ -420,208 +481,55 @@
       if (event.key === "Escape" && els.botStoreScrim?.classList.contains("open")) closeSheet();
     });
 
-    window.addEventListener("resize", () => {
-      if (state.activeView !== "bot-store") return;
-      scrollCategoryButtonIntoView(els.botStoreCap?.querySelector("button.active"), "auto");
-      movePill();
-    });
   }
 
   function renderCategories() {
-    const cap = els?.botStoreCap;
-    if (!cap) return;
     const cats = categories();
     const key = cats.join("\n");
-    if (key === lastCategoryKey) return;
-    lastCategoryKey = key;
     if (!cats.includes(activeCat)) activeCat = "全部";
-    const categoryButtons = [];
-    cats.forEach((c) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.textContent = c;
-      if (c === activeCat) b.classList.add("active");
-      b.addEventListener("click", () => {
-        if (activeCat === c) return;
-        const fromIndex = Math.max(0, cats.indexOf(activeCat));
-        const toIndex = Math.max(0, cats.indexOf(c));
-        pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
-        window.miaMasonryGrid?.capture(els.botStoreGrid, pageTurnDirection);
-        activeCat = c;
-        cap.querySelectorAll("button").forEach((x) => x.classList.remove("active"));
-        b.classList.add("active");
-        scrollCategoryButtonIntoView(b, "smooth");
-        movePill();
-        renderGrid();
-      });
-      categoryButtons.push(b);
+    if (key !== lastCategoryKey) lastCategoryKey = key;
+    window.miaReactBotStore?.publish?.({
+      activeCategory: activeCat,
+      categories: cats
     });
-    if (window.miaReactSurface?.renderNodes) {
-      window.miaReactSurface.renderNodes(cap, categoryButtons, `bot-store-categories:${key}:${activeCat}`);
-    } else {
-      cap.replaceChildren(...categoryButtons);
-    }
-    scrollCategoryButtonIntoView(cap.querySelector("button.active"), "auto");
-    movePill();
-  }
-
-  function scrollCategoryButtonIntoView(button, behavior = "smooth") {
-    const cap = els?.botStoreCap;
-    if (!button || !cap || typeof button.scrollIntoView !== "function") return;
-    if ((cap.scrollWidth || 0) <= (cap.clientWidth || 0)) return;
-    const prefersReducedMotion = typeof window.matchMedia === "function"
-      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    try {
-      button.scrollIntoView({
-        block: "nearest",
-        inline: "center",
-        behavior: prefersReducedMotion ? "auto" : behavior
-      });
-    } catch {
-      button.scrollIntoView();
-    }
-  }
-
-  function movePill() {
-    const cap = els.botStoreCap;
-    if (!cap) return;
-    const a = cap.querySelector("button.active");
-    if (!a || typeof a.getBoundingClientRect !== "function") return;
-    const ar = a.getBoundingClientRect();
-    const pillX = Number.isFinite(a.offsetLeft) ? a.offsetLeft : (ar.left - cap.getBoundingClientRect().left + cap.scrollLeft);
-    const pillW = Number.isFinite(a.offsetWidth) && a.offsetWidth > 0 ? a.offsetWidth : ar.width;
-    cap.style.setProperty("--pill-x", `${pillX}px`);
-    cap.style.setProperty("--pill-w", `${pillW}px`);
-    cap.style.setProperty("--pill-ready", "1");
-  }
-
-  function avatarHtml(f, extraClass) {
-    const cls = extraClass ? ` ${extraClass}` : "";
-    const c1 = safeColor(f.c1, "#ecebfc");
-    const c2 = safeColor(f.c2, "#5e5ce6");
-    const emoji = assistantAvatarEmoji(f);
-    const fallback = escapeHtml(String(f.emoji || "◇").trim() || "◇");
-    const body = emoji
-      ? `<span class="bot-store-avatar-emoji" aria-hidden="true">${escapeHtml(emoji)}</span>`
-      : fallback;
-    return `<div class="bot-store-avatar${cls}" style="background:${c1};color:${c2}">${body}</div>`;
-  }
-
-  function cardStyle(f) {
-    const c1 = safeColor(f.c1, "#ecebfc");
-    const c2 = safeColor(f.c2, "#5e5ce6");
-    return `--bot-card-bg:${c1};--bot-card-fg:${c2}`;
   }
 
   function renderGrid() {
-    const grid = els.botStoreGrid;
-    if (!grid) return;
     maybeLoadOfficialLibrary();
     renderCategories();
     const list = presets().filter((f) => activeCat === "全部" || (f.cat || f.category) === activeCat);
-    if (!list.length) {
-      const emptyHtml = `<div class="bot-store-empty">这个分类暂时还没有 AI 助手</div>`;
-      if (window.miaReactSurface?.renderHtml) {
-        window.miaReactSurface.renderHtml(grid, emptyHtml, `bot-store-grid:empty:${activeCat}`);
-      } else {
-        grid.innerHTML = emptyHtml;
-      }
-      window.miaMasonryGrid?.layout(grid, ".bot-store-card", { animate: pageTurnDirection });
-      pageTurnDirection = 0;
-      return;
-    }
-    const gridHtml = list.map((f) => {
-      return `
-        <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="${cardStyle(f)}">
-          <div class="bot-store-card-cover">
-            <span class="bot-store-card-category">${escapeHtml(f.cat || f.category || "推荐")}</span>
-            ${avatarHtml(f, "bot-store-cover-avatar")}
-          </div>
-          <div class="bot-store-card-body">
-            <div class="bot-store-card-head">
-              <strong>${escapeHtml(f.name)}</strong>
-            </div>
-            <p class="bot-store-card-description">${escapeHtml(assistantDisplayDescription(f))}</p>
-          </div>
-        </div>`;
-    }).join("");
-    if (window.miaReactSurface?.renderHtml) {
-      window.miaReactSurface.renderHtml(
-        grid,
-        gridHtml,
-        `bot-store-grid:${activeCat}:${gridHtml}`
-      );
-    } else {
-      grid.innerHTML = gridHtml;
-    }
-    grid.querySelectorAll(".bot-store-card").forEach((card) => {
-      card.addEventListener("click", () => {
-        const f = presets().find((x) => x.key === card.dataset.key);
-        if (f) openSheet(f);
-      });
+    window.miaReactBotStore?.publish?.({
+      activeCategory: activeCat,
+      cards: list.map(assistantView),
+      emptyText: list.length ? "" : "这个分类暂时还没有 AI 助手",
+      pageDirection: pageTurnDirection
     });
-    window.miaMasonryGrid?.layout(grid, ".bot-store-card", { animate: pageTurnDirection });
     pageTurnDirection = 0;
   }
 
-  function sheetCloseButtonHtml() {
-    return `
-      <button type="button" class="bot-store-sheet-close" data-act="close" aria-label="关闭" title="关闭">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M18 6 6 18"></path>
-          <path d="M6 6l12 12"></path>
-        </svg>
-      </button>`;
-  }
-
-  function bindSheetCloseButtons(sheet) {
-    sheet.querySelectorAll('[data-act="close"]').forEach((button) => {
-      button.addEventListener("click", closeSheet);
-    });
-  }
-
   function openSheet(f) {
-    const sheet = els.botStoreSheet;
     const scrim = els.botStoreScrim;
-    if (!sheet || !scrim) return;
+    if (!scrim) return;
     adding = false;
-    sheet.classList.remove("is-enrolling");
-    sheet.classList.remove("is-stamped");
-    const skills = skillSummary(f);
-    const sheetHtml = `
-      ${sheetCloseButtonHtml()}
-      <div class="bot-store-sheet-head">
-        ${avatarHtml(f)}
-        <div><h2>${escapeHtml(f.name)}</h2></div>
-      </div>
-      <div class="bot-store-sheet-section">
-        <span>描述</span>
-        <p>${escapeHtml(assistantDisplayDescription(f))}</p>
-      </div>
-      ${skills ? `
-        <div class="bot-store-sheet-section">
-          <span>技能</span>
-          <div class="bot-store-sheet-skills" aria-label="技能">${skillChipHtml(f)}</div>
-        </div>` : ""}
-      <div class="bot-store-actions">
-        <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
-        <button type="button" class="bot-store-btn primary" data-act="add">添加</button>
-      </div>`;
-    if (window.miaReactSurface?.renderHtml) {
-      window.miaReactSurface.renderHtml(sheet, sheetHtml, `bot-store-sheet:detail:${f.key}:${sheetHtml}`);
-    } else {
-      sheet.innerHTML = sheetHtml;
-    }
-    bindSheetCloseButtons(sheet);
-    sheet.querySelector('[data-act="back"]').addEventListener("click", closeSheet);
-    sheet.querySelector('[data-act="add"]').addEventListener("click", () => addPresetBot(f));
+    activeSheetPreset = f;
+    activeEnrollmentTarget = null;
+    publishSheet({
+      ...assistantView(f),
+      adding: false,
+      engineAccent: "",
+      engineSummary: "",
+      mode: "detail",
+      plannedKey: "",
+      skills: skillItems(f),
+      stamped: false,
+      status: ""
+    });
     scrim.classList.add("open");
   }
 
   async function addPresetBot(f = {}) {
-    const sheet = els.botStoreSheet;
     const scrim = els.botStoreScrim;
-    if (!sheet || !scrim) return;
+    if (!scrim) return;
     let plannedKey = "";
     let target = null;
     try {
@@ -632,60 +540,25 @@
       return;
     }
     const meta = engineMeta(target.agentEngine);
-    const skills = skillSummary(f);
-    sheet.classList.add("is-enrolling");
-    sheet.classList.remove("is-stamped");
-    sheet.dataset.botKey = plannedKey;
-    const sheetHtml = `
-      ${sheetCloseButtonHtml()}
-      <div class="bot-store-enroll-console" style="--badge-accent:${safeColor(f.c2, "#5dcaa5")};--engine-accent:${safeColor(meta.accent, "#5dcaa5")}">
-        <div class="bot-store-enroll-bar">
-          <span class="bot-store-enroll-light" aria-hidden="true"></span>
-          <span>AI 助手入库</span>
-          <span class="bot-store-enroll-status" data-enroll-status>确认信息</span>
-        </div>
-        <div class="bot-store-badge-stage">
-          <div class="bot-store-badge-card">
-            <div class="bot-store-badge-title">MIA · AI 助手凭证</div>
-            <div class="bot-store-badge-shimmer" aria-hidden="true"></div>
-            <div class="bot-store-badge-main">
-              ${avatarHtml(f, "bot-store-badge-avatar")}
-              <div class="bot-store-badge-id">
-                <span>AI 助手</span>
-                <strong>${escapeHtml(f.name)}</strong>
-                <code data-badge-uid>UID · ${escapeHtml(plannedKey)}</code>
-              </div>
-            </div>
-            <div class="bot-store-badge-fields">
-              <div><span>分类</span><strong>${escapeHtml(f.cat || f.category || "推荐")}</strong></div>
-              ${skills ? `<div><span>技能</span><strong>${escapeHtml(skills)}</strong></div>` : ""}
-              <div><span>运行位置 / Agent</span><strong data-badge-engine>${escapeHtml(targetSummary(target))}</strong></div>
-            </div>
-            <div class="bot-store-badge-stamp" aria-hidden="true">
-              <strong>已激活</strong>
-              <span>ACTIVATED</span>
-            </div>
-          </div>
-          <div class="bot-store-badge-flash" aria-hidden="true"></div>
-        </div>
-      </div>
-      <div class="bot-store-actions">
-        <button type="button" class="bot-store-btn ghost" data-act="detail">上一步</button>
-        <button type="button" class="bot-store-btn primary" data-act="confirm">确认</button>
-      </div>`;
-    if (window.miaReactSurface?.renderHtml) {
-      window.miaReactSurface.renderHtml(sheet, sheetHtml, `bot-store-sheet:enroll:${plannedKey}`);
-    } else {
-      sheet.innerHTML = sheetHtml;
-    }
-    bindSheetCloseButtons(sheet);
-    sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
-    sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => addBot(f, target, sheet.dataset.botKey || plannedKey));
+    activeSheetPreset = f;
+    activeEnrollmentTarget = target;
+    publishSheet({
+      ...assistantView(f),
+      adding: false,
+      engineAccent: safeColor(meta.accent, "#5dcaa5"),
+      engineSummary: targetSummary(target),
+      mode: "enroll",
+      plannedKey,
+      skills: skillItems(f),
+      stamped: false,
+      status: "确认信息"
+    });
     scrim.classList.add("open");
   }
 
   function closeSheet() {
     els.botStoreScrim?.classList.remove("open");
+    publishSheet({ adding: false, mode: "closed" });
   }
 
   function savedConversationId(saved = {}) {
@@ -711,8 +584,7 @@
   async function addBot(f, runtimeTarget = {}, plannedKey = "") {
     if (adding) return;
     adding = true;
-    const btn = els.botStoreSheet?.querySelector('[data-act="add"], [data-act="confirm"]');
-    if (btn) { btn.disabled = true; btn.textContent = "确认中…"; }
+    publishSheet({ adding: true, status: "确认中…" });
     try {
       const target = normalizeRuntimeTarget(runtimeTarget);
       const key = String(plannedKey || "").trim();
@@ -741,14 +613,14 @@
       });
       if (saved.runtime) state.runtime = saved.runtime;
       await applyDefaultConversationTag(f, saved);
-      els.botStoreSheet?.classList.add("is-stamped");
-      const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
-      if (status) status.textContent = "✓ 已激活";
       const savedKey = saved.key || saved.bot?.key || saved.bot?.id || "";
-      const uid = els.botStoreSheet?.querySelector("[data-badge-uid]");
-      if (uid && savedKey) uid.textContent = `UID · ${savedKey}`;
-      if (btn) btn.textContent = "已添加";
-      if (els.botStoreSheet?.classList.contains("is-enrolling")) {
+      publishSheet({
+        adding: false,
+        plannedKey: savedKey || plannedKey,
+        stamped: true,
+        status: "✓ 已激活"
+      });
+      if (sheetState.mode === "enroll") {
         await new Promise((resolve) => setTimeout(resolve, 720));
       }
       closeSheet();
@@ -759,9 +631,7 @@
         render();
       }
     } catch (error) {
-      const status = els.botStoreSheet?.querySelector("[data-enroll-status]");
-      if (status) status.textContent = "添加失败";
-      if (btn) { btn.disabled = false; btn.textContent = "确认"; }
+      publishSheet({ adding: false, status: "添加失败" });
       adding = false;
       window.alert(`添加失败：${error?.message || error}`);
       return;
@@ -769,11 +639,9 @@
     adding = false;
   }
 
-  // 进入商店视图时调用：渲染网格并对齐胶囊
+  // 进入商店视图时调用。
   function renderBotStore() {
     renderGrid();
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(movePill);
-    else movePill();
   }
 
   window.miaBotStore = { initBotStore, renderBotStore };

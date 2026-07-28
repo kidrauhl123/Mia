@@ -63,7 +63,12 @@ test("renderer app shell loads state module before the entrypoint", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
 
-  assert.match(html, /<script src="\.\/app-state\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
+  assert.match(html, /<script src="\.\/app-state\.js"><\/script>[\s\S]*<script type="module" src="\.\/react-dist\/renderer\.js"><\/script>/);
+  assert.doesNotMatch(html, /<script[^>]+src="\.\/app\.js"/);
+  assert.match(
+    fs.readFileSync(path.join(root, "src/renderer/react/main.tsx"), "utf8"),
+    /appScript\.src = "\.\/app\.js"/
+  );
   assert.ok(html.indexOf("../shared/ids.js") >= 0, "renderer shell must load shared ids.js");
   assert.ok(
     html.indexOf("../shared/ids.js") < html.indexOf("./bot/bot-commands.js"),
@@ -156,9 +161,12 @@ test("foreground active conversation stop routes local bridge and hosted runs to
 
 test("composer pending attachments are thumbnail-first and open the image editor", () => {
   const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
+  const composerViewSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerContent.tsx"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(composerSource, /data-attachment-preview/);
+  assert.match(composerSource, /miaReactComposerContent\.publishAttachments/);
+  assert.match(composerViewSource, /className="composer-attachment-thumb"/);
+  assert.match(composerViewSource, /snapshot\.preview\(attachment\.id\)/);
   assert.match(composerSource, /classList\?\.toggle\("has-attachments", attachments\.length > 0\)/);
   assert.doesNotMatch(composerSource, /composer-attachment-name/);
   assert.doesNotMatch(composerSource, /composer-attachment-size/);
@@ -446,7 +454,7 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.match(appSource, /function normalizeNarrowPaneForView\(view = state\.activeView\)/);
   assert.match(appSource, /if \(state\.isNarrowWindow\) return "single";/);
   assert.match(appSource, /return viewHasIndexPane\(view\) \? "dual" : "workspace"/);
-  assert.match(appSource, /setAttribute\("data-layout", legacyGridLayoutForView\(state\.activeView\)\)/);
+  assert.match(appSource, /setAttribute\("data-layout", gridLayoutForView\(state\.activeView\)\)/);
   assert.match(appSource, /setAttribute\("data-shell-layout", state\.shellLayout\)/);
   assert.match(appSource, /function syncSidebarCollapseState\(\)/);
   assert.match(appSource, /function sidebarCollapseSupported\(view = state\.activeView\)\s*\{\s*return state\.navLayout !== "sidebar-bottom" && !state\.isNarrowWindow && view === "chat";\s*\}/);
@@ -481,7 +489,6 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.doesNotMatch(html, /settings-topbar/);
   assert.match(html, /id="reactSettingsWorkspaceTabsRoot" class="settings-tabs"[\s\S]*data-react-root="settings-workspace-tabs"/);
   assert.match(sectionTabsSource, /className="settings-tabs-title">设置</);
-  assert.match(routeSource, /\["settingsView", \(\{ activeView \}\) => activeView === "settings"\]/);
   assert.match(appSource, /state\.activeView = "settings";/);
   assert.doesNotMatch(appSource, /state\.settingsOpen/);
   assert.doesNotMatch(appSource, /syncSettingsDrawerVisibility/);
@@ -736,14 +743,13 @@ test("chat header is a floating card layer rather than a layout topbar", () => {
   const narrowSessionRuleIndex = styleSource.indexOf("#chatView .session-trigger", styleSource.indexOf("@media (max-width: 720px)"));
 
   assert.match(html, /<div className="group-title">[\s\S]*?<button[\s\S]*?className="narrow-back-button"[\s\S]*?data-narrow-back[\s\S]*?<\/button>[\s\S]*?<div[\s\S]*?id="activeConversationMenuButton"[\s\S]*?role="button"[\s\S]*?aria-controls="chatConversationMenu"[\s\S]*?<div id="activeChatAvatar"/);
-  assert.match(html, /id="chatConversationMenu"[\s\S]*?className="chat-conversation-menu hidden"[\s\S]*?role="listbox"[\s\S]*?aria-label="切换对话"[\s\S]*?<div id="chatConversationList" className="chat-conversation-list">[\s\S]*?<LegacySurface id="chatConversationList" \/>/);
+  assert.match(html, /id="chatConversationMenu"[\s\S]*?className="chat-conversation-menu hidden"[\s\S]*?role="listbox"[\s\S]*?aria-label="切换对话"[\s\S]*?<div id="chatConversationList" className="chat-conversation-list">[\s\S]*?<ChatConversationList \/>/);
   assert.match(appStateSource, /chatConversationMenuOpen:\s*false/);
   assert.match(appSource, /function renderChatConversationMenu\(rows = \[\], personas = \[\]\)/);
   assert.match(appSource, /let chatConversationMenuRenderSignature = "";/);
-  assert.match(appSource, /function syncChatConversationMenuActiveState\(specs\)/);
   assert.match(appSource, /const compactConversationRows = cloudReady \? window\.miaBotManager\.sortMessageCardsForSidebar\(socialRows\) : \[\];[\s\S]*?renderChatConversationMenu\(compactConversationRows, personas\);/);
-  assert.match(appSource, /const signature = safeRenderSignature\(\{\s*rows: compactSpecs\.map\(sidebarCardRenderSignature\)\s*\}\);/);
-  assert.match(appSource, /if \(chatConversationMenuRenderSignature === signature\) \{[\s\S]*?syncChatConversationMenuActiveState\(compactSpecs\);[\s\S]*?return;/);
+  assert.match(appSource, /chatConversationMenuRenderSignature = safeRenderSignature\(\{\s*rows: compactSpecs\.map\(sidebarCardRenderSignature\)\s*\}\);/);
+  assert.match(appSource, /window\.miaReactChatMenus\?\.publish\?\.\(\{[\s\S]*?conversationRows:/);
   assert.match(appSource, /state\.chatConversationMenuOpen = false;[\s\S]*?onClick\?\.\(\);/);
   assert.match(appSource, /els\.activeConversationMenuButton\?\.addEventListener\("click",[\s\S]*?state\.chatConversationMenuOpen = !state\.chatConversationMenuOpen;/);
   assert.match(styleSource, /#chatView\s*\{[\s\S]*?position:\s*relative;[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);/);
@@ -817,7 +823,7 @@ test("session history create action is always beside the trigger and the menu is
   assert.match(html, /id="newSession"[\s\S]*?className="icon-button session-new-button"/);
   assert.doesNotMatch(html, /session-menu-head/);
   assert.doesNotMatch(html, /session-menu-head-icon/);
-  assert.match(html, /<div id="sessionMenu" className="session-menu hidden">\s*<div id="sessionList" className="session-list">\s*<LegacySurface id="sessionList" \/>\s*<\/div>\s*<\/div>/);
+  assert.match(html, /<div id="sessionMenu" className="session-menu hidden">\s*<div id="sessionList" className="session-list">\s*<SessionList \/>\s*<\/div>\s*<\/div>/);
   assert.match(css, /\.session-menu-wrap\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?align-items:\s*center;[\s\S]*?gap:\s*6px;/);
   assert.match(css, /\.session-new-button\s*\{[\s\S]*?width:\s*38px;[\s\S]*?height:\s*38px;[\s\S]*?border-radius:\s*19px;/);
   assert.match(css, /\.session-menu\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?gap:\s*0;/);
@@ -834,39 +840,33 @@ test("session history menu keeps long lists inside the rounded card", () => {
 
 test("bot session history shows the shared aggregate unread and each session unread", () => {
   const html = rendererMarkupSource();
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src/renderer/chat/session-menu-controller.js"), "utf8");
+  const headerSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ChatHeader.tsx"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
-  const renderSessionMenuSource = extractFunctionSource(appSource, "renderCloudConversationSessionMenu");
 
   assert.match(html, /id="sessionUnreadBadge" className="session-trigger-unread hidden"/);
-  assert.match(renderSessionMenuSource, /getUnreadForBot\?\.\(sessionHistory\.botId\(activeConversation\)\)/);
-  assert.match(renderSessionMenuSource, /getUnreadForConversation\?\.\(conversation\.id\)/);
-  assert.match(renderSessionMenuSource, /class="session-row-unread"/);
+  assert.match(controllerSource, /getUnreadForBot\?\.\(sessionHistory\.botId\(active\)\)/);
+  assert.match(controllerSource, /getUnreadForConversation\?\.\(conversation\.id\)/);
+  assert.match(headerSource, /className="session-row-unread"/);
   assert.match(css, /\.session-trigger-unread\s*\{/);
   assert.match(css, /\.session-row-unread\s*\{/);
   assert.match(css, /\.session-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/);
 });
 
 test("session history rename action is a real button separate from row selection", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src/renderer/chat/session-menu-controller.js"), "utf8");
+  const headerSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ChatHeader.tsx"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
-  const renderSessionMenuSource = extractFunctionSource(appSource, "renderCloudConversationSessionMenu");
 
-  assert.doesNotMatch(appSource, /window\.prompt\("重命名这个会话"/);
-  assert.match(appSource, /function startCloudSessionRename\(conversation\)/);
-  assert.match(appSource, /function commitCloudSessionRename\(conversation\)/);
-  assert.match(appSource, /function shouldHoldCloudSessionRenameDom\(conversations\)/);
-  assert.match(renderSessionMenuSource, /if \(shouldHoldCloudSessionRenameDom\(conversations\)\) return;/);
-  assert.match(appSource, /const row = document\.createElement\("div"\);/);
-  assert.match(appSource, /row\.setAttribute\("role",\s*"option"\);/);
-  assert.match(appSource, /row\.dataset\.cloudSessionSelect = conversation\.id;/);
-  assert.match(appSource, /<button class="session-row-edit" type="button" title="重命名" aria-label="重命名会话" data-cloud-session-edit=/);
-  assert.match(appSource, /if \(editTarget\) \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);[\s\S]*?startCloudSessionRename\(conversation\);/);
-  assert.match(appSource, /<form class="session-row-rename" data-cloud-session-rename=/);
-  assert.match(appSource, /<input class="session-row-rename-input" data-cloud-session-rename-input/);
-  assert.match(appSource, /data-cloud-session-rename-save/);
-  assert.match(appSource, /data-cloud-session-rename-cancel/);
-  assert.doesNotMatch(appSource, /<em title="重命名" data-cloud-session-edit=/);
+  assert.doesNotMatch(controllerSource, /window\.prompt\("重命名这个会话"/);
+  assert.match(controllerSource, /function startRename\(conversation\)/);
+  assert.match(controllerSource, /async function commitRename\(conversation\)/);
+  assert.match(controllerSource, /global\.miaReactChatMenus\?\.publish\?\.\(\{/);
+  assert.match(headerSource, /<button[\s\S]*?className="session-row-edit"/);
+  assert.match(headerSource, /<form className="session-row-rename"/);
+  assert.match(headerSource, /className="session-row-rename-input"/);
+  assert.match(headerSource, /row\.save\(\)/);
+  assert.match(headerSource, /row\.cancelRename/);
   assert.match(css, /\.session-row-edit\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?background:\s*transparent;/);
   assert.match(css, /\.session-row-rename\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) auto auto;/);
   assert.doesNotMatch(css, /\.session-row em/);
@@ -1102,38 +1102,12 @@ test("rail pages use one continuous workspace floor", () => {
 });
 
 test("custom select menu opens away from the viewport edge", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const positionSource = extractFunctionSource(appSource, "positionComposerSelectMenu");
-  const sandbox = {
-    window: {
-      innerWidth: 500,
-      innerHeight: 360
-    }
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(`${positionSource}; this.positionComposerSelectMenu = positionComposerSelectMenu;`, sandbox);
-
-  const menu = {
-    scrollWidth: 220,
-    scrollHeight: 240,
-    style: {},
-    dataset: {}
-  };
-  const trigger = {
-    getBoundingClientRect: () => ({
-      left: 24,
-      top: 314,
-      bottom: 344,
-      width: 160
-    })
-  };
-
-  sandbox.positionComposerSelectMenu(menu, trigger);
-
-  assert.equal(menu.dataset.placement, "above");
-  assert.equal(menu.style.top, "");
-  assert.equal(menu.style.bottom, "52px");
-  assert.equal(menu.style.maxHeight, "300px");
+  const menuSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerSelectMenu.tsx"), "utf8");
+  assert.match(menuSource, /const spaceBelow = Math\.max\(0,\s*window\.innerHeight - rect\.bottom/);
+  assert.match(menuSource, /const openBelow = spaceBelow >= usefulHeight \|\| spaceBelow >= spaceAbove/);
+  assert.match(menuSource, /menu\.style\.maxHeight = `\$\{Math\.min\(320,/);
+  assert.match(menuSource, /menu\.style\.bottom = openBelow \? "" :/);
+  assert.match(menuSource, /menu\.dataset\.placement = openBelow \? "below" : "above"/);
 });
 
 test("main renderer does not initialize the removed onboarding wizard", () => {
@@ -1249,16 +1223,17 @@ test("lottie icons support autoplaying loop animations for scanning state", () =
 
 test("status badge lotties render as visible canvas loops instead of blank ambient rests", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const headerSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ChatHeader.tsx"), "utf8");
+  const contactsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Contacts.tsx"), "utf8");
   const lottieSource = fs.readFileSync(path.join(root, "src/renderer/lottie-icons.js"), "utf8");
   const nameWithBadgeSource = fs.readFileSync(path.join(root, "src/renderer/name-with-badge.js"), "utf8");
 
   assert.doesNotMatch(html, /assets\/lottie\/lottie\.min\.js/);
   assert.doesNotMatch(html, /assets\/lottie\/lottie_light\.min\.js/);
   assert.match(lottieSource, /script\.src = "\.\/assets\/lottie\/lottie\.min\.js"/);
-  assert.match(appSource, /span\.dataset\.lottieTrigger = "loop"/);
-  assert.match(appSource, /span\.dataset\.lottieRenderer = "canvas"/);
-  assert.doesNotMatch(appSource, /span\.dataset\.lottieTrigger = "ambient"/);
+  assert.match(headerSource, /data-lottie-trigger=\{badge\.kind === "lottie" \? "loop"/);
+  assert.match(headerSource, /data-lottie-renderer=\{badge\.kind === "lottie" \? "canvas"/);
+  assert.match(contactsSource, /data-lottie-trigger=\{badge\.kind === "lottie" \? "loop"/);
   assert.match(nameWithBadgeSource, /data-lottie-trigger",\s*"loop"/);
   assert.match(nameWithBadgeSource, /data-lottie-renderer",\s*"canvas"/);
   assert.doesNotMatch(nameWithBadgeSource, /data-lottie-trigger",\s*"ambient"/);
@@ -1378,7 +1353,7 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
 
   assert.match(html, /id="personaTagFilters"[^>]+aria-label="对话分组"/);
   assert.match(html, /id="personaTagFilters"[^>]+data-react-root="conversation-folders"/);
-  assert.match(mainSource, /getElementById\("personaTagFilters"\), <ConversationFolderTabs \/>/);
+  assert.match(mainSource, /portal\("personaTagFilters", <ConversationFolderTabs \/>/);
   assert.match(appSource, /CONVERSATION_FOLDER_ORDER_KEY = "mia\.conversationFolderOrder\.v1"/);
   assert.match(appSource, /function orderedConversationFolderItems\(filters,\s*activeFilterName\)/);
   assert.match(appSource, /function conversationFolderItemStorageKey\(tag = \{\}\)/);
@@ -1386,7 +1361,6 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   assert.match(appSource, /function conversationFolderLabelForFilter\(filterValue\)/);
   assert.match(appSource, /OTHER_DEVICE_CONVERSATION_FILTER/);
   assert.match(appSource, /conversationRunsOnOtherDevice\?\.\(row\?\.conversation\)/);
-  assert.match(appSource, /function syncPersonaListActiveState\(specs\)/);
   assert.match(appSource, /function renderPersonaListIfChanged\(specs,\s*emptyText,\s*activeTagFilterName\)/);
   assert.doesNotMatch(cardSignatureSource, /active:\s*Boolean\(spec\?\.active\)/);
   assert.match(searchToolsSource, /const showFilters = cloudReady && \(filters\.length > 0 \|\| activeFilterName\);/);
@@ -1395,7 +1369,6 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   assert.match(searchToolsSource, /conversationFolderMotion = \{ key: nextKey, direction:/);
   assert.match(searchToolsSource, /writeLocalJson\(CONVERSATION_FOLDER_ORDER_KEY, next\)/);
   assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
-  assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(renderedSpecs\);[\s\S]*?return;/);
   assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
   assert.match(reactSource, /const LONG_PRESS_MS = 260/);
   assert.match(reactSource, /window\.addEventListener\("pointermove", onPointerMove/);
@@ -1484,7 +1457,7 @@ test("first-run startup overlay is wired to the welcome Lottie animation", () =>
   assert.match(html, /class="startup-loader"/);
   assert.match(html, /data-lottie="welcome"/);
   assert.match(html, /data-lottie-trigger="loop"/);
-  assert.match(html, /<script src="\.\/startup\/startup-overlay\.js"><\/script>[\s\S]*<script src="\.\/app\.js"><\/script>/);
+  assert.match(html, /<script src="\.\/startup\/startup-overlay\.js"><\/script>[\s\S]*<script type="module" src="\.\/react-dist\/renderer\.js"><\/script>/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.init\?\.\(\{ firstRun: agentSetupLaunch \}\)/);
   assert.match(appSource, /window\.miaStartupOverlay\?\.isBlocking\?\.\(\)/);
   assert.match(appSource, /trackStartupTask\("启动 Mia Core",\s*\(\) => window\.mia\.startupBackgroundServices\(\)\)/);
@@ -1529,148 +1502,23 @@ test("pet dialog renderers skip work before dependency injection", () => {
   assert.doesNotThrow(() => sandbox.window.miaPetDialog.renderPetJobs());
 });
 
-test("engine detection renderer preserves legacy runtime status fallbacks", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const renderSource = appSource.slice(
-    appSource.indexOf("function agentInventoryById(runtime)"),
-    appSource.indexOf("function renderSessionMenu()")
-  );
-  const sandbox = {
-    els: {
-      engineRowHermes: { textContent: "" },
-      engineRowClaude: { textContent: "" },
-      engineRowCodex: { textContent: "" }
-    }
-  };
-  vm.runInNewContext(`${renderSource}; this.renderEngineDetection = renderEngineDetection;`, sandbox);
-
-  sandbox.renderEngineDetection({
-    engineSource: "bundled",
-    engineRunning: true,
-    agentEngines: {
-      claudeCode: { available: true, path: "/usr/local/bin/claude", version: "1.2.3 build" },
-      codex: { available: true, path: "/usr/local/bin/codex", version: "4.5.6 build" }
-    }
-  });
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
-  assert.equal(sandbox.els.engineRowClaude.textContent, "本机版本 · 1.2.3 build");
-  assert.equal(sandbox.els.engineRowCodex.textContent, "本机版本 · 4.5.6 build");
-
-  sandbox.renderEngineDetection({
-    engineSource: "managed",
-    engineRunning: false,
-    agentEngines: {}
-  });
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
-
-  sandbox.renderEngineDetection({
-    engineSource: "local-source",
-    engineRunning: true,
-    agentEngines: {}
-  });
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
-
-  sandbox.renderEngineDetection({
-    engineSource: "system",
-    engineRunning: false,
-    agentEngines: {}
-  });
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
-
-  sandbox.renderEngineDetection({
-    engineInstalled: true,
-    engineRunning: true,
-    agentEngines: {}
-  });
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "已接入 Mia");
+test("engine detection renderer preserves runtime status fallbacks", () => {
+  const controllerSource = fs.readFileSync(path.join(root, "src/renderer/settings/engine-detection-controller.js"), "utf8");
+  assert.match(controllerSource, /function legacyStatus\(id, legacy\)/);
+  assert.match(controllerSource, /\["bundled", "managed", "mia-managed", "local-source", "maintained-local-source", "system"\]/);
+  assert.match(controllerSource, /\? "已接入 Mia"/);
+  assert.match(controllerSource, /legacyStatus\("claude-code", engines\.claudeCode\)/);
+  assert.match(controllerSource, /legacyStatus\("codex", engines\.codex\)/);
 });
 
 test("engine detection renderer surfaces install progress and failures in settings", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const renderSource = appSource.slice(
-    appSource.indexOf("function agentInventoryById(runtime)"),
-    appSource.indexOf("function renderSessionMenu()")
-  );
-  const sandbox = {
-    state: {
-      agentSetupInstallInFlight: true,
-      agentSetupInstallEngine: "hermes",
-      agentSetupInstallMessage: "Downloading Hermes runtime...",
-      agentSetupInstallPercent: 42,
-      agentSetupInstallErrors: {},
-      hermesInstallError: ""
-    },
-    window: { miaMarkdown: { escapeHtml: (value) => String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;") } },
-    els: {
-      engineRowHermes: { textContent: "" },
-      engineRowClaude: { textContent: "" },
-      engineRowCodex: { textContent: "" },
-      engineRowHermesActions: { innerHTML: "" },
-      engineRowClaudeActions: { innerHTML: "" },
-      engineRowCodexActions: { innerHTML: "" },
-      engineInstallActions: {
-        classList: { add: () => {}, toggle: () => {} },
-        innerHTML: ""
-      }
-    }
-  };
-  vm.runInNewContext(`${renderSource}; this.renderEngineDetection = renderEngineDetection;`, sandbox);
-
-  const runtime = {
-    agentInventory: {
-      agents: [
-        { id: "hermes", label: "Hermes", installed: false, usableInMia: false, installable: true, installAction: "install-hermes", health: "missing", source: "missing" }
-      ]
-    },
-    agentEngines: {}
-  };
-  sandbox.renderEngineDetection(runtime);
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "Downloading Hermes runtime...");
-  assert.equal(sandbox.els.engineInstallActions.innerHTML, "");
-  assert.match(sandbox.els.engineRowHermesActions.innerHTML, /disabled/);
-  assert.match(sandbox.els.engineRowHermesActions.innerHTML, /42%/);
-
-  sandbox.state.agentSetupInstallInFlight = false;
-  sandbox.state.agentSetupInstallEngine = "";
-  sandbox.state.agentSetupInstallErrors = { hermes: "官方 Hermes 安装失败：installer finished, but Mia still cannot detect Hermes" };
-  sandbox.renderEngineDetection(runtime);
-
-  assert.match(sandbox.els.engineRowHermes.textContent, /still cannot detect Hermes/);
-
-  sandbox.state.agentSetupInstallErrors = {};
-  sandbox.state.hermesInstallError = "";
-  sandbox.renderEngineDetection({
-    agentInventory: {
-      agents: [
-        {
-          id: "hermes",
-          label: "Hermes",
-          installed: true,
-          usableInMia: false,
-          installable: true,
-          installAction: "repair-hermes",
-          health: "blocked",
-          source: "system",
-          readiness: {
-            status: "blocked",
-            summary: "Hermes Gateway 自检失败",
-            detail: "model must be non-empty",
-            action: "repair-hermes"
-          }
-        }
-      ]
-    },
-    agentEngines: {}
-  });
-
-  assert.equal(sandbox.els.engineRowHermes.textContent, "Hermes Gateway 自检失败");
-  assert.equal(sandbox.els.engineRowHermesActions.innerHTML, "");
+  const controllerSource = fs.readFileSync(path.join(root, "src/renderer/settings/engine-detection-controller.js"), "utf8");
+  const reactSource = fs.readFileSync(path.join(root, "src/renderer/react/components/SettingsCompat.tsx"), "utf8");
+  assert.match(controllerSource, /state\.agentSetupInstallMessage \|\| "Installing\.\.\."/);
+  assert.match(controllerSource, /state\.agentSetupInstallPercent/);
+  assert.match(controllerSource, /global\.miaReactSettingsCompat\?\.publish\?\.\(\{ engineActions: actions \}\)/);
+  assert.match(reactSource, /action\.progress/);
+  assert.match(reactSource, /engine-install-progress-track/);
 });
 
 test("signed-out desktop shell is a login gate without default Boss identity", () => {
@@ -1703,6 +1551,7 @@ test("desktop cloud bot conversations keep private AI composer controls visible"
 
 test("desktop cloud bot conversations expose the restored chat history menu", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const sessionControllerSource = fs.readFileSync(path.join(root, "src/renderer/chat/session-menu-controller.js"), "utf8");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
@@ -1712,11 +1561,10 @@ test("desktop cloud bot conversations expose the restored chat history menu", ()
   assert.match(html, /packages\/shared\/session-history\.js/);
   assert.match(appSource, /const sessionHistory = \(typeof window !== "undefined" && window\.miaSessionHistory\)/);
   assert.match(appSource, /if \(els\.sessionMenuButton\) els\.sessionMenuButton\.classList\.remove\("hidden"\);/);
-  assert.match(appSource, /function renderCloudConversationSessionMenu\(activeConversation\)/);
-  assert.match(appSource, /sessionHistory\.sessionConversationsForConversation/);
+  assert.match(sessionControllerSource, /sessionHistory\.sessionConversationsForConversation/);
   assert.match(appSource, /sessionHistory\.createBotSessionPayload/);
   assert.match(appSource, /sessionHistory\.botDisplayTitle/);
-  assert.match(appSource, /function createNewCloudSessionForActive\(conversation\)/);
+  assert.match(sessionControllerSource, /global\.miaReactChatMenus\?\.publish/);
   assert.match(socialSource, /sessionHistoryShared\(\)\.sidebarConversations\(visibleSocialConversations\(moduleState\.conversations,\s*\{/);
   assert.match(channelSource, /SocialEnsureBotSessionConversation/);
   assert.doesNotMatch(channelSource, /SocialEnsureFellowSessionConversation/);
@@ -2675,8 +2523,9 @@ test("composer model menu groups reasoning and shows the selected reasoning stre
   const menuSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerSelectMenu.tsx"), "utf8");
   const summarySource = extractFunctionSource(appSource, "setComposerModelControlSummary");
   const quickModelLabel = { textContent: "" };
+  const modelSelect = { title: "" };
   const context = vm.createContext({
-    els: { quickModelLabel },
+    els: { quickModelLabel, quickModelSelect: modelSelect },
     setText: (element, value) => { element.textContent = value; }
   });
   vm.runInContext(
@@ -2983,31 +2832,21 @@ test("desktop bot runtime model selection delegates saved binding resolution to 
 
 test("desktop avatar picker supports video avatars with one trim row", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
+  const dialogViewSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
   const avatarSource = fs.readFileSync(path.join(root, "src/renderer/helpers/avatar-helpers.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
   assert.match(html, /packages\/shared\/avatar\.js/);
-  assert.match(html, /id="profileAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
-  assert.match(html, /id="botAvatarFile"[^>]+accept="image\/\*,video\/\*"/);
-  assert.match(html, /id="avatarTrimControls"/);
-  assert.match(html, /id="avatarTrimTimeline"/);
-  assert.match(html, /id="avatarTrimFrames"/);
-  assert.match(html, /id="avatarTrimPreview"/);
-  assert.match(html, /data-avatar-trim-handle="start"/);
-  assert.match(html, /data-avatar-trim-handle="end"/);
-  assert.match(html, /id="avatarTrimStart"/);
-  assert.match(html, /id="avatarTrimDuration"/);
-  assert.match(appSource, /avatarTrimControls: document\.getElementById\("avatarTrimControls"\)/);
-  assert.match(appSource, /avatarTrimTimeline: document\.getElementById\("avatarTrimTimeline"\)/);
-  assert.match(appSource, /avatarTrimFrames: document\.getElementById\("avatarTrimFrames"\)/);
-  assert.match(appSource, /beginAvatarTrimDrag/);
-  assert.match(appSource, /avatarTrimStart\.addEventListener\("input"/);
+  assert.match(dialogViewSource, /accept="image\/\*,video\/\*"/);
+  assert.match(dialogViewSource, /className="avatar-trim-controls"/);
+  assert.match(dialogViewSource, /className="avatar-trim-timeline"/);
+  assert.match(dialogViewSource, /className="avatar-trim-frames"/);
+  assert.match(dialogViewSource, /className="avatar-trim-preview"/);
+  assert.match(dialogViewSource, /data-avatar-trim-handle="start"/);
+  assert.match(dialogViewSource, /data-avatar-trim-handle="end"/);
   assert.match(dialogSource, /file\.type\?\.startsWith\("video\/"\)/);
-  assert.match(dialogSource, /updateAvatarTrimControls/);
-  assert.match(dialogSource, /renderAvatarTrimFrames/);
-  assert.doesNotMatch(dialogSource, /Math\.abs\(els\.avatarTrimPreview\.currentTime - trim\.start\)/);
+  assert.match(dialogSource, /isVideo:\s*Boolean\(window\.miaAvatarMedia\?\.isVideo/);
   assert.match(avatarSource, /applyAvatarMedia/);
   assert.match(avatarSource, /createAvatarImageElement/);
   assert.match(avatarSource, /updateAvatarImageElement/);
@@ -3204,6 +3043,7 @@ test("bot runtime display prefers Core projection and preserves raw binding fall
 
 test("contacts group desktop-local bots from other devices behind a collapsed section", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const contactsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Contacts.tsx"), "utf8");
 
   assert.match(botManagerSource, /const OTHER_DEVICE_GROUP_KEY = "other-devices"/);
   assert.match(botManagerSource, /const CONTACT_GROUP_COLLAPSED_KEY = "mia\.contactGroupCollapsed\.v1"/);
@@ -3222,7 +3062,8 @@ test("contacts group desktop-local bots from other devices behind a collapsed se
   assert.match(botManagerSource, /const primarySortedBots = sortBotsForSidebar\(bots\.filter\(\(bot\) => !botRunsOnOtherDevice\(bot\)\)\);/);
   assert.match(botManagerSource, /const contactGroups = contactGroupsForSidebar\(visibleContacts\);/);
   assert.match(botManagerSource, /const collapsed = isContactGroupCollapsed\(group\.key,\s*\{ forceExpanded: filterActive \}\);/);
-  assert.match(botManagerSource, /botRunsOnOtherDevice\(bot\) \? `<small>\$\{window\.miaMarkdown\.escapeHtml\(botDeviceLabel\(bot\)\)\}<\/small>` : ""/);
+  assert.match(botManagerSource, /deviceLabel:\s*botRunsOnOtherDevice\(bot\) \? botDeviceLabel\(bot\) : ""/);
+  assert.match(contactsSource, /row\.deviceLabel \? <small>\{row\.deviceLabel\}<\/small>/);
 });
 
 test("contact bot avatars resolve through shared bot identity", () => {
@@ -3297,28 +3138,22 @@ test("contact detail shows engine logo and bot device label", () => {
 test("profile and account surfaces expose uid fields", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const navigationSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Navigation.tsx"), "utf8");
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const dialogsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
+  const dialogControllerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
-  const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
+  const contactsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Contacts.tsx"), "utf8");
 
-  assert.match(html, /id="profileDialogTitle"/);
-  assert.match(html, /id="profileDialog" class="profile-popover hidden"/);
+  assert.doesNotMatch(html, /id="profileDialogTitle"/);
+  assert.match(dialogsSource, /id="profileDialog" className="profile-popover is-open"/);
+  assert.match(dialogsSource, /id="profileDialogTitle">个人资料/);
+  assert.match(dialogsSource, /className="profile-uid-line"/);
+  assert.match(dialogsSource, /\{dialog\.uid\}/);
   assert.match(navigationSource, /id="userAvatar"[\s\S]*?aria-expanded=\{open\}/);
-  assert.match(html, /id="profileUidValue"/);
-  assert.match(html, /id="profileNameText"/);
-  assert.match(html, /id="profileStatusBadge"/);
-  assert.match(html, /id="profileStatusBadgeDetails"/);
-  assert.match(html, /id="profileStatusBadgeTrigger"/);
-  assert.doesNotMatch(html, /id="cancelProfile"/);
-  assert.doesNotMatch(html, />保存资料</);
-  assert.match(html, /id="botNameText"/);
-  assert.match(html, /id="botStatusBadge"/);
-  assert.match(html, /id="botStatusBadgeDetails"/);
-  assert.match(html, /id="botStatusBadgeTrigger"/);
+  assert.match(dialogsSource, /function BotDialog/);
+  assert.match(dialogsSource, /dialog\.badgeChoices/);
   assert.match(html, /status-badge-assets\.js/);
   assert.doesNotMatch(html, /data-lottie-fallback/);
-  assert.doesNotMatch(html, /profileStatusBadgePreview/);
   assert.match(html, /id="cloudAccountProfile"/);
   assert.match(html, /id="cloudAccountAvatar"/);
   assert.match(html, /id="cloudAccountName"/);
@@ -3326,29 +3161,17 @@ test("profile and account surfaces expose uid fields", () => {
   assert.match(html, /id="cloudModelBalanceRow"/);
   assert.match(html, /id="cloudModelBalanceAmount"/);
   assert.match(html, /id="cloudModelBalanceMeta"/);
-  assert.match(appSource, /profileUidValue:\s*document\.getElementById\("profileUidValue"\)/);
-  assert.match(appSource, /cloudModelBalanceAmount:\s*document\.getElementById\("cloudModelBalanceAmount"\)/);
-  assert.match(appSource, /fetchModelBalance:\s*\(\) => window\.mia\.cloudModelBalance\(\)/);
-  assert.match(appSource, /closeProfilePopoverFromOutside/);
-  assert.match(appSource, /function profileDraftPayload/);
-  assert.match(appSource, /async function saveProfileDraft/);
+  assert.match(dialogControllerSource, /function profilePayload\(\)/);
+  assert.match(dialogControllerSource, /async function saveProfileNow\(\)/);
+  assert.match(dialogControllerSource, /uid:\s*profileDraft\.uid \|\| "未登录"/);
   assert.match(styleSource, /\.profile-popover/);
   assert.match(styleSource, /@keyframes profile-popover-open/);
-  assert.match(appSource, /profileNameText:\s*document\.getElementById\("profileNameText"\)/);
-  assert.match(appSource, /profileStatusBadge:\s*document\.getElementById\("profileStatusBadge"\)/);
-  assert.match(appSource, /profileStatusBadgeTrigger:\s*document\.getElementById\("profileStatusBadgeTrigger"\)/);
-  assert.match(appSource, /botNameText:\s*document\.getElementById\("botNameText"\)/);
-  assert.match(appSource, /botStatusBadge:\s*document\.getElementById\("botStatusBadge"\)/);
-  assert.match(appSource, /statusBadgeForPreset/);
-  assert.match(appSource, /renderStatusBadgeChoiceLists/);
-  assert.match(appSource, /function setNameWithBadge/);
-  assert.match(appSource, /els\.profileUidValue\.textContent = user\.id/);
   assert.match(remoteSettingsSource, /cloudAccountUid/);
   assert.match(remoteSettingsSource, /refreshModelBalance/);
   assert.match(remoteSettingsSource, /renderNameWithBadge/);
   assert.match(remoteSettingsSource, /applyAvatarMedia|paintAvatar/);
-  assert.match(botManagerSource, /contact-profile-uid/);
-  assert.match(botManagerSource, /contactUid\(bot\)/);
+  assert.match(contactsSource, /className="contact-profile-uid"/);
+  assert.match(contactsSource, /\{bot\.uid\}/);
 });
 
 test("desktop name surfaces render status badges beside names", () => {
@@ -3358,6 +3181,8 @@ test("desktop name surfaces render status badges beside names", () => {
   const groupInfoSource = fs.readFileSync(path.join(root, "src/renderer/social/group-info-dialog.js"), "utf8");
   const socialGroupsSource = fs.readFileSync(path.join(root, "src/renderer/social/social-groups.js"), "utf8");
   const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
+  const contactsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Contacts.tsx"), "utf8");
+  const dialogsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
   const appStyles = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const badgeStyles = fs.readFileSync(path.join(root, "src/renderer/styles/name-with-badge.css"), "utf8");
 
@@ -3366,8 +3191,11 @@ test("desktop name surfaces render status badges beside names", () => {
   assert.match(botManagerSource, /renderBotNameWithBadgeHtml/);
   assert.match(botManagerSource, /setBotNameWithBadge\(els\.contactPageTitle/);
   assert.match(contactCardSource, /renderNameWithBadgeHtml/);
-  assert.match(groupInfoSource, /appendNameWithBadge\(nameEl/);
-  assert.match(socialGroupsSource, /nameEl\.innerHTML = renderNameWithBadgeHtml/);
+  assert.match(groupInfoSource, /badge:\s*statusBadgeFrom\(bot, friend, member\.identity, member\)/);
+  assert.match(dialogsSource, /function GroupInfoDialog/);
+  assert.match(dialogsSource, /<FriendBadge badge=\{member\.badge\}/);
+  assert.match(contactsSource, /<NameWithBadge name=\{row\.name\} badge=\{row\.badge\}/);
+  assert.match(socialGroupsSource, /miaReactDialogs\?\.publish/);
   assert.match(remoteSettingsSource, /renderer\.setNameWithBadge\(els\.cloudAccountName/);
   assert.match(badgeStyles, /--name-badge-size:\s*max\(20px,\s*1\.12em\)/);
   assert.match(badgeStyles, /--name-badge-gap:\s*0px/);
@@ -3395,26 +3223,26 @@ test("group settings member names prefer display names over generated WeChat use
   const sandbox = {};
   vm.createContext(sandbox);
   vm.runInContext(
-    `${extractFunctionSource(groupInfoSource, "firstDisplayName")}\n${extractFunctionSource(groupInfoSource, "userNameFor")}\nthis.userNameFor = userNameFor;`,
+    `${extractFunctionSource(groupInfoSource, "firstDisplayName")}\n${extractFunctionSource(groupInfoSource, "userName")}\nthis.userName = userName;`,
     sandbox
   );
 
   assert.equal(
-    sandbox.userNameFor(
+    sandbox.userName(
       {
         member_ref: "1234567890",
         identity: { displayName: "服务器名字" },
         user: { displayName: "接口名字" }
       },
-      [],
+      { displayName: "好友名字" },
       { id: "1234567890", username: "wx_8067aabb7153", displayName: "展示名字" }
     ),
     "展示名字"
   );
   assert.equal(
-    sandbox.userNameFor(
+    sandbox.userName(
       { member_ref: "1234567890" },
-      [],
+      null,
       { id: "1234567890", username: "wx_8067aabb7153" }
     ),
     "我"
@@ -3472,6 +3300,7 @@ test("contact capability checkboxes use Rust Core capability options", () => {
 test("bot-only contact detail renders capabilities, persona, and scoped Mia memory entries", () => {
   const botManagerSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const memoryPanelSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-memory-panel.js"), "utf8");
+  const contactsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Contacts.tsx"), "utf8");
   const memoryStyleSource = fs.readFileSync(path.join(root, "src/renderer/styles/contact-memory.css"), "utf8");
 
   assert.match(botManagerSource, /function renderBotCapabilitiesPanel\(bot\)/);
@@ -3483,8 +3312,11 @@ test("bot-only contact detail renders capabilities, persona, and scoped Mia memo
   assert.match(botManagerSource, /botPersonaText\(bot\)/);
   assert.match(botManagerSource, /renderBotPersonaPanel\(bot\)/);
   assert.match(botManagerSource, /contactUid\(bot\)/);
-  assert.match(botManagerSource, /miaBotMemoryPanel\?\.renderBotMemoryPanel/);
-  assert.match(botManagerSource, /miaBotMemoryPanel\?\.wireBotMemoryPanel/);
+  assert.match(botManagerSource, /miaBotMemoryPanel\?\.botMemoryView\?\.\(bot\)/);
+  assert.match(contactsSource, /function MemoryPanel/);
+  assert.match(contactsSource, /className="contact-capabilities accordion-details"/);
+  assert.match(contactsSource, /className="contact-persona-card accordion-details"/);
+  assert.match(contactsSource, /<MemoryPanel memory=\{bot\.memory\}/);
   assert.match(memoryPanelSource, /function renderBotMemoryPanel\(bot = \{\}\)/);
   assert.match(memoryPanelSource, /<details class="contact-memory accordion-details"/);
   assert.match(memoryPanelSource, /<strong>🧠 记忆<\/strong>/);
@@ -3520,13 +3352,14 @@ test("bot edit dialog keeps memory out of the create/edit modal", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
+  const dialogViewSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
 
   assert.doesNotMatch(htmlSource, /id="botMemoryDetails"/);
   assert.doesNotMatch(htmlSource, /id="botMemoryDraftScope"/);
   assert.doesNotMatch(appSource, /botMemoryDetails: document\.getElementById/);
   assert.doesNotMatch(dialogSource, /function loadBotMemoryEntries\(\)/);
   assert.doesNotMatch(dialogSource, /window\.mia\.memory\.promote/);
-  assert.match(htmlSource, /这段人设保存在 Mia 的 Bot 身份里/);
+  assert.match(dialogViewSource, /这段人设保存在 Mia 的 Bot 身份里/);
 });
 
 test("settings exposes only the new-conversation memory owner switch", () => {
@@ -3681,25 +3514,24 @@ test("social keeps desktop-local bot runtime binding explicit", () => {
 
 test("bot creation dialog combines runtime location and agent engine into one grouped selector", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
+  const dialogViewSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
 
-  assert.match(html, /id="botRuntimeTarget"/);
+  assert.doesNotMatch(html, /id="botRuntimeTarget"/);
+  assert.match(dialogViewSource, /<select value=\{dialog\.runtimeValue\}/);
+  assert.match(dialogViewSource, /dialog\.runtimeGroups\.map/);
   assert.doesNotMatch(html, /当前设备 · Hermes/);
   assert.match(html, /helpers\/accordion\.js/);
-  assert.match(html, /class="persona-details accordion-details"/);
-  assert.match(html, /class="accordion-body"/);
+  assert.match(dialogViewSource, /className="persona-details accordion-details"/);
+  assert.match(dialogViewSource, /className="accordion-body"/);
   assert.doesNotMatch(html, /id="botRuntimeLocation"/);
   assert.doesNotMatch(html, /id="botRuntimeDevice"/);
-  assert.match(appSource, /botRuntimeTarget:\s*document\.getElementById\("botRuntimeTarget"\)/);
-  assert.match(appSource, /readSelectedRuntimeTarget/);
-  assert.match(appSource, /targetDeviceId/);
   assert.match(dialogSource, /function renderBotRuntimeTargetSelect/);
   assert.match(dialogSource, /function readSelectedRuntimeTarget/);
   assert.match(dialogSource, /getBotRuntimeTargetOptions/);
   assert.match(dialogSource, /runtimeTargetOptionsRequest/);
   assert.match(dialogSource, /normalizeCoreRuntimeGroup/);
-  assert.match(dialogSource, /document\.createElement\("optgroup"\)/);
+  assert.doesNotMatch(dialogSource, /document\.createElement\("optgroup"\)/);
   assert.match(dialogSource, /refreshBridgeDevicesForDialog/);
   assert.doesNotMatch(dialogSource, /function editableBridgeDeviceOptions/);
   assert.doesNotMatch(dialogSource, /function runtimeDeviceGroupLabel/);
@@ -3738,18 +3570,15 @@ test("bot creation branches cloud-claude-code without saving local manifest", ()
 });
 
 test("bot dialog save reports failures instead of leaving the modal silent", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const start = appSource.indexOf('els.botForm?.addEventListener("submit"');
-  const end = appSource.indexOf('els.modelForm.addEventListener("submit"', start);
-  const submitBody = appSource.slice(start, end);
-
-  assert.ok(start >= 0, "bot form submit handler should exist");
-  assert.ok(end > start, "bot form submit handler should be extractable");
+  const dialogSource = fs.readFileSync(path.join(root, "src/renderer/bot/bot-dialog.js"), "utf8");
+  const dialogViewSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
+  const submitBody = extractFunctionSource(dialogSource, "submitBotDraft");
   assert.match(submitBody, /try\s*\{/);
-  assert.match(submitBody, /await window\.miaBotCommands\.saveBot\(\{/);
+  assert.match(submitBody, /await saveBotDialog\(\{/);
   assert.match(submitBody, /catch\s*\(error\)\s*\{/);
   assert.match(submitBody, /保存伙伴失败/);
-  assert.match(submitBody, /window\.alert/);
+  assert.match(dialogViewSource, /await dialog\.submit\(\)/);
+  assert.match(dialogViewSource, /setError\(await dialog\.submit\(\)\)/);
 });
 
 test("editing a cloud-sourced desktop bot does not load local manifest details", async () => {

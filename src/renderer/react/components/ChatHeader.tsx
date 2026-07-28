@@ -1,5 +1,6 @@
-import { memo } from "react";
-import { LegacySurface } from "./LegacySurface";
+import { memo, useEffect, useLayoutEffect, useRef } from "react";
+import { useChatMenus, type ChatConversationMenuRow, type SessionMenuRow } from "../stores/chat-menus";
+import type { AvatarView, StatusBadgeView } from "../stores/contacts";
 
 const BackIcon = memo(function BackIcon() {
   return (
@@ -47,6 +48,216 @@ const SessionHistoryIcon = memo(function SessionHistoryIcon() {
   );
 });
 
+function Avatar({ avatar, className }: { avatar: AvatarView; className: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (ref.current) {
+      window.miaAvatar?.applyAvatarMedia?.(
+        ref.current,
+        avatar.image,
+        avatar.crop,
+        avatar.color,
+        avatar.text
+      );
+    }
+  }, [avatar.color, avatar.crop, avatar.image, avatar.text]);
+  return <span ref={ref} className={className} />;
+}
+
+function StatusBadge({ badge }: { badge: StatusBadgeView }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (badge.kind === "lottie" && ref.current) window.miaNameWithBadge?.initLottieBadges?.(ref.current);
+  }, [badge]);
+  if (badge.kind === "emoji") {
+    return <span className="name-with-badge-badge name-with-badge-badge-emoji" title={badge.label}>{badge.emoji}</span>;
+  }
+  const assetId = badge.assetId || "";
+  return (
+    <span
+      ref={ref}
+      className={`name-with-badge-badge name-with-badge-badge-${badge.kind}`}
+      title={badge.label}
+      data-asset-id={assetId || undefined}
+      data-collectible-id={badge.collectibleId || undefined}
+      data-lottie={badge.kind === "lottie" ? assetId : undefined}
+      data-lottie-trigger={badge.kind === "lottie" ? "loop" : undefined}
+      data-lottie-renderer={badge.kind === "lottie" ? "canvas" : undefined}
+      data-lottie-path={badge.kind === "lottie" ? window.miaNameWithBadge?.statusBadgeAssetUrl?.(assetId) : undefined}
+      aria-hidden="true"
+    />
+  );
+}
+
+function ConversationAvatar({ row }: { row: ChatConversationMenuRow }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const host = ref.current;
+    if (!host || row.kind !== "group") return;
+    if (row.customAvatar?.image) {
+      window.miaAvatar?.applyAvatarMedia?.(
+        host,
+        row.customAvatar.image,
+        row.customAvatar.crop,
+        row.customAvatar.color,
+        row.customAvatar.text
+      );
+      return;
+    }
+    window.miaGroupAvatar?.applyGroupAvatar?.(host, row.members);
+  }, [row.customAvatar, row.kind, row.members]);
+  if (row.kind === "private" && row.avatar) return <Avatar avatar={row.avatar} className="avatar bot-photo" />;
+  return <span ref={ref} className="avatar group-avatar" />;
+}
+
+function PinIcon() {
+  return (
+    <svg className="icon-park-pin" viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M10.696 17.504c2.639-2.638 5.774-2.565 9.182-.696L32.62 9.745l-.721-4.958 11.314 11.314-4.947-.71-7.074 12.73c1.783 3.637 1.942 6.543-.697 9.182l-7.778-7.778L6.443 41.556l11.995-16.31-7.742-7.742Z" />
+    </svg>
+  );
+}
+
+function ChatConversationRow({ row }: { row: ChatConversationMenuRow }) {
+  return (
+    <div
+      className={[
+        "persona message-card chat-conversation-menu-row",
+        row.kind === "group" ? "group-persona" : "private-message-card",
+        row.active ? "active" : "",
+        row.pinned ? "pinned" : ""
+      ].filter(Boolean).join(" ")}
+      role="option"
+      tabIndex={0}
+      aria-selected={row.active}
+      onClick={row.open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          row.open();
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        row.openContextMenu(event.clientX, event.clientY);
+      }}
+    >
+      <ConversationAvatar row={row} />
+      <span className="persona-main">
+        <span className="persona-name-row">
+          <span className="persona-name">
+            <span className="name-with-badge">
+              <span className="name-with-badge-text">{row.name}</span>
+              {row.badge ? <StatusBadge badge={row.badge} /> : null}
+            </span>
+          </span>
+          {row.muted ? (
+            <svg className="persona-muted-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M13.7 21a2 2 0 0 1-3.4 0M18 8a6 6 0 0 0-9.8-4.6M6 8c0 7-3 7-3 9h14M3 3l18 18" />
+            </svg>
+          ) : null}
+          <span className={`persona-type${row.kind === "group" ? " group" : ""}`}>{row.typeLabel}</span>
+          <span className="persona-time">{row.time}</span>
+          <span className={`persona-side${!row.pinned && !row.unread ? " empty" : ""}`}>
+            <span className={`persona-pin${row.pinned ? "" : " hidden"}`} aria-label="置顶"><PinIcon /></span>
+            <span className={`persona-unread${row.muted ? " muted" : ""}${row.unread ? "" : " hidden"}`}>
+              {row.unread > 99 ? "99+" : row.unread || ""}
+            </span>
+          </span>
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function ChatConversationList() {
+  const { conversationRows } = useChatMenus();
+  if (!conversationRows.length) return <div className="chat-conversation-menu-empty">暂无对话</div>;
+  return <>{conversationRows.map((row) => <ChatConversationRow key={row.id} row={row} />)}</>;
+}
+
+function EditIcon() {
+  return (
+    <svg className="session-row-edit-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m15 5 4 4L8 20H4v-4L15 5Z" />
+      <path d="m13 7 4 4" />
+    </svg>
+  );
+}
+
+function SessionRow({ row }: { row: SessionMenuRow }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    if (row.rename && !row.saving) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [row.rename, row.saving]);
+  if (row.rename) {
+    return (
+      <div className={`session-row${row.active ? " active" : ""} editing`} role="option" tabIndex={0}>
+        <form className="session-row-rename" onSubmit={(event) => { event.preventDefault(); row.save(); }}>
+          <input
+            ref={inputRef}
+            className="session-row-rename-input"
+            value={row.draft}
+            aria-label="会话名称"
+            disabled={row.saving}
+            onChange={(event) => row.setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                row.cancelRename();
+              }
+            }}
+          />
+          <button className="session-row-rename-save" type="submit" disabled={row.saving}>确定</button>
+          <button className="session-row-rename-cancel" type="button" disabled={row.saving} onClick={row.cancelRename}>取消</button>
+          {row.error ? <small className="session-row-rename-error">{row.error}</small> : null}
+        </form>
+      </div>
+    );
+  }
+  return (
+    <div
+      className={`session-row${row.active ? " active" : ""}`}
+      role="option"
+      tabIndex={0}
+      onClick={() => row.select()}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          row.select();
+        }
+      }}
+    >
+      <span><strong>{row.title}</strong><small>{row.time}</small></span>
+      <span className="session-row-actions">
+        {row.unread ? <span className="session-row-unread" aria-label={`${row.unread} 条未读消息`}>{row.unread > 99 ? "99+" : row.unread}</span> : null}
+        <button
+          className="session-row-edit"
+          type="button"
+          title="重命名"
+          aria-label="重命名会话"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            row.edit();
+          }}
+        >
+          <EditIcon />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function SessionList() {
+  const { sessionRows } = useChatMenus();
+  return <>{sessionRows.map((row) => <SessionRow key={row.id} row={row} />)}</>;
+}
+
 /**
  * React owns the stable chat-header structure. The legacy controller currently
  * paints the avatar/title/meta leaves and wires the existing actions after this
@@ -88,7 +299,7 @@ export function ChatHeader() {
           aria-label="切换对话"
         >
           <div id="chatConversationList" className="chat-conversation-list">
-            <LegacySurface id="chatConversationList" />
+            <ChatConversationList />
           </div>
         </div>
       </div>
@@ -133,11 +344,19 @@ export function ChatHeader() {
           </button>
           <div id="sessionMenu" className="session-menu hidden">
             <div id="sessionList" className="session-list">
-              <LegacySurface id="sessionList" />
+              <SessionList />
             </div>
           </div>
         </div>
       </div>
     </>
   );
+}
+
+declare global {
+  interface Window {
+    miaGroupAvatar?: {
+      applyGroupAvatar?(target: HTMLElement, members: readonly Readonly<Record<string, unknown>>[]): void;
+    };
+  }
 }

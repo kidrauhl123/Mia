@@ -2,92 +2,83 @@
 
 ## Goal
 
-Mia's desktop renderer must have one owner for each DOM subtree, bounded work on
-the input path, and measurable performance budgets. React is the renderer owner;
-the existing JavaScript modules remain temporary business-controller adapters
-until their state and actions are moved behind typed stores.
+Mia's desktop renderer has one owner for every rendered subtree, bounded work on
+the input path, and measurable performance budgets. React owns the renderer.
+Existing JavaScript modules remain business-controller adapters while state and
+I/O are incrementally moved behind typed stores; they do not own alternate
+rendered versions of migrated surfaces.
 
-This is a strangler migration, not a permanent hybrid renderer. A surface may be
-legacy-controlled or React-controlled during cutover, but both must never mutate
-the same children in the normal application path.
+## Completed ownership cutover
 
-## Current ownership
+The desktop renderer now has one top-level `createRoot`. `RendererApp` places
+React views into the established layout hosts with portals, so the visual and
+CSS geometry contract is unchanged while ownership remains singular.
 
-React currently owns:
+React owns:
 
-- navigation controls, section tabs, the discover switch, and
-  conversation-folder tabs;
-- the stable chat header frame, conversation list, message list, and rich
-  composer input;
+- navigation, section tabs, discover mode, and conversation-folder tabs;
+- the chat header, conversation switcher, session history, conversation list,
+  message list, permission prompt, and rich composer;
 - slash commands, mentions, attachments, reply state, attached-skill chips,
-  the add menu, skill picking, and permission prompts;
-- model, reasoning-effort, and permission popovers, including the Hermes
-  session-only YOLO control;
-- keyed reconciliation for conversations and messages;
-- visibility-aware rendering and bounded message history.
+  skill picking, model/reasoning/permission menus, and Hermes YOLO control;
+- contacts and contact detail, the assistant store, Skills and MCP, tasks, and
+  settings compatibility rows;
+- profile, bot, avatar crop, pet generation, friend, group, task, MCP, skill,
+  message, and cloud-login approval dialogs.
 
-These input and chat surfaces receive typed snapshots and callbacks. Their
-controllers no longer generate HTML, scan the rendered subtree, or rebind row
-events after each update.
+The route and dialog entries are typed and lazy. Controllers publish snapshots
+and actions through feature stores instead of producing replacement HTML.
+Conversation and message rows retain stable keys and signatures.
 
-The existing shell controller still applies route visibility and geometry
-attributes synchronously before feature views measure themselves. This preserves
-the established CSS layout contract during the multi-root migration. Those
-attributes move to React only after the renderer has a single top-level React
-root, so React commit timing cannot shift or resize legacy feature surfaces.
+`LegacySurface`, its store, static dialog bodies, and the production DOM
+fallbacks have been deleted. The production entry fails visibly when a required
+React bridge is absent instead of silently switching to an alternate renderer.
 
-## Acceptance checkpoint
+## Controller-adapter boundary
 
-The normal chat path is now React-owned from navigation through message
-rendering and composer interaction. In particular, typing, slash/mention
-suggestions, attachment updates, reply changes, runtime-control menus, and
-permission decisions do not pass through the compatibility surface.
+`app.js` is still the orchestration adapter for shared route state, runtime
+controls, and startup I/O. It synchronously applies the existing shell geometry
+attributes before feature views measure themselves. This is intentional and
+does not create a second React root or a second child owner.
 
-The production entry refuses to start if any required React bridge is missing.
-Direct DOM fallbacks that remain in feature modules are reachable only by
-isolated non-production harnesses that do not load the desktop React entry.
+The conversation/session menu, engine detection, cloud mobile-login flow,
+profile/bot dialogs, group settings, and pet dialog have been removed from the
+monolith into focused controllers. Continue extracting by responsibility when a
+controller changes; do not recreate a compatibility-surface renderer.
 
-## Explicit legacy islands
+## Performance gates
 
-The following secondary or low-frequency surfaces still use `LegacySurface`.
-They have one React-owned host and a fingerprinted compatibility producer, but
-their children are not yet typed React views:
-
-- contact list/detail and the assistant-store catalogue/detail sheet;
-- skill/MCP filters and cards;
-- task filters, list, preview body, and preview actions;
-- settings provider rows, engine install actions, and the mobile QR panel;
-- the chat-header conversation switcher and session-history rows;
-- profile, bot, group, avatar, and manual-task dialog bodies.
-
-No composer, message-list, conversation-list, or navigation-control surface is
-in this list.
-
-## Remaining cutover
-
-1. Replace the contact and assistant-store compatibility producers with typed
-   route stores and keyed React cards.
-2. Replace skill/MCP and task compatibility producers; keep preview/dialog
-   entries lazy.
-3. Replace settings compatibility rows and the two chat-header flyout lists.
-4. Move low-frequency dialog bodies (profile, bot, group, avatar, manual task)
-   into lazy React entries and load non-chat code only on first route entry.
-5. Delete `LegacySurface`, remove unit-harness DOM fallbacks, and split the
-   remaining `app.js` orchestration into renderer services.
-
-## Non-negotiable performance gates
-
-- The minified startup React bundle must remain at or below 256 KiB. New
-  low-frequency UI goes behind a split entry instead of growing startup code.
+- The minified startup React entry must remain at or below 256 KiB.
+- Low-frequency routes and dialogs must remain behind split entries.
 - Typing must not trigger a whole-app or whole-message-list render.
 - Conversation and message rows require stable keys and signatures.
-- Hidden/background views must not perform polling, animation, or render work.
-- Message DOM must stay bounded regardless of conversation history length.
-- With diagnostics enabled (`?perf=1` or
-  `localStorage["mia.performanceDiagnostics"]="1"`), compare
-  `input.latency`, `react.commit.*`, `main.longTask`, DOM-node count, and heap
-  growth against AionUi using the same conversation and machine.
+- Hidden/background views must not poll, animate, or render.
+- Message DOM must stay bounded regardless of history length.
+- A missing typed React bridge is a startup error, never a DOM-render fallback.
 
-The migration is complete only when the compatibility producers and the legacy
-renderer entry are gone; adopting a React dependency or wrapping old markup does
-not satisfy completion.
+With diagnostics enabled (`?perf=1` or
+`localStorage["mia.performanceDiagnostics"]="1"`), use
+`window.__miaPerformance.snapshot()` to capture `input.latency`,
+`react.commit.*`, `main.longTask`, DOM-node count, and heap growth.
+
+## 2026-07-28 same-machine inventory
+
+Run `npm run renderer:compare:aion` to reproduce the architecture and shipped
+load inventory against the sibling `AionUi` checkout.
+
+| Metric | Mia | AionUi |
+| --- | ---: | ---: |
+| Top-level React roots | 1 | 1 |
+| Lazy React imports | 6 | 24 |
+| Mia minified React startup entry | 232,519 bytes | unavailable without an AionUi build |
+| Mia split chunks | 13 / 92,266 bytes | unavailable without an AionUi build |
+| Direct classic controller scripts | 86 / 1,273,355 bytes | bundled by electron-vite; local build absent |
+| Renderer source inventory | 34 typed React files / 221,212 bytes | 612 files / 3,821,781 bytes |
+
+These numbers are a repeatable load/architecture inventory, not a fabricated
+latency comparison. The local AionUi checkout had neither dependencies nor
+`out/main/index.js`; its own Playwright startup benchmark therefore could not
+run. Runtime latency claims require a built AionUi on the same machine and the
+same populated conversation. Mia's remaining startup-weight target is explicit:
+reduce or defer the 1.27 MB classic controller graph while keeping controller
+behavior out of the React input/commit path.

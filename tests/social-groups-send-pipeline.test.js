@@ -61,6 +61,11 @@ function loadSocialGroups(options = {}) {
   documentMock.getElementById("groupCreateName").value = "";
   const mockWindow = {
     setTimeout: options.setTimeout || ((fn) => fn()),
+    miaReactDialogs: {
+      publish(payload) {
+        mockWindow.__dialogPayload = payload;
+      }
+    },
     mia: {
       social: {
         postConversationMessage: async () => {
@@ -207,7 +212,7 @@ test("fetchAndCacheConversationMembers cools down failed lookups", async () => {
 });
 
 test("openCreateGroupDialog shows friend display names instead of WeChat hash usernames", () => {
-  const { groups, documentMock } = loadSocialGroups({
+  const { groups, mockWindow } = loadSocialGroups({
     moduleState: {
       friends: [{
         id: "u_friend",
@@ -220,9 +225,7 @@ test("openCreateGroupDialog shows friend display names instead of WeChat hash us
 
   groups.openCreateGroupDialog();
 
-  const membersBox = documentMock.getElementById("groupCreateMembers");
-  const row = membersBox.children.find((child) => child.className === "group-create-member-row");
-  const nameEl = row.children.find((child) => child.className === "member-name");
-  assert.equal(nameEl.innerHTML, "Jung");
-  assert.doesNotMatch(nameEl.innerHTML, /wx_dab93e8a6744/);
+  const friend = mockWindow.__dialogPayload.dialog.members.find((member) => member.key === "friend:u_friend");
+  assert.equal(friend.name, "Jung");
+  assert.doesNotMatch(friend.name, /wx_dab93e8a6744/);
 });

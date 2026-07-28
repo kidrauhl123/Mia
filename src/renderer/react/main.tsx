@@ -1,5 +1,7 @@
-import { createRoot, type Root } from "react-dom/client";
+import { createPortal } from "react-dom";
+import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
+import { lazy, Suspense } from "react";
 import { BottomNavigation, NavigationRail } from "./components/Navigation";
 import { ChatHeader } from "./components/ChatHeader";
 import { ComposerInput } from "./components/ComposerInput";
@@ -23,76 +25,88 @@ import {
 } from "./components/SectionTabs";
 import { MessageList } from "./components/MessageList";
 import { PermissionBanner } from "./components/PermissionBanner";
-import { LegacySurface } from "./components/LegacySurface";
+import { useRendererShell } from "./hooks/useRendererShell";
+import { useDialogs } from "./stores/dialogs";
 import "./stores/conversation-list";
 import "./stores/conversation-folders";
 import "./stores/composer-content";
 import "./stores/composer-menus";
-import "./stores/legacy-surface";
 import "./stores/message-list";
 import "./stores/permission-banner";
+import "./stores/bot-store";
+import "./stores/contacts";
+import "./stores/skills";
+import "./stores/tasks";
+import "./stores/settings-compat";
+import "./stores/chat-menus";
+import "./stores/dialogs";
 import "./bridge";
 
-const roots: Root[] = [];
+const BotStorePortals = lazy(() => import("./components/BotStore"));
+const ContactPortals = lazy(() => import("./components/Contacts"));
+const SkillPortals = lazy(() => import("./components/Skills"));
+const TaskPortals = lazy(() => import("./components/Tasks"));
+const SettingsCompatPortals = lazy(() => import("./components/SettingsCompat"));
+const DialogPortals = lazy(() => import("./components/Dialogs"));
 
-function mount(element: HTMLElement | null, component: React.ReactNode): void {
-  if (!element) return;
-  const root = createRoot(element);
-  flushSync(() => root.render(component));
-  roots.push(root);
+function portal(id: string, component: React.ReactNode): React.ReactPortal | null {
+  const host = document.getElementById(id);
+  return host ? createPortal(component, host, id) : null;
 }
 
-mount(document.getElementById("reactNavigationRoot"), <NavigationRail />);
-mount(document.getElementById("sidebarBottomNav"), <BottomNavigation />);
-mount(document.getElementById("reactChatHeaderRoot"), <ChatHeader />);
-mount(document.getElementById("reactComposerInputRoot"), <ComposerInput />);
-mount(document.getElementById("composerReply"), <ComposerReply />);
-mount(document.getElementById("composerAttachments"), <ComposerAttachments />);
-mount(document.getElementById("composerSkills"), <ComposerSkills />);
-mount(document.getElementById("composerAddMenu"), <ComposerAddMenu />);
-mount(document.getElementById("skillPickerBody"), <SkillPickerBody />);
-mount(document.getElementById("slashCommandMenu"), <SlashCommandMenu />);
-mount(document.getElementById("mentionMenu"), <MentionMenu />);
-mount(document.getElementById("reactComposerSelectMenuRoot"), <ComposerSelectMenu />);
-mount(document.getElementById("personaTagFilters"), <ConversationFolderTabs />);
-mount(document.getElementById("personaList"), <ConversationList />);
-mount(document.getElementById("discoverModeToggle"), <DiscoverModeToggle />);
-mount(document.getElementById("reactContactsExploreTabsRoot"), <ExploreTabs className="explore-sidebar-tabs contacts-explore-tabs" />);
-mount(document.getElementById("reactExploreTabsRoot"), <ExploreTabs />);
-mount(document.getElementById("reactTaskTabsRoot"), <TaskTabs />);
-mount(document.getElementById("reactSettingsSidebarTabsRoot"), <SettingsSidebarTabs />);
-mount(document.getElementById("reactSettingsWorkspaceTabsRoot"), <SettingsWorkspaceTabs />);
-mount(document.getElementById("chat"), <MessageList />);
-mount(document.getElementById("agentPermissionBanner"), <PermissionBanner />);
-
-for (const id of [
-  "contactList",
-  "contactDetail",
-  "skillModeToggle",
-  "skillChipRow",
-  "skillCardGrid",
-  "botStoreCap",
-  "botStoreGrid",
-  "botStoreSheet",
-  "taskModeToggle",
-  "taskChipRow",
-  "tasksContent",
-  "taskPreviewActions",
-  "taskPreviewBody",
-  "connectedProviderList",
-  "engineRowHermesActions",
-  "engineRowClaudeActions",
-  "engineRowCodexActions",
-  "engineInstallActions",
-  "cloudMobileScanQr"
-]) {
-  mount(document.getElementById(id), <LegacySurface id={id} />);
+function RendererApp() {
+  const snapshot = useRendererShell();
+  const dialogs = useDialogs();
+  return (
+    <>
+      {portal("reactNavigationRoot", <NavigationRail />)}
+      {portal("sidebarBottomNav", <BottomNavigation />)}
+      {portal("reactChatHeaderRoot", <ChatHeader />)}
+      {portal("reactComposerInputRoot", <ComposerInput />)}
+      {portal("composerReply", <ComposerReply />)}
+      {portal("composerAttachments", <ComposerAttachments />)}
+      {portal("composerSkills", <ComposerSkills />)}
+      {portal("composerAddMenu", <ComposerAddMenu />)}
+      {portal("skillPickerBody", <SkillPickerBody />)}
+      {portal("slashCommandMenu", <SlashCommandMenu />)}
+      {portal("mentionMenu", <MentionMenu />)}
+      {portal("reactComposerSelectMenuRoot", <ComposerSelectMenu />)}
+      {portal("personaTagFilters", <ConversationFolderTabs />)}
+      {portal("personaList", <ConversationList />)}
+      {portal("discoverModeToggle", <DiscoverModeToggle />)}
+      {portal("reactContactsExploreTabsRoot", <ExploreTabs className="explore-sidebar-tabs contacts-explore-tabs" />)}
+      {portal("reactExploreTabsRoot", <ExploreTabs />)}
+      {portal("reactTaskTabsRoot", <TaskTabs />)}
+      {portal("reactSettingsSidebarTabsRoot", <SettingsSidebarTabs />)}
+      {portal("reactSettingsWorkspaceTabsRoot", <SettingsWorkspaceTabs />)}
+      {portal("chat", <MessageList />)}
+      {portal("agentPermissionBanner", <PermissionBanner />)}
+      <Suspense fallback={null}>
+        {snapshot.activeView === "contacts" ? <ContactPortals /> : null}
+        {snapshot.activeView === "bot-store" ? <BotStorePortals /> : null}
+        {snapshot.activeView === "skills" ? <SkillPortals /> : null}
+        {snapshot.activeView === "tasks" ? <TaskPortals /> : null}
+        {snapshot.activeView === "settings" ? <SettingsCompatPortals /> : null}
+        {dialogs.dialog.kind !== "closed" || dialogs.message ? <DialogPortals /> : null}
+      </Suspense>
+    </>
+  );
 }
+
+const rootElement = document.getElementById("reactRendererRoot");
+if (!rootElement) throw new Error("Missing #reactRendererRoot");
+const root = createRoot(rootElement);
+flushSync(() => root.render(<RendererApp />));
 
 document.documentElement.dataset.rendererFramework = "react";
 window.miaReactRenderer = {
   destroy() {
-    for (const root of roots.splice(0)) root.unmount();
+    root.unmount();
     delete document.documentElement.dataset.rendererFramework;
   }
 };
+
+const appScript = document.createElement("script");
+appScript.src = "./app.js";
+appScript.dataset.rendererEntry = "controller-adapters";
+document.body.appendChild(appScript);

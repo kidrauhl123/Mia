@@ -1,89 +1,38 @@
-// Group info / settings dialog for cloud group conversations.
-// Replaces the local-group openInfoDialog deleted in Phase 5. Every field
-// here writes through PATCH /api/conversations/:id (top-level name; everything
-// else goes into decorations) or /api/conversations/:id/members for membership.
-//
-// Fields:
-//   - 群头像 (decorations.avatar = { image, crop }) — uses the shared
-//     avatar-crop editor; reverting "恢复默认" clears the override so the
-//     sidebar mosaic renders again.
-//   - 群名 (conversation.name)
-//   - 群目标 (decorations.pinnedGoal) — shown to the conductor's
-//     dispatch prompt as the group summary fallback.
-//   - 群主 (decorations.hostMember = { kind: "bot", botId })
-//   - 成员管理 (POST/DELETE /api/conversations/:id/members)
-//   - 重置群上下文 (decorations.contextCard = null)
-
+// Typed React adapter for cloud-group settings.
+// This module owns data loading and mutations; React owns the dialog DOM.
 (function (global) {
   "use strict";
 
   const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds)
     || require("../../shared/conversation-kinds");
 
-  let _ctx = null;
-  let _activeConversationId = null;
-  let _pendingAvatarApply = null;
+  let context = null;
+  let activeConversationId = null;
+  let pendingAvatarConversationId = null;
 
-  function attach(internalCtx) { _ctx = internalCtx; }
-
-  function escapeHtml(value) {
-    return global.miaMarkdown?.escapeHtml?.(value)
-      ?? String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[ch]));
+  function attach(internalContext) {
+    context = internalContext;
   }
 
   function statusBadgeFrom(...sources) {
     for (const source of sources) {
-      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) return source.statusBadge;
-      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) return source.status_badge;
-    }
-    return undefined;
-  }
-
-  function appendNameWithBadge(el, { identity, fallbackName, statusBadge } = {}) {
-    const renderer = global.miaNameWithBadge;
-    if (renderer && (typeof renderer.setNameWithBadge === "function" || typeof renderer.renderNameWithBadge === "function")) {
-      try {
-        const payload = { identity, fallbackName, statusBadge };
-        if (typeof renderer.setNameWithBadge === "function") {
-          renderer.setNameWithBadge(el, payload);
-        } else {
-          el.appendChild(renderer.renderNameWithBadge(payload));
-        }
-        return;
-      } catch {
-        // Fall through to plain text.
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "statusBadge")) {
+        return source.statusBadge;
+      }
+      if (source && typeof source === "object" && Object.prototype.hasOwnProperty.call(source, "status_badge")) {
+        return source.status_badge;
       }
     }
-    el.textContent = fallbackName || identity?.displayName || "";
+    return null;
   }
 
-  function initNameBadgeLotties(root) {
-    try { global.miaNameWithBadge?.initLottieBadges?.(root); } catch { /* optional badge animation */ }
-  }
-
-  function applyTilesToButton(buttonEl, conversation, members) {
-    if (!buttonEl) return;
-    const slot = buttonEl.querySelector(".avatar");
-    if (!slot) return;
-    const custom = conversation?.decorations?.avatar;
-    if (custom && custom.image) {
-      slot.className = "avatar";
-      global.miaAvatar.paintAvatar(slot, { image: custom.image, crop: custom.crop, color: "#5e5ce6" });
-      slot.removeAttribute("data-count");
-      return;
+  function firstDisplayName(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (!text || /^wx_[a-f0-9]{8,16}$/i.test(text)) continue;
+      return text;
     }
-    slot.className = "avatar group-avatar";
-    slot.style.cssText = "";
-    const tiles = global.miaGroupTiles.resolveGroupMemberTiles(members || [], groupTilesCtx());
-    global.miaGroupAvatar.applyGroupAvatar(slot, tiles);
-  }
-
-  function groupTilesCtx() {
-    // Canonical identity/avatar context (self + cloud&local bots + friends +
-    // shared text fallback), shared with cloud-conversation message rendering.
-    // Group tiles need exactly this shape, so reuse it rather than re-deriving
-    // self/bots here would duplicate the shared adapter rules.
-    return _ctx.adapterCtx();
+    return "";
   }
 
   function conversationPublicId(conversation = {}) {
@@ -93,61 +42,35 @@
     return id.startsWith("g_") ? id.slice(2) : id;
   }
 
-  // —— field writes ——
-
-  async function patchDecorations(conversation, patch) {
-    const decorations = { ...(conversation.decorations || {}), ...patch };
-    const res = await global.mia.social.updateConversation(conversation.id, { decorations });
-    if (!res.ok) {
-      console.warn("[group-info] PATCH decorations failed:", res.error);
-      return null;
-    }
-    return res.data?.conversation || res.data || null;
+  function adapterContext() {
+    return context?.adapterCtx?.() || { bots: [], friends: [], self: {} };
   }
 
-  async function patchName(conversation, name) {
-    const res = await global.mia.social.updateConversation(conversation.id, { name });
-    if (!res.ok) {
-      alert("保存群名失败：" + (res.error || ""));
-      return null;
-    }
-    return res.data?.conversation || res.data || null;
+  function conversationById(conversationId) {
+    return context?.moduleState?.conversations?.find?.((conversation) => conversation.id === conversationId) || null;
   }
 
-  // —— render ——
-
-  function botNameFor(member, bots) {
-    if (member.bot_name) return member.bot_name;
-    const f = (bots || []).find((x) => (x.id || x.key) === member.member_ref);
-    return f?.name || member.member_ref;
+  function replaceConversation(conversationId, incoming) {
+    if (!incoming || !context?.moduleState?.conversations) return;
+    context.moduleState.conversations = context.moduleState.conversations.map((conversation) => (
+      conversation.id === conversationId ? { ...conversation, ...incoming } : conversation
+    ));
   }
 
-  function botAvatarFor(member, bots) {
-    const f = (bots || []).find((x) => (x.id || x.key) === member.member_ref);
-    return global.miaAvatarResolve.resolveAvatarForContact({
-      id: global.miaContact?.botAvatarIdentityId?.(member.member_ref, {
-        ...(f || {}),
-        id: f?.id || f?.key || member.identity?.id || member.member_ref
-      }) || member.member_ref,
-      displayName: f?.name || member.identity?.displayName || member.bot_name || member.member_ref,
-      avatarImage: f?.avatarImage || member.identity?.avatar?.image || member.bot_avatar_image || "",
-      avatarCrop: f?.avatarCrop || member.identity?.avatar?.crop || member.bot_avatar_crop || null,
-      color: f?.color || f?.avatarColor || f?.avatar_color || member.identity?.avatar?.color || member.bot_color || ""
-    });
+  function botForRef(bots, memberRef) {
+    return (bots || []).find((bot) => (bot.id || bot.key) === memberRef) || null;
   }
 
-  function firstDisplayName(...values) {
-    for (const value of values) {
-      const text = String(value || "").trim();
-      if (!text) continue;
-      if (/^wx_[a-f0-9]{8,16}$/i.test(text)) continue;
-      return text;
-    }
-    return "";
+  function friendForRef(friends, memberRef) {
+    return (friends || []).find((friend) => friend.id === memberRef) || null;
   }
 
-  function userNameFor(member, friends, self) {
-    const friend = (friends || []).find((f) => f.id === member.member_ref);
+  function botName(member, bot) {
+    return firstDisplayName(bot?.name, member.bot_name, member.identity?.displayName, member.member_ref)
+      || "Agent";
+  }
+
+  function userName(member, friend, self) {
     if (member.member_ref === self?.id) {
       return firstDisplayName(
         self?.displayName,
@@ -164,270 +87,232 @@
       friend?.username,
       friend?.account,
       member.member_ref
-    ) || member.member_ref;
+    ) || "用户";
   }
 
-  function renderMembersSection(box, conversation, members, bots, friends, self) {
-    box.innerHTML = "";
-    const hostBotId = conversation.decorations?.hostMember?.botId || null;
-    const botMembers = members.filter((m) => m.member_kind === MemberKind.Bot);
-    for (const member of members) {
-      const row = document.createElement("div");
-      row.className = "group-info-member-row";
-      const main = document.createElement("span");
-      main.className = "group-info-member-main";
-      const avatarEl = document.createElement("span");
-      avatarEl.className = "member-avatar";
-      let label = "";
-      let isHost = false;
-      let avatar;
-      if (member.member_kind === MemberKind.Bot) {
-        label = botNameFor(member, bots);
-        avatar = botAvatarFor(member, bots);
-        isHost = member.member_ref === hostBotId;
-      } else {
-        label = userNameFor(member, friends, self);
-        // Resolve user avatar (self or friend) through the canonical contact resolver.
-        avatar = global.miaContact.resolveContact(
-          { kind: global.miaContact.IdentityKind?.User || "user", ref: member.member_ref },
-          { self, friends }
-        ).avatar;
-      }
-      global.miaAvatar.paintAvatar(avatarEl, avatar);
-      const nameEl = document.createElement("span");
-      nameEl.className = "group-info-member-name";
-      const localBot = member.member_kind === MemberKind.Bot
-        ? (bots || []).find((x) => (x.id || x.key) === member.member_ref)
-        : null;
-      const friend = member.member_kind === MemberKind.User
-        ? (friends || []).find((f) => f.id === member.member_ref)
-        : null;
-      const identity = member.member_kind === MemberKind.Bot
-        ? (member.identity || { kind: "bot", id: member.member_ref, displayName: label })
-        : (member.member_ref === self?.id
-          ? { kind: "user", id: self?.id, displayName: label, statusBadge: statusBadgeFrom(self) }
-          : { kind: "user", id: member.member_ref, displayName: label, statusBadge: statusBadgeFrom(friend, member.identity) });
-      appendNameWithBadge(nameEl, {
-        identity,
-        fallbackName: label,
-        statusBadge: statusBadgeFrom(localBot, member.identity, friend, member)
-      });
-      if (isHost) {
-        const badge = document.createElement("span");
-        badge.className = "group-info-host-badge";
-        badge.textContent = "群主";
-        nameEl.appendChild(badge);
-      }
-      main.appendChild(avatarEl);
-      main.appendChild(nameEl);
-      row.appendChild(main);
+  function botAvatar(member, bot) {
+    return global.miaAvatarResolve.resolveAvatarForContact({
+      id: global.miaContact?.botAvatarIdentityId?.(member.member_ref, {
+        ...(bot || {}),
+        id: bot?.id || bot?.key || member.identity?.id || member.member_ref
+      }) || member.member_ref,
+      displayName: bot?.name || member.identity?.displayName || member.bot_name || member.member_ref,
+      avatarImage: bot?.avatarImage || member.identity?.avatar?.image || member.bot_avatar_image || "",
+      avatarCrop: bot?.avatarCrop || member.identity?.avatar?.crop || member.bot_avatar_crop || null,
+      color: bot?.color || bot?.avatarColor || bot?.avatar_color || member.identity?.avatar?.color || member.bot_color || ""
+    });
+  }
 
-      const actions = document.createElement("span");
-      actions.className = "group-info-member-actions";
-      const trigger = document.createElement("button");
-      trigger.type = "button";
-      trigger.className = "group-info-member-action-button";
-      trigger.setAttribute("aria-label", "成员操作");
-      trigger.textContent = "⋯";
-      const menu = document.createElement("span");
-      menu.className = "group-info-member-action-menu hidden";
-      const canBeHost = member.member_kind === MemberKind.Bot;
-      const canRemove = botMembers.length + (member.member_kind === MemberKind.User ? 1 : 0) > 1;
-      menu.innerHTML = `
-        ${canBeHost ? `<button type="button" data-group-member-action="set-host" ${isHost ? "disabled" : ""}>设为群主</button>` : ""}
-        <button type="button" data-group-member-action="remove" ${canRemove ? "" : "disabled"}>${
-          member.member_kind === MemberKind.User && member.member_ref === self?.id ? "退出群聊" : "移除群聊"
-        }</button>
-      `;
-      trigger.addEventListener("click", (event) => {
-        event.stopPropagation();
-        box.querySelectorAll(".group-info-member-action-menu").forEach((m) => { if (m !== menu) m.classList.add("hidden"); });
-        menu.classList.toggle("hidden");
-      });
-      menu.addEventListener("click", async (event) => {
-        const btn = event.target.closest("[data-group-member-action]");
-        if (!btn || btn.disabled) return;
-        menu.classList.add("hidden");
-        if (btn.dataset.groupMemberAction === "set-host") {
-          await patchDecorations(conversation, { hostMember: { kind: "bot", botId: member.member_ref } });
-          reload(conversation.id);
-        } else if (btn.dataset.groupMemberAction === "remove") {
-          if (!confirm(`确定移除「${label}」？`)) return;
-          const res = await global.mia.social.removeConversationMember(conversation.id, {
-            memberKind: member.member_kind,
-            memberRef: member.member_ref
-          });
-          if (!res.ok) { alert("移除失败：" + (res.error || "")); return; }
-          reload(conversation.id);
-        }
-      });
-      actions.appendChild(trigger);
-      actions.appendChild(menu);
-      row.appendChild(actions);
-      box.appendChild(row);
-    }
-    initNameBadgeLotties(box);
+  function userAvatar(member, friend, self) {
+    return global.miaContact.resolveContact(
+      { kind: global.miaContact.IdentityKind?.User || "user", ref: member.member_ref },
+      { self, friends: friend ? [friend] : [] }
+    ).avatar;
   }
 
   async function reload(conversationId) {
-    const res = await global.mia.social.getConversation(conversationId);
-    if (!res.ok) return;
-    const data = res.data;
-    if (data?.conversation) {
-      _ctx.moduleState.conversations = _ctx.moduleState.conversations.map((r) => (r.id === conversationId ? { ...r, ...data.conversation } : r));
-    }
-    if (Array.isArray(data?.members)) {
-      _ctx.conversationMembersCache.set(conversationId, data.members);
-    }
-    paintDialog(_activeConversationId);
-    _ctx.deps?.render?.();
+    const response = await global.mia.social.getConversation(conversationId);
+    if (!response?.ok) return response?.error || "群设置加载失败";
+    const data = response.data || {};
+    if (data.conversation) replaceConversation(conversationId, data.conversation);
+    if (Array.isArray(data.members)) context.conversationMembersCache.set(conversationId, data.members);
+    if (activeConversationId === conversationId) publishDialog(conversationId);
+    context?.deps?.render?.();
+    return "";
   }
 
-  function paintDialog(conversationId) {
-    if (!conversationId) return;
-    const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
+  async function patchDecorations(conversationId, patch) {
+    const conversation = conversationById(conversationId);
+    if (!conversation) return "群聊不存在";
+    const decorations = { ...(conversation.decorations || {}), ...patch };
+    const response = await global.mia.social.updateConversation(conversationId, { decorations });
+    if (!response?.ok) return response?.error || "保存失败";
+    replaceConversation(conversationId, response.data?.conversation || response.data);
+    return reload(conversationId);
+  }
+
+  async function patchName(conversationId, requestedName) {
+    const conversation = conversationById(conversationId);
+    if (!conversation) return "群聊不存在";
+    const name = String(requestedName || "").trim() || "未命名群聊";
+    if (name === String(conversation.name || "")) return "";
+    const response = await global.mia.social.updateConversation(conversationId, { name });
+    if (!response?.ok) return "保存群名失败：" + (response?.error || "");
+    replaceConversation(conversationId, response.data?.conversation || response.data);
+    return reload(conversationId);
+  }
+
+  function memberView(conversation, member, members, bots, friends, self) {
+    const isBot = member.member_kind === MemberKind.Bot;
+    const bot = isBot ? botForRef(bots, member.member_ref) : null;
+    const friend = !isBot ? friendForRef(friends, member.member_ref) : null;
+    const name = isBot ? botName(member, bot) : userName(member, friend, self);
+    const hostBotId = conversation.decorations?.hostMember?.botId || null;
+    const host = isBot && member.member_ref === hostBotId;
+    const key = `${member.member_kind}:${member.member_ref}`;
+    return {
+      avatar: isBot ? botAvatar(member, bot) : userAvatar(member, friend, self),
+      badge: statusBadgeFrom(bot, friend, member.identity, member),
+      canRemove: members.length > 1,
+      canSetHost: isBot,
+      host,
+      key,
+      name,
+      removeLabel: !isBot && member.member_ref === self?.id ? "退出群聊" : "移出群聊",
+      remove: async () => {
+        if (!global.confirm(`确定移除「${name}」？`)) return "";
+        const response = await global.mia.social.removeConversationMember(conversation.id, {
+          memberKind: member.member_kind,
+          memberRef: member.member_ref
+        });
+        if (!response?.ok) return "移除失败：" + (response?.error || "");
+        return reload(conversation.id);
+      },
+      setHost: async () => patchDecorations(conversation.id, {
+        hostMember: { kind: "bot", botId: member.member_ref }
+      })
+    };
+  }
+
+  function addableViews(conversation, members, bots, friends) {
+    const existing = new Set(members.map((member) => `${member.member_kind}:${member.member_ref}`));
+    const values = [];
+    for (const friend of friends || []) {
+      const key = `${MemberKind.User}:${friend.id}`;
+      if (!friend.id || existing.has(key)) continue;
+      const name = firstDisplayName(friend.displayName, friend.username, friend.account, friend.id) || "用户";
+      values.push({
+        avatar: global.miaContact.resolveContact(
+          { kind: global.miaContact.IdentityKind?.User || "user", ref: friend.id },
+          { self: {}, friends: [friend] }
+        ).avatar,
+        badge: statusBadgeFrom(friend),
+        key,
+        name,
+        add: async () => {
+          const response = await global.mia.social.addConversationMember(conversation.id, {
+            memberKind: MemberKind.User,
+            memberRef: friend.id
+          });
+          if (!response?.ok) return "添加失败：" + (response?.error || "");
+          return reload(conversation.id);
+        }
+      });
+    }
+    for (const bot of bots || []) {
+      const id = bot.id || bot.key;
+      const key = `${MemberKind.Bot}:${id}`;
+      if (!id || existing.has(key)) continue;
+      const name = firstDisplayName(bot.name, id) || "Agent";
+      values.push({
+        avatar: global.miaAvatarResolve.resolveAvatarForContact({
+          id: global.miaContact?.botAvatarIdentityId?.(id, bot) || id,
+          displayName: name,
+          avatarImage: bot.avatarImage || "",
+          avatarCrop: bot.avatarCrop || null,
+          color: bot.color || bot.avatarColor || bot.avatar_color || ""
+        }),
+        badge: statusBadgeFrom(bot),
+        key,
+        name,
+        add: async () => {
+          const response = await global.mia.social.addConversationMember(conversation.id, {
+            memberKind: MemberKind.Bot,
+            memberRef: id
+          });
+          if (!response?.ok) return "添加失败：" + (response?.error || "");
+          return reload(conversation.id);
+        }
+      });
+    }
+    return values;
+  }
+
+  function closeDialog() {
+    activeConversationId = null;
+    pendingAvatarConversationId = null;
+    global.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
+  }
+
+  function publishDialog(conversationId) {
+    const conversation = conversationById(conversationId);
     if (!conversation) return;
-    const members = _ctx.conversationMembersCache.get(conversationId) || [];
-    // Canonical context (self + cloud&local bots + friends) — see groupTilesCtx().
-    const actx = _ctx.adapterCtx();
-    const bots = actx.bots;
-    const self = actx.self;
+    const members = context?.conversationMembersCache?.get?.(conversationId) || [];
+    const actx = adapterContext();
+    const bots = actx.bots || [];
+    const friends = actx.friends || context?.moduleState?.friends || [];
+    const self = actx.self || {};
+    const customAvatar = conversation.decorations?.avatar;
+    const mosaic = global.miaGroupTiles.resolveGroupMemberTiles(members, actx);
 
-    const avatarBtn = document.getElementById("groupInfoAvatarPreview");
-    applyTilesToButton(avatarBtn, conversation, members);
-
-    const nameInput = document.getElementById("groupInfoName");
-    if (nameInput && document.activeElement !== nameInput) nameInput.value = conversation.name || "";
-
-    const publicIdEl = document.getElementById("groupInfoPublicId");
-    if (publicIdEl) publicIdEl.textContent = conversationPublicId(conversation) || "未生成";
-
-    const goalInput = document.getElementById("groupInfoGoal");
-    if (goalInput && document.activeElement !== goalInput) goalInput.value = conversation.decorations?.pinnedGoal || "";
-
-    renderMembersSection(document.getElementById("groupInfoMembers"), conversation, members, bots, _ctx.moduleState.friends || [], self);
+    global.miaReactDialogs?.publish?.({
+      dialog: {
+        addable: addableViews(conversation, members, bots, friends),
+        avatar: customAvatar?.image
+          ? {
+              color: "#5e5ce6",
+              crop: customAvatar.crop || null,
+              image: customAvatar.image,
+              text: conversation.name || ""
+            }
+          : null,
+        chooseAvatar: (dataUrl) => {
+          if (!dataUrl) return;
+          pendingAvatarConversationId = conversationId;
+          global.miaBotDialog.openAvatarCropEditor(
+            dataUrl,
+            { x: 50, y: 50, zoom: 1.12 },
+            "groupConversation"
+          );
+        },
+        close: closeDialog,
+        goal: conversation.decorations?.pinnedGoal || "",
+        kind: "group-info",
+        members: members.map((member) => memberView(conversation, member, members, bots, friends, self)),
+        mosaic,
+        name: conversation.name || "",
+        publicId: conversationPublicId(conversation) || "未生成",
+        resetAvatar: () => patchDecorations(conversationId, { avatar: null }),
+        resetContext: async () => {
+          if (!global.confirm("重置群上下文？已生成的摘要会清空，后续重新积累。")) return "";
+          return patchDecorations(conversationId, { contextCard: null });
+        },
+        saveGoal: (goal) => {
+          const next = String(goal || "").trim();
+          if (next === String(conversation.decorations?.pinnedGoal || "")) return Promise.resolve("");
+          return patchDecorations(conversationId, { pinnedGoal: next || null });
+        },
+        saveName: (name) => patchName(conversationId, name)
+      }
+    });
   }
 
   function openDialog(conversationOrId) {
     const conversationId = typeof conversationOrId === "string" ? conversationOrId : conversationOrId?.id;
     if (!conversationId) return;
-    const dialog = document.getElementById("groupInfoDialog");
-    if (!dialog) return;
-    _activeConversationId = conversationId;
-    dialog.classList.remove("hidden");
-
-    const nameInput = document.getElementById("groupInfoName");
-    const goalInput = document.getElementById("groupInfoGoal");
-    const closeBtn = document.getElementById("groupInfoClose");
-    const resetCtxBtn = document.getElementById("groupInfoResetCtx");
-    const avatarBtn = document.getElementById("groupInfoAvatarPreview");
-    const avatarFile = document.getElementById("groupInfoAvatarFile");
-    const avatarReset = document.getElementById("groupInfoAvatarReset");
-    const addMemberToggle = document.getElementById("groupInfoAddMemberToggle");
-    const addableBox = document.getElementById("groupInfoAddable");
-
-    // Ensure members are fresh.
-    global.mia.social.getConversation(conversationId).then((res) => {
-      if (!res.ok) return;
-      const data = res.data;
-      if (Array.isArray(data?.members)) _ctx.conversationMembersCache.set(conversationId, data.members);
-      if (data?.conversation) _ctx.moduleState.conversations = _ctx.moduleState.conversations.map((r) => (r.id === conversationId ? { ...r, ...data.conversation } : r));
-      paintDialog(conversationId);
-    }).catch(() => paintDialog(conversationId));
-
-    paintDialog(conversationId);
-
-    function close() {
-      dialog.classList.add("hidden");
-      _activeConversationId = null;
-      _pendingAvatarApply = null;
-      closeBtn?.removeEventListener("click", close);
-      document.removeEventListener("keydown", onEsc);
-      dialog.removeEventListener("click", onBackdrop);
-      nameInput?.removeEventListener("change", onNameChange);
-      goalInput?.removeEventListener("change", onGoalChange);
-      resetCtxBtn?.removeEventListener("click", onResetCtx);
-      avatarBtn?.removeEventListener("click", onAvatarClick);
-      avatarFile?.removeEventListener("change", onAvatarFile);
-      avatarReset?.removeEventListener("click", onAvatarReset);
-      addMemberToggle?.removeEventListener("click", onToggleAddable);
-    }
-    function onEsc(e) { if (e.key === "Escape") close(); }
-    function onBackdrop(e) { if (e.target === dialog) close(); }
-    async function onNameChange() {
-      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
-      if (!conversation) return;
-      const next = nameInput.value.trim() || "未命名群聊";
-      if (next === (conversation.name || "")) return;
-      const updated = await patchName(conversation, next);
-      if (updated) reload(conversationId);
-    }
-    async function onGoalChange() {
-      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
-      if (!conversation) return;
-      const next = goalInput.value.trim();
-      if (next === (conversation.decorations?.pinnedGoal || "")) return;
-      const updated = await patchDecorations(conversation, { pinnedGoal: next || null });
-      if (updated) reload(conversationId);
-    }
-    async function onResetCtx() {
-      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
-      if (!conversation) return;
-      if (!confirm("重置群上下文？已生成的摘要会清空，后续重新积累。")) return;
-      const updated = await patchDecorations(conversation, { contextCard: null });
-      if (updated) reload(conversationId);
-    }
-    function onAvatarClick() { avatarFile?.click(); }
-    function onAvatarFile() {
-      const file = avatarFile?.files?.[0];
-      if (!file || !file.type?.startsWith("image/")) return;
-      const reader = new FileReader();
-      reader.addEventListener("load", () => {
-        const dataUrl = String(reader.result || "");
-        _pendingAvatarApply = conversationId;
-        global.miaBotDialog.openAvatarCropEditor(dataUrl, { x: 50, y: 50, zoom: 1.12 }, "groupConversation");
-      });
-      reader.readAsDataURL(file);
-      avatarFile.value = "";
-    }
-    async function onAvatarReset() {
-      const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
-      if (!conversation) return;
-      const updated = await patchDecorations(conversation, { avatar: null });
-      if (updated) reload(conversationId);
-    }
-    function onToggleAddable() {
-      addableBox?.classList.toggle("hidden");
-    }
-
-    closeBtn?.addEventListener("click", close);
-    document.addEventListener("keydown", onEsc);
-    dialog.addEventListener("click", onBackdrop);
-    nameInput?.addEventListener("change", onNameChange);
-    goalInput?.addEventListener("change", onGoalChange);
-    resetCtxBtn?.addEventListener("click", onResetCtx);
-    avatarBtn?.addEventListener("click", onAvatarClick);
-    avatarFile?.addEventListener("change", onAvatarFile);
-    avatarReset?.addEventListener("click", onAvatarReset);
-    addMemberToggle?.addEventListener("click", onToggleAddable);
+    activeConversationId = conversationId;
+    publishDialog(conversationId);
+    reload(conversationId).catch(() => {
+      if (activeConversationId === conversationId) publishDialog(conversationId);
+    });
   }
 
-  // Called from the global confirmAvatarCrop handler (target === "groupConversation").
   async function applyAvatarFromCropEditor(image, crop) {
-    const conversationId = _pendingAvatarApply || _activeConversationId;
-    _pendingAvatarApply = null;
+    const conversationId = pendingAvatarConversationId || activeConversationId;
+    pendingAvatarConversationId = null;
     if (!conversationId) return;
-    const conversation = _ctx.moduleState.conversations.find((r) => r.id === conversationId);
-    if (!conversation) return;
-    const normalized = global.miaAvatar.normalizeCrop(crop);
-    const updated = await patchDecorations(conversation, { avatar: { image, crop: normalized } });
-    if (updated) reload(conversationId);
+    await patchDecorations(conversationId, {
+      avatar: {
+        crop: global.miaAvatar.normalizeCrop(crop),
+        image
+      }
+    });
   }
 
   global.miaGroupInfoDialog = {
-    attach,
-    open: openDialog,
     applyAvatarFromCropEditor,
+    attach,
+    open: openDialog
   };
 
   if (global.miaSocial && global.miaSocial._internalCtx) {

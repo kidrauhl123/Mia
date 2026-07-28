@@ -436,92 +436,13 @@
   }
 
   // ── openCreateGroupDialog ─────────────────────────────────────────────────
-  // Reuses the existing #groupCreateDialog DOM (rail #1's UI). Members are a
-  // single mixed list of friends + own bots — the frontend treats them as
-  // unified "contacts"; the kind tag is only needed when posting to /api/conversations.
+  // React renders the dialog. This adapter builds one mixed contact list and
+  // performs the cloud-conversation mutation.
 
   function openCreateGroupDialog() {
-    const dialog = document.getElementById("groupCreateDialog");
-    if (!dialog) {
-      console.error("[social-groups] groupCreateDialog DOM missing");
-      return;
-    }
     const { moduleState, deps, conversationMembersCache, dedup } = ctx;
-    const membersBox = document.getElementById("groupCreateMembers");
-    const hostSection = document.getElementById("groupCreateHost")?.closest(".group-create-section");
-    const nameInput = document.getElementById("groupCreateName");
-    const countEl = document.getElementById("groupCreateCount");
-    const confirmBtn = document.getElementById("groupCreateConfirm");
-    const cancelBtn = document.getElementById("groupCreateCancel");
-    const closeBtn = document.getElementById("groupCreateClose");
-
-    const MAX_MEMBERS = 5;
-    const selected = new Map(); // key `${kind}:${id}` → { kind, id, name }
-
-    // Cloud conversations have no "host bot" concept — hide that section while open.
-    const prevHostDisplay = hostSection ? hostSection.style.display : "";
-    if (hostSection) hostSection.style.display = "none";
-
-    function refreshCount() {
-      if (countEl) countEl.textContent = String(selected.size);
-      if (confirmBtn) confirmBtn.disabled = selected.size < 1;
-    }
-
-    function buildRow(entry) {
-      const key = `${entry.kind}:${entry.id}`;
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "group-create-member-row";
-      row.setAttribute("role", "option");
-      row.setAttribute("aria-selected", "false");
-      row.dataset.memberKey = key;
-
-      const avatarEl = document.createElement("span");
-      avatarEl.className = "member-avatar";
-      window.miaAvatar.paintAvatar(avatarEl, entry);
-
-      const nameEl = document.createElement("span");
-      nameEl.className = "member-name";
-      nameEl.innerHTML = renderNameWithBadgeHtml({
-        identity: entry.identity || { displayName: entry.name },
-        fallbackName: entry.name,
-        statusBadge: entry.statusBadge
-      });
-
-      const checkEl = document.createElement("span");
-      checkEl.className = "member-check";
-      checkEl.setAttribute("aria-hidden", "true");
-
-      row.appendChild(avatarEl);
-      row.appendChild(nameEl);
-      row.appendChild(checkEl);
-
-      row.addEventListener("click", () => {
-        if (selected.has(key)) {
-          selected.delete(key);
-          row.classList.remove("is-selected");
-          row.setAttribute("aria-selected", "false");
-        } else {
-          if (selected.size >= MAX_MEMBERS) return;
-          selected.set(key, entry);
-          row.classList.add("is-selected");
-          row.setAttribute("aria-selected", "true");
-        }
-        refreshCount();
-      });
-      return row;
-    }
-
-    // Build mixed contact list: friends + own cloud-stored bot identities.
-    membersBox.innerHTML = "";
     const { friends, bots: ownedBots } = _adapterCtx();
-
-    if (friends.length === 0 && ownedBots.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "group-create-members-empty";
-      empty.textContent = "还没有联系人";
-      membersBox.appendChild(empty);
-    }
+    const entries = [];
     for (const friend of friends) {
       const name = friendDisplayName(friend, { friends, bots: ownedBots });
       const avatar = window.miaAvatarResolve.resolveAvatarForContact({
@@ -531,7 +452,7 @@
         avatarCrop: friend.avatarCrop || null,
         color: friend.avatarColor || friend.avatar_color || friend.color || ""
       });
-      membersBox.appendChild(buildRow({
+      entries.push({
         kind: "friend",
         id: friend.id,
         name,
@@ -541,7 +462,7 @@
         image: avatar.image,
         crop: avatar.crop,
         text: avatar.text
-      }));
+      });
     }
     for (const bot of ownedBots) {
       const id = bot.key || bot.id;
@@ -556,7 +477,7 @@
         avatarCrop: bot.avatarCrop || null,
         color: bot.color || bot.avatarColor || bot.avatar_color || ""
       });
-      membersBox.appendChild(buildRow({
+      entries.push({
         kind: "bot",
         id,
         name,
@@ -567,45 +488,39 @@
         image: avatar.image,
         crop: avatar.crop,
         text: avatar.text
-      }));
+      });
     }
-    initNameBadgeLotties(membersBox);
-
-    nameInput.value = "";
-    refreshCount();
-    dialog.classList.remove("hidden");
-    setTimeout(() => { try { membersBox.querySelector(".group-create-member-row")?.focus(); } catch {} }, 0);
-
-    function close() {
-      dialog.classList.add("hidden");
-      if (hostSection) hostSection.style.display = prevHostDisplay;
-      confirmBtn.removeEventListener("click", onConfirm);
-      cancelBtn.removeEventListener("click", onClose);
-      closeBtn.removeEventListener("click", onClose);
-      document.removeEventListener("keydown", onEsc);
-      dialog.removeEventListener("click", onBackdropClick);
-    }
-    function onClose() { close(); }
-    function onEsc(e) { if (e.key === "Escape") close(); }
-    function onBackdropClick(e) { if (e.target === dialog) close(); }
-
-    async function onConfirm() {
-      if (selected.size < 1) { alert("至少选择 1 位联系人"); return; }
-
-      const entries = Array.from(selected.values());
-      const name = (nameInput.value || "").trim() || entries.map((e) => e.name).join(" · ");
-      const memberFriendUserIds = entries.filter((e) => e.kind === "friend").map((e) => e.id);
-      const botEntries = entries.filter((e) => e.kind === "bot");
-
-      confirmBtn.disabled = true;
+    const byKey = new Map(entries.map((entry) => [`${entry.kind}:${entry.id}`, entry]));
+    const close = () => global.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
+    global.miaReactDialogs?.publish?.({
+      dialog: {
+        close,
+        kind: "group-create",
+        members: entries.map((entry) => ({
+          avatar: {
+            color: entry.color || "#5e5ce6",
+            crop: entry.crop || null,
+            image: entry.image || "",
+            text: entry.text || entry.name || ""
+          },
+          badge: entry.statusBadge || null,
+          id: entry.id,
+          key: `${entry.kind}:${entry.id}`,
+          name: entry.name
+        })),
+        submit: async (memberKeys, requestedName) => {
+          const selected = memberKeys.map((key) => byKey.get(key)).filter(Boolean);
+          if (!selected.length) return "至少选择 1 位联系人";
+          const name = String(requestedName || "").trim() || selected.map((entry) => entry.name).join(" · ");
+          const memberFriendUserIds = selected.filter((entry) => entry.kind === "friend").map((entry) => entry.id);
+          const botEntries = selected.filter((entry) => entry.kind === "bot");
       try {
-        // Phase 5 cutover: every group is a cloud conversation. Login required.
-        const memberBots = botEntries.map((e) => ({
-          botId: e.id,
-          runtimeKind: e.runtimeKind || "cloud-claude-code"
+        const memberBots = botEntries.map((entry) => ({
+          botId: entry.id,
+          runtimeKind: entry.runtimeKind || "cloud-claude-code"
         }));
         const res = await window.mia.social.createConversation({ name, memberBots, memberFriendUserIds });
-        if (!res.ok) { alert("创建失败：" + (res.error || "")); confirmBtn.disabled = false; return; }
+        if (!res.ok) return "创建失败：" + (res.error || "");
         const newConversation = res.data?.conversation || res.data;
         if (newConversation && newConversation.id) {
           moduleState.conversations = dedup([...moduleState.conversations, newConversation]);
@@ -617,21 +532,15 @@
           }
           close();
           if (deps && typeof deps.render === "function") deps.render();
-        } else {
-          alert("创建失败：无效响应");
-          confirmBtn.disabled = false;
+          return "";
         }
+        return "创建失败：无效响应";
       } catch (err) {
-        alert("创建失败：" + (err?.message || err));
-        confirmBtn.disabled = false;
+        return "创建失败：" + (err?.message || err);
       }
-    }
-
-    confirmBtn.addEventListener("click", onConfirm);
-    cancelBtn.addEventListener("click", onClose);
-    closeBtn.addEventListener("click", onClose);
-    document.addEventListener("keydown", onEsc);
-    dialog.addEventListener("click", onBackdropClick);
+        }
+      }
+    });
   }
 
   // ── wire up to miaSocial ──────────────────────────────────────────────

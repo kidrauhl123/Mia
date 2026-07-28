@@ -22,13 +22,12 @@ test("desktop renderer builds a production React bundle before dev start and pac
   assert.match(build, /bundleBytes > MAX_RENDERER_BUNDLE_BYTES/);
   assert.match(start, /build-renderer-react\.js/);
   assert.match(prepare, /buildRendererReact\(\{\s*minify:\s*true/);
-  assert.ok(
-    html.indexOf("./react-dist/renderer.js") < html.indexOf("./app.js"),
-    "React must synchronously create compatibility elements before app.js caches them"
-  );
+  assert.match(html, /<script type="module" src="\.\/react-dist\/renderer\.js"><\/script>/);
+  assert.doesNotMatch(html, /<script[^>]+src="\.\/app\.js"/);
+  assert.match(read("src/renderer/react/main.tsx"), /appScript\.src = "\.\/app\.js"/);
 });
 
-test("React owns navigation controls while the shell keeps synchronous layout geometry", () => {
+test("one React root owns navigation while the controller keeps synchronous layout geometry", () => {
   const html = read("src/renderer/index.html");
   const main = read("src/renderer/react/main.tsx");
   const navigation = read("src/renderer/react/components/Navigation.tsx");
@@ -47,21 +46,23 @@ test("React owns navigation controls while the shell keeps synchronous layout ge
     "reactSettingsWorkspaceTabsRoot"
   ]) {
     assert.match(html, new RegExp(`id="${rootId}"`));
-    assert.match(main, new RegExp(`getElementById\\("${rootId}"\\)`));
+    assert.match(main, new RegExp(`portal\\("${rootId}"`));
   }
+  assert.equal((main.match(/createRoot\(/g) || []).length, 1);
+  assert.match(main, /getElementById\("reactRendererRoot"\)/);
   assert.match(navigation, /useRendererShell\(\)/);
   assert.match(app, /els\.chatView\?\.classList\.toggle\("hidden", state\.activeView !== "chat"\)/);
   assert.match(app, /els\.appShell\?\.setAttribute\("data-active-view", state\.activeView\)/);
-  assert.match(app, /els\.appShell\?\.setAttribute\("data-layout", legacyGridLayoutForView\(state\.activeView\)\)/);
+  assert.match(app, /els\.appShell\?\.setAttribute\("data-layout", gridLayoutForView\(state\.activeView\)\)/);
   assert.match(app, /els\.appShell\?\.setAttribute\("data-shell-layout", state\.shellLayout\)/);
   assert.match(tabs, /bridge\.invoke\("selectExploreView"/);
   assert.match(tabs, /export function DiscoverModeToggle\(\)/);
   assert.match(tabs, /snapshot\.contactsUnread/);
-  assert.match(main, /getElementById\("discoverModeToggle"\), <DiscoverModeToggle \/>/);
+  assert.match(main, /portal\("discoverModeToggle", <DiscoverModeToggle \/>/);
   assert.match(html, /id="discoverModeToggle"[^>]+data-react-root="discover-mode"/);
   assert.doesNotMatch(app, /function renderDiscoverModeToggle\(\)/);
   assert.match(html, /id="personaTagFilters"[^>]+data-react-root="conversation-folders"/);
-  assert.match(main, /getElementById\("personaTagFilters"\), <ConversationFolderTabs \/>/);
+  assert.match(main, /portal\("personaTagFilters", <ConversationFolderTabs \/>/);
   assert.match(folders, /useConversationFolders\(\)/);
   assert.match(folders, /window\.addEventListener\("pointermove"/);
   assert.match(folderStore, /flushSync\(\(\) => \{/);
@@ -78,10 +79,16 @@ test("production app entry refuses to run without the React renderer contract", 
   for (const globalName of [
     "miaReactRenderer",
     "miaReactBridge",
-    "miaReactSurface",
     "miaReactMessageList",
     "miaReactConversationList",
-    "miaReactConversationFolders"
+    "miaReactConversationFolders",
+    "miaReactBotStore",
+    "miaReactContacts",
+    "miaReactSkills",
+    "miaReactTasks",
+    "miaReactSettingsCompat",
+    "miaReactChatMenus",
+    "miaReactDialogs"
   ]) {
     assert.match(app, new RegExp(`"${globalName}"`));
   }
@@ -139,44 +146,40 @@ test("React reconciles conversation cards and messages by stable keys", () => {
   assert.match(messageStore, /flushSync\(\(\) => \{/);
 });
 
-test("React owns the chat header, composer interaction, and explicit compatibility islands", () => {
+test("React owns the chat header, composer interaction, feature routes, and dialogs", () => {
   const html = read("src/renderer/index.html");
   const main = read("src/renderer/react/main.tsx");
   const header = read("src/renderer/react/components/ChatHeader.tsx");
-  const surface = read("src/renderer/react/components/LegacySurface.tsx");
-  const surfaceStore = read("src/renderer/react/stores/legacy-surface.ts");
   const composer = read("src/renderer/chat/composer.js");
   const composerContent = read("src/renderer/react/components/ComposerContent.tsx");
   const composerMenus = read("src/renderer/react/components/ComposerMenus.tsx");
   const composerSelect = read("src/renderer/react/components/ComposerSelectMenu.tsx");
   const permissionBanner = read("src/renderer/react/components/PermissionBanner.tsx");
+  const dialogs = read("src/renderer/react/components/Dialogs.tsx");
   const tasks = read("src/renderer/tasks/tasks-panel.js");
   const skills = read("src/renderer/skills/skill-library.js");
   const contacts = read("src/renderer/bot/bot-manager.js");
 
   assert.match(html, /id="reactChatHeaderRoot"[\s\S]*data-react-root="chat-header"/);
-  assert.match(main, /getElementById\("reactChatHeaderRoot"\), <ChatHeader \/>/);
-  assert.match(header, /<LegacySurface id="chatConversationList" \/>/);
-  assert.match(header, /<LegacySurface id="sessionList" \/>/);
+  assert.match(main, /portal\("reactChatHeaderRoot", <ChatHeader \/>/);
+  assert.match(header, /<ChatConversationList \/>/);
+  assert.match(header, /<SessionList \/>/);
 
-  for (const id of [
-    "contactList",
-    "contactDetail",
-    "skillCardGrid",
-    "botStoreGrid",
-    "tasksContent",
-    "connectedProviderList"
+  for (const lazyEntry of [
+    "BotStore",
+    "Contacts",
+    "Skills",
+    "Tasks",
+    "SettingsCompat",
+    "Dialogs"
   ]) {
-    assert.match(main, new RegExp(`"${id}"`), `${id} should remain an explicit compatibility island`);
+    assert.match(main, new RegExp(`lazy\\(\\(\\) => import\\("\\./components/${lazyEntry}"\\)\\)`));
   }
 
-  assert.match(main, /getElementById\("composerAttachments"\), <ComposerAttachments \/>/);
-  assert.match(main, /getElementById\("slashCommandMenu"\), <SlashCommandMenu \/>/);
-  assert.match(main, /getElementById\("mentionMenu"\), <MentionMenu \/>/);
-  assert.match(main, /getElementById\("agentPermissionBanner"\), <PermissionBanner \/>/);
-  assert.match(surfaceStore, /flushSync\(commit\)/);
-  assert.match(surfaceStore, /if \(previous\.fingerprint === next\.fingerprint/);
-  assert.match(surface, /target\.replaceChildren\(\.\.\.Array\.from\(source\.childNodes\)\)/);
+  assert.match(main, /portal\("composerAttachments", <ComposerAttachments \/>/);
+  assert.match(main, /portal\("slashCommandMenu", <SlashCommandMenu \/>/);
+  assert.match(main, /portal\("mentionMenu", <MentionMenu \/>/);
+  assert.match(main, /portal\("agentPermissionBanner", <PermissionBanner \/>/);
   assert.match(composer, /miaReactComposerMenus\.publishSlash/);
   assert.match(composer, /miaReactComposerMenus\.publishMention/);
   assert.match(composer, /miaReactComposerContent\.publishAttachments/);
@@ -185,7 +188,11 @@ test("React owns the chat header, composer interaction, and explicit compatibili
   assert.match(composerMenus, /function SlashCommandMenu/);
   assert.match(composerSelect, /function ComposerSelectMenu/);
   assert.match(permissionBanner, /function PermissionBanner/);
-  assert.match(tasks, /miaReactSurface\?\.renderHtml/);
-  assert.match(skills, /miaReactSurface\?\.renderHtml/);
-  assert.match(contacts, /miaReactSurface\?\.renderNodes/);
+  assert.match(dialogs, /function ProfileDialog/);
+  assert.match(dialogs, /function BotDialog/);
+  assert.match(dialogs, /function GroupInfoDialog/);
+  assert.match(tasks, /miaReactTasks\?\.publish/);
+  assert.match(skills, /miaReactSkills\?\.publish/);
+  assert.match(contacts, /miaReactContacts\?\.publish/);
+  assert.doesNotMatch(main, /LegacySurface|miaReactSurface/);
 });

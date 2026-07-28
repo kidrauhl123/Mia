@@ -18,6 +18,7 @@
     "start:multi": "node scripts/start-dev.js --multi",
     "renderer:build": "node scripts/build-renderer-react.js",
     "renderer:typecheck": "tsc --noEmit -p src/renderer/react/tsconfig.json",
+    "renderer:compare:aion": "node scripts/compare-renderer-architecture.js",
     "web": "node scripts/serve-web.js",
     "cloud": "node scripts/serve-cloud.js",
     "cloud:release": "node scripts/build-cloud-release.js",

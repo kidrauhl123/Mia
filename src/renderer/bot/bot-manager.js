@@ -934,20 +934,12 @@
     bots.forEach((bot) => loadRuntimeTargetOptions(bot));
     const pendingRequests = window.miaSocial?.pendingRequestCount?.() || 0;
     if (!bots.length && !pendingRequests) {
-      const emptyListHtml = `<div class="contact-empty">还没有联系人</div>`;
-      if (window.miaReactSurface?.renderHtml) {
-        window.miaReactSurface.renderHtml(els.contactList, emptyListHtml, "contacts:empty");
-      } else {
-        els.contactList.innerHTML = emptyListHtml;
-      }
-      els.contactDetail.__miaContactDetailHtmlKey = "";
-      els.contactDetail.__miaContactDetailAvatarKey = "";
-      const emptyDetailHtml = `<div class="contact-empty detail-empty">添加一个伙伴后会显示在这里</div>`;
-      if (window.miaReactSurface?.renderHtml) {
-        window.miaReactSurface.renderHtml(els.contactDetail, emptyDetailHtml, "contact-detail:empty");
-      } else {
-        els.contactDetail.innerHTML = emptyDetailHtml;
-      }
+      window.miaReactContacts?.publish?.({
+        detail: { kind: "empty", text: "添加一个伙伴后会显示在这里" },
+        emptyText: "还没有联系人",
+        groups: [],
+        requestCount: 0
+      });
       return;
     }
     const onRequests = state.activeContactKey === FRIEND_REQUESTS_KEY;
@@ -966,66 +958,51 @@
       ? bots.filter((bot) => `${bot.name || ""} ${bot.key || ""} ${bot.bio || ""}`.toLowerCase().includes(filter))
       : sortedBots);
     const contactGroups = contactGroupsForSidebar(visibleContacts);
-    const listRenderKey = contactListRenderKey({ pendingRequests, filter, contactGroups, filterActive });
-    if (els.contactList.__miaContactListRenderKey !== listRenderKey) {
-      const contactNodes = [];
-      if (pendingRequests && !filter) {
-        contactNodes.push(buildFriendRequestRow(pendingRequests));
-      }
-      for (const group of contactGroups) {
+    window.miaReactContacts?.publish?.({
+      emptyText: filter && !visibleContacts.length ? "没有匹配的联系人" : "",
+      groups: contactGroups.map((group) => {
         const collapsed = isContactGroupCollapsed(group.key, { forceExpanded: filterActive });
-        contactNodes.push(buildContactGroupHeader(group, { collapsed }));
-        if (collapsed) continue;
-        for (const bot of group.bots) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = `contact-row${bot.key === state.activeContactKey ? " active" : ""}`;
-          button.innerHTML = `
-            <span class="avatar bot-photo"></span>
-            <span class="contact-row-main">
-              <strong>${renderBotNameWithBadgeHtml(bot)}</strong>
-              ${botRunsOnOtherDevice(bot) ? `<small>${window.miaMarkdown.escapeHtml(botDeviceLabel(bot))}</small>` : ""}
-            </span>
-          `;
-          button.addEventListener("click", () => {
-            state.activeContactKey = bot.key;
-            showNarrowContent();
+        return {
+          collapsed,
+          key: group.key,
+          label: group.label,
+          rows: group.bots.map((bot) => ({
+            active: bot.key === state.activeContactKey,
+            avatar: contactListAvatarKey(bot),
+            badge: statusBadgeFrom(bot) || null,
+            deviceLabel: botRunsOnOtherDevice(bot) ? botDeviceLabel(bot) : "",
+            key: bot.key,
+            name: contactSortLabel(bot),
+            open: () => openBotChat(bot.key),
+            select: () => {
+              state.activeContactKey = bot.key;
+              showNarrowContent();
+              renderContacts();
+            }
+          })),
+          toggle: () => {
+            toggleContactGroupCollapsed(group.key);
             renderContacts();
-          });
-          button.addEventListener("dblclick", () => openBotChat(bot.key));
-          const avatar = avatarForBot(bot);
-          window.miaAvatar.applyAvatarMedia(
-            button.querySelector(".bot-photo"),
-            avatar.image,
-            avatar.crop,
-            avatar.color,
-            avatar.text
-          );
-          contactNodes.push(button);
-        }
+          }
+        };
+      }),
+      requestCount: filter ? 0 : pendingRequests,
+      requestsActive: state.activeContactKey === FRIEND_REQUESTS_KEY,
+      selectRequests: () => {
+        state.activeContactKey = FRIEND_REQUESTS_KEY;
+        showNarrowContent();
+        renderContacts();
       }
-      if (!visibleContacts.length && filter) {
-        const emptySearchHtml = `<div class="contact-empty">没有匹配的联系人</div>`;
-        if (window.miaReactSurface?.renderHtml) {
-          window.miaReactSurface.renderHtml(els.contactList, emptySearchHtml, `${listRenderKey}:empty`);
-        } else {
-          els.contactList.innerHTML = emptySearchHtml;
-        }
-      } else if (window.miaReactSurface?.renderNodes) {
-        window.miaReactSurface.renderNodes(els.contactList, contactNodes, listRenderKey);
-      } else {
-        els.contactList.innerHTML = "";
-        contactNodes.forEach((node) => els.contactList.appendChild(node));
-      }
-      initNameBadgeLotties(els.contactList);
-      els.contactList.__miaContactListRenderKey = listRenderKey;
-    }
+    });
     if (state.activeContactKey === FRIEND_REQUESTS_KEY && pendingRequests) {
       setText(els.contactPageTitle, "新的好友");
       setText(els.contactPageMeta, "");
-      els.contactDetail.__miaContactDetailHtmlKey = "";
-      els.contactDetail.__miaContactDetailAvatarKey = "";
-      window.miaSocial.renderRequestsInto(els.contactDetail);
+      window.miaReactContacts?.publish?.({
+        detail: {
+          kind: "requests",
+          requests: window.miaSocial?.incomingContactRequestViews?.() || []
+        }
+      });
     } else {
       renderContactDetail(sortedBots.find((bot) => bot.key === state.activeContactKey) || visibleContacts[0] || sortedBots[0]);
     }
@@ -1089,6 +1066,98 @@
     });
   }
 
+  function runtimeTargetEngineKind(option = {}) {
+    const raw = String(option.iconKind || option.icon_kind || option.agentEngine || option.agent_engine || "").trim();
+    if (raw === "claude" || raw === "claude-code") return "claude";
+    if (raw === "codex" || raw === "openai-codex") return "codex";
+    return raw ? "hermes" : "unknown";
+  }
+
+  function runtimeTargetView(bot) {
+    const options = cachedRuntimeTargetOptions(bot);
+    const groups = Array.isArray(options?.groups) ? options.groups : [];
+    return {
+      groups: groups.map((group, groupIndex) => ({
+        key: String(group.id || group.key || group.label || groupIndex),
+        label: String(group.label || "运行目标"),
+        statusLabel: String(group.statusLabel || group.status_label || ""),
+        options: (Array.isArray(group.options) ? group.options : []).map((option) => ({
+          disabled: Boolean(state?.savingBotRuntimeTargets?.has?.(bot?.key) || option.disabled),
+          engineKind: runtimeTargetEngineKind(option),
+          label: String(option.engineLabel || option.label || engineLabel(option.agentEngine || option.agent_engine)),
+          selected: Boolean(option.selected),
+          title: String(option.title || ""),
+          select: () => {
+            if (option.selected) return;
+            saveBotRuntimeTarget(bot, {
+              runtimeKind: option.runtimeKind || option.runtime_kind || "desktop-local",
+              deviceId: option.deviceId || option.device_id || "",
+              deviceName: option.deviceName || option.device_name || "",
+              agentEngine: option.agentEngine || option.agent_engine || "hermes"
+            });
+          }
+        }))
+      })),
+      open: Boolean(state?.openRuntimeTargetPanelKeys?.has?.(bot?.key)),
+      summary: botDeviceLabel(bot),
+      toggle: (open) => {
+        if (!state.openRuntimeTargetPanelKeys) state.openRuntimeTargetPanelKeys = new Set();
+        if (open) state.openRuntimeTargetPanelKeys.add(bot.key);
+        else state.openRuntimeTargetPanelKeys.delete(bot.key);
+      }
+    };
+  }
+
+  function capabilityOptionView(bot, option = {}) {
+    const capabilityId = String(option.capabilityId || option.id || "");
+    const originLabel = {
+      "system-default": "系统默认",
+      "assistant-preset": "助手预设",
+      manual: "手动添加"
+    }[option.origin] || "";
+    return {
+      checked: Boolean(option.checked),
+      id: capabilityId,
+      label: String(option.label || capabilityId),
+      originLabel,
+      setChecked: async (checked) => {
+        try {
+          await saveBotCapabilityIntent(bot, {
+            capabilityType: "skill",
+            capabilityId,
+            checked
+          });
+        } catch (error) {
+          window.alert(`保存能力设置失败：${error.message || error}`);
+          renderContacts();
+        }
+      }
+    };
+  }
+
+  function capabilitiesView(bot) {
+    if (bot.canConfigureCapabilities === false) return null;
+    const options = botCapabilityOptions(bot);
+    const enabled = capabilityGroup(options, "enabled-skills").options;
+    const addable = capabilityGroup(options, "addable-skills").options;
+    const summary = !options
+      ? "同步能力选项"
+      : state?.skillsLoading
+      ? "正在加载技能"
+      : options.summary;
+    return {
+      addable: addable.map((option) => capabilityOptionView(bot, option)),
+      enabled: enabled.map((option) => capabilityOptionView(bot, option)),
+      open: Boolean(state?.openCapabilityPanelKeys?.has?.(bot?.key)),
+      summary: String(summary || ""),
+      toggle: (open) => {
+        if (!state.openCapabilityPanelKeys) state.openCapabilityPanelKeys = new Set();
+        if (open) state.openCapabilityPanelKeys.add(bot.key);
+        else state.openCapabilityPanelKeys.delete(bot.key);
+      }
+    };
+  }
+
   function renderContactDetail(bot) {
     if (!state || !els || !els.contactDetail || !bot) return;
     const engine = bot.agentEngine || bot.agent_engine || bot.engine || "hermes";
@@ -1100,72 +1169,45 @@
     const avatar = avatarForBot(bot);
     loadRuntimeTargetOptions(bot);
     loadBotCapabilityOptions(bot);
-    const avatarKey = JSON.stringify({
-      image: avatar.image || "",
-      crop: avatar.crop || null,
-      color: avatar.color || "",
-      text: avatar.text || ""
-    });
-    const html = `
-      <article class="contact-profile">
-        <header class="contact-profile-head">
-          <button class="contact-profile-avatar" type="button" ${canEditBot ? 'data-contact-action="edit" title="编辑联系人头像"' : 'title="联系人头像"'}></button>
-          <div class="contact-profile-title">
-            <h2>${renderBotNameWithBadgeHtml(bot, bot.name || "联系人")}</h2>
-            <div class="contact-engine-badge" title="Agent 内核">
-              ${engineLogoHtml(engine)}
-              <span class="contact-engine-copy">
-                <small>Agent</small>
-                <strong>${window.miaMarkdown.escapeHtml(engineLabel(engine))}</strong>
-              </span>
-            </div>
-            ${uid ? `<p class="contact-profile-uid"><span>UID</span><code>${window.miaMarkdown.escapeHtml(uid)}</code></p>` : ""}
-          </div>
-          <div class="contact-actions">
-            <button class="primary contact-message-action" type="button" data-contact-action="message" title="发消息" aria-label="发消息">${window.miaMarkdown.iconParkIcon("message", "contact-action-icon")}</button>
-            ${canEditBot ? `<button class="secondary" type="button" data-contact-action="edit">编辑</button>` : ""}
-            ${canDeleteBot ? `<button class="secondary danger" type="button" data-contact-action="delete">删除伙伴</button>` : ""}
-          </div>
-        </header>
-        <section class="contact-info-card">
-          ${renderBotRuntimeTargetPanel(bot)}
-          ${bot.canConfigureCapabilities !== false ? renderBotCapabilitiesPanel(bot) : ""}
-          ${renderBotPersonaPanel(bot)}
-          ${window.miaBotMemoryPanel?.renderBotMemoryPanel?.(bot) || ""}
-        </section>
-      </article>
-    `;
-    const htmlChanged = els.contactDetail.__miaContactDetailHtmlKey !== html;
-    if (htmlChanged) {
-      if (window.miaReactSurface?.renderHtml) {
-        window.miaReactSurface.renderHtml(els.contactDetail, html, `contact-detail:${bot.key}:${html}`);
-      } else {
-        els.contactDetail.innerHTML = html;
+    const persona = botPersonaText(bot);
+    window.miaReactContacts?.publish?.({
+      detail: {
+        kind: "bot",
+        bot: {
+          avatar: {
+            image: avatar.image || "",
+            crop: avatar.crop || null,
+            color: avatar.color || "",
+            text: avatar.text || ""
+          },
+          badge: statusBadgeFrom(bot) || null,
+          canDelete: canDeleteBot,
+          canEdit: canEditBot,
+          capabilities: capabilitiesView(bot),
+          deleteContact: () => deleteBot(bot.key),
+          deviceLabel: botDeviceLabel(bot),
+          editContact: () => openEditBotDialog(bot.key),
+          engineKind: engineLogoKind(engine),
+          engineLabel: engineLabel(engine),
+          key: bot.key,
+          memory: window.miaBotMemoryPanel?.botMemoryView?.(bot) || null,
+          message: () => openBotChat(bot.key),
+          name: contactSortLabel(bot) || "联系人",
+          persona: {
+            open: Boolean(state?.openPersonaPanelKeys?.has?.(bot?.key)),
+            summary: persona ? persona.replace(/\s+/g, " ").trim() : "还没有设置人设",
+            text: persona || "还没有设置人设。",
+            toggle: (open) => {
+              if (!state.openPersonaPanelKeys) state.openPersonaPanelKeys = new Set();
+              if (open) state.openPersonaPanelKeys.add(bot.key);
+              else state.openPersonaPanelKeys.delete(bot.key);
+            }
+          },
+          runtime: runtimeTargetView(bot),
+          uid
+        }
       }
-      els.contactDetail.__miaContactDetailHtmlKey = html;
-      initNameBadgeLotties(els.contactDetail);
-      els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openBotChat(bot.key));
-      els.contactDetail.querySelectorAll('[data-contact-action="edit"]').forEach((button) => {
-        button.addEventListener("click", () => openEditBotDialog(bot.key));
-      });
-      els.contactDetail.querySelector('[data-contact-action="delete"]')?.addEventListener("click", async () => {
-        await deleteBot(bot.key);
-      });
-      if (bot.canConfigureCapabilities !== false) wireBotCapabilities(bot);
-      wireBotPersonaPanel(bot);
-      wireBotRuntimeTargets(bot);
-      window.miaBotMemoryPanel?.wireBotMemoryPanel?.(bot, els.contactDetail);
-    }
-    if (htmlChanged || els.contactDetail.__miaContactDetailAvatarKey !== avatarKey) {
-      window.miaAvatar.applyAvatarMedia(
-        els.contactDetail.querySelector(".contact-profile-avatar"),
-        avatar.image,
-        avatar.crop,
-        avatar.color,
-        avatar.text
-      );
-      els.contactDetail.__miaContactDetailAvatarKey = avatarKey;
-    }
+    });
     refreshRuntimeDevicesForContacts();
   }
 

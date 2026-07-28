@@ -743,199 +743,6 @@
       </div>
     </section>
 
-    <section id="profileDialog" class="profile-popover hidden" role="dialog" aria-labelledby="profileDialogTitle">
-      <form id="profileForm" class="bot-form profile-popover-form">
-        <header class="bot-dialog-head">
-          <div>
-            <h2 id="profileDialogTitle">个人资料</h2>
-          </div>
-          <button id="closeProfileDialog" class="icon-button" type="button" title="关闭" aria-label="关闭">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
-        </header>
-        <section class="dialog-identity-card">
-          <div id="profileAvatarDrop" class="avatar-upload-shell">
-            <div id="profileAvatarPreview" class="avatar-crop-preview"></div>
-            <input id="profileAvatarFile" type="file" accept="image/*,video/*" class="hidden">
-            <input id="profileAvatarImage" type="hidden">
-            <button id="chooseProfileAvatar" class="avatar-upload-button" type="button" title="选择图片" aria-label="选择图片">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
-            </button>
-          </div>
-          <div class="dialog-identity-main">
-            <div class="identity-name-line dialog-identity-name-line">
-              <button id="profileNameText" class="identity-name-text" type="button"></button>
-              <input id="profileDisplayName" class="identity-name-input hidden" autocomplete="off" placeholder="例如 小明">
-              <details id="profileStatusBadgeDetails" class="identity-badge-details accordion-details">
-                <summary id="profileStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
-                <div class="accordion-body identity-badge-panel">
-                  <select id="profileStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
-                    <option value="">无</option>
-                  </select>
-                  <div class="identity-badge-choices"></div>
-                </div>
-              </details>
-            </div>
-            <p class="profile-uid-line">UID <span id="profileUidValue"></span></p>
-          </div>
-        </section>
-        <div class="avatar-colors" id="profileAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
-      </form>
-    </section>
-
-    <section id="cloudLoginApproveDialog" class="cloud-login-approve-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="cloudLoginApproveTitle">
-      <div class="cloud-login-approve-backdrop"></div>
-      <div class="cloud-login-approve-panel">
-        <header class="bot-dialog-head">
-          <div>
-            <h2 id="cloudLoginApproveTitle">允许登录</h2>
-            <p id="cloudLoginApproveCopy">允许这台设备登录当前账号？</p>
-          </div>
-        </header>
-        <div class="cloud-login-approve-actions">
-          <button id="cloudLoginApproveDeny" class="secondary" type="button">取消</button>
-          <button id="cloudLoginApproveAllow" class="primary" type="button">允许</button>
-        </div>
-      </div>
-    </section>
-
-    <section id="botDialog" class="bot-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="botDialogTitle">
-      <form id="botForm" class="bot-form">
-        <header class="bot-dialog-head">
-          <div>
-            <h2 id="botDialogTitle">添加伙伴</h2>
-          </div>
-          <button id="closeBotDialog" class="icon-button" type="button" title="关闭" aria-label="关闭">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
-        </header>
-        <input id="botKey" type="hidden">
-        <section class="dialog-identity-card">
-          <div id="botAvatarDrop" class="avatar-upload-shell">
-            <div id="botAvatarPreview" class="avatar-crop-preview"></div>
-            <input id="botAvatarFile" type="file" accept="image/*,video/*" class="hidden">
-            <input id="botAvatar" type="hidden">
-            <button id="chooseBotAvatar" class="avatar-upload-button" type="button" title="选择图片" aria-label="选择图片">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12"/></svg>
-            </button>
-          </div>
-          <div class="dialog-identity-main">
-            <div class="identity-name-line dialog-identity-name-line">
-              <button id="botNameText" class="identity-name-text hidden" type="button"></button>
-              <input id="botName" class="identity-name-input" autocomplete="off" placeholder="输入姓名">
-              <details id="botStatusBadgeDetails" class="identity-badge-details accordion-details">
-                <summary id="botStatusBadgeTrigger" class="identity-badge-trigger" aria-label="徽章"></summary>
-                <div class="accordion-body identity-badge-panel">
-                  <select id="botStatusBadge" class="hidden" aria-hidden="true" tabindex="-1">
-                    <option value="">无</option>
-                  </select>
-                  <div class="identity-badge-choices"></div>
-                </div>
-              </details>
-            </div>
-          </div>
-        </section>
-        <div class="avatar-colors" id="botAvatarColors" role="radiogroup" aria-label="头像颜色"></div>
-        <label id="botRuntimeTargetField">
-          运行位置和 Agent 内核
-          <select id="botRuntimeTarget"></select>
-        </label>
-        <details id="botPersonaDetails" class="persona-details accordion-details">
-          <summary>人设</summary>
-          <div class="accordion-body">
-            <label>
-              <span>这段人设保存在 Mia 的 Bot 身份里，会作为该 Bot 的原生会话上下文使用。</span>
-              <textarea id="botSeed" placeholder="可留空，后续在对话中慢慢形成"></textarea>
-            </label>
-          </div>
-        </details>
-        <footer class="bot-dialog-actions">
-          <button id="cancelBot" class="secondary" type="button">取消</button>
-          <button class="primary" type="submit">保存伙伴</button>
-        </footer>
-      </form>
-    </section>
-
-    <section id="petGenerateDialog" class="pet-generate-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="petGenerateTitle">
-      <form id="petGenerateForm" class="pet-generate-card">
-        <header class="bot-dialog-head">
-          <div>
-            <h2 id="petGenerateTitle">生成桌宠</h2>
-            <p id="petGenerateSubtitle"></p>
-          </div>
-          <button id="closePetGenerateDialog" class="icon-button" type="button" title="关闭" aria-label="关闭">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
-        </header>
-        <label>
-          补充描述
-          <textarea id="petPrompt" placeholder="可选：补充这个 Bot 的动作、气质或细节偏好"></textarea>
-        </label>
-        <label>
-          风格
-          <select id="petStylePreset">
-            <option value="codex">Codex 小桌宠风</option>
-            <option value="alkaka">Alkaka Q版贴纸风</option>
-            <option value="soft">柔和 Q 版</option>
-          </select>
-        </label>
-        <section class="pet-reference-section">
-          <div class="pet-reference-head">
-            <strong>参考图片</strong>
-            <button id="addPetReference" class="secondary" type="button">＋ 新图片</button>
-            <input id="petReferenceFile" type="file" accept="image/*" class="hidden">
-          </div>
-          <div id="petReferenceList" class="pet-reference-list"></div>
-        </section>
-        <footer class="bot-dialog-actions">
-          <button id="cancelPetGenerate" class="secondary" type="button">取消</button>
-          <button class="primary" type="submit">开始生成</button>
-        </footer>
-      </form>
-    </section>
-
-    <section id="avatarCropDialog" class="avatar-crop-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="avatarCropTitle">
-      <div class="avatar-crop-card">
-        <header class="avatar-crop-head">
-          <h2 id="avatarCropTitle">调整头像</h2>
-          <button id="cancelAvatarCrop" class="icon-button" type="button" title="关闭" aria-label="关闭">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-              <path d="M6 6l12 12M18 6L6 18"/>
-            </svg>
-          </button>
-        </header>
-        <div id="avatarCropStage" class="avatar-crop-stage">
-          <div class="avatar-crop-circle"></div>
-        </div>
-        <section id="avatarTrimControls" class="avatar-trim-controls hidden" aria-label="头像视频时间">
-          <div id="avatarTrimTimeline" class="avatar-trim-timeline" role="group" aria-label="头像视频截取时间">
-            <div id="avatarTrimFrames" class="avatar-trim-frames" aria-hidden="true"></div>
-            <video id="avatarTrimPreview" class="avatar-trim-preview" muted playsinline preload="metadata" aria-hidden="true"></video>
-            <div class="avatar-trim-mask avatar-trim-mask-left" aria-hidden="true"></div>
-            <div class="avatar-trim-mask avatar-trim-mask-right" aria-hidden="true"></div>
-            <div class="avatar-trim-selection" data-avatar-trim-handle="selection" aria-hidden="true">
-              <span class="avatar-trim-handle avatar-trim-handle-start" data-avatar-trim-handle="start"></span>
-              <span class="avatar-trim-handle avatar-trim-handle-end" data-avatar-trim-handle="end"></span>
-            </div>
-            <span id="avatarTrimLabel" class="avatar-trim-label">0.0s - 3.0s</span>
-          </div>
-          <input id="avatarTrimStart" type="hidden" value="0">
-          <input id="avatarTrimDuration" type="hidden" value="3">
-        </section>
-        <footer class="avatar-crop-actions">
-          <button id="resetAvatarCrop" class="secondary" type="button">重置</button>
-          <span>拖拽移动，滚轮缩放</span>
-          <button id="confirmAvatarCrop" class="primary" type="button">使用头像</button>
-        </footer>
-      </div>
-    </section>
-
     <div id="skillContextMenu" class="skill-context-menu hidden" role="menu"></div>
     <div id="botContextMenu" class="skill-context-menu bot-context-menu hidden" role="menu"></div>
     <div id="messageContextMenu" class="skill-context-menu message-context-menu hidden" role="menu"></div>
@@ -943,182 +750,6 @@
     <div id="petJobPanel" class="pet-job-panel hidden"></div>
 
   </main>
-
-  <!-- Group create dialog — native .skill-preview-dialog style -->
-  <section id="groupCreateDialog" class="skill-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="groupCreateTitle">
-    <div class="skill-preview-card group-create-card">
-      <div class="skill-preview-toolbar">
-        <div class="skill-preview-title">
-          <h2 id="groupCreateTitle">新建群聊</h2>
-        </div>
-        <button id="groupCreateClose" class="icon-button" type="button" aria-label="关闭">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M6 6l12 12M18 6L6 18"/>
-          </svg>
-        </button>
-      </div>
-      <div class="group-create-body">
-        <section class="group-create-section">
-          <div class="group-create-section-header">
-            <span class="group-create-section-title">选择成员</span>
-            <span class="group-create-section-meta"><span id="groupCreateCount">0</span> / 5</span>
-          </div>
-          <div id="groupCreateMembers" class="group-create-members" role="listbox" aria-multiselectable="true"></div>
-        </section>
-        <section class="group-create-section">
-          <div class="group-create-section-header">
-            <span class="group-create-section-title">群主</span>
-          </div>
-          <div class="group-create-select-wrap">
-            <select id="groupCreateHost" class="group-create-select"></select>
-          </div>
-        </section>
-        <section class="group-create-section">
-          <div class="group-create-section-header">
-            <span class="group-create-section-title">群名</span>
-            <span class="group-create-section-hint">留空则用成员名拼接</span>
-          </div>
-          <input id="groupCreateName" class="group-create-input" type="text" maxlength="40" placeholder="未命名群聊" />
-        </section>
-        <div class="group-create-actions">
-          <button id="groupCreateCancel" class="button-soft" type="button">取消</button>
-          <button id="groupCreateConfirm" class="button-primary" type="button">创建</button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Group info dialog — native .skill-preview-dialog style -->
-  <section id="groupInfoDialog" class="skill-preview-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="groupInfoTitle">
-    <div class="skill-preview-card group-create-card group-info-card">
-      <div class="skill-preview-toolbar">
-        <div class="skill-preview-title">
-          <h2 id="groupInfoTitle">群设置</h2>
-          <p>成员、目标和 AI 回复方式</p>
-        </div>
-        <button id="groupInfoClose" class="icon-button" type="button" aria-label="关闭">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M6 6l12 12M18 6L6 18"/>
-          </svg>
-        </button>
-      </div>
-      <div class="group-info-body group-info-settings-card">
-        <div class="settings-section-label">基础</div>
-        <section class="settings-row settings-group-start">
-          <div>
-            <strong>群头像</strong>
-            <p>默认按成员头像合成。点击可上传自定义图片，剪裁后保存。</p>
-          </div>
-          <div class="group-info-avatar-control">
-            <button id="groupInfoAvatarPreview" class="group-info-avatar-preview" type="button" aria-label="修改群头像">
-              <span class="avatar group-avatar"></span>
-            </button>
-            <input id="groupInfoAvatarFile" type="file" accept="image/*" hidden />
-            <button id="groupInfoAvatarReset" class="button-soft" type="button">恢复默认</button>
-          </div>
-        </section>
-        <section class="settings-row">
-          <div>
-            <strong>群名</strong>
-            <p>显示在会话列表和聊天顶部。</p>
-          </div>
-          <input id="groupInfoName" class="group-create-input" type="text" maxlength="40" />
-        </section>
-        <section class="settings-row settings-group-end">
-          <div>
-            <strong>群号</strong>
-            <p>用于识别这个群聊，内部路由 ID 不直接展示。</p>
-          </div>
-          <code id="groupInfoPublicId" class="group-info-public-id"></code>
-        </section>
-        <div class="settings-section-label">成员</div>
-        <section class="settings-row settings-group-start settings-group-end group-info-members-row">
-          <div>
-            <strong>当前成员</strong>
-            <p>点右侧菜单可设群主或移除。</p>
-          </div>
-          <div class="group-info-member-panel">
-            <div id="groupInfoMembers" class="group-info-members"></div>
-            <button id="groupInfoAddMemberToggle" class="group-info-add-member-toggle" type="button">+ 添加成员</button>
-            <div id="groupInfoAddable" class="group-info-addable hidden"></div>
-          </div>
-        </section>
-
-        <div class="settings-section-label">上下文</div>
-        <section class="settings-row settings-group-start">
-          <div>
-            <strong>目标</strong>
-            <p>给群聊一个长期方向，供 AI 协作时参考。</p>
-          </div>
-          <textarea id="groupInfoGoal" class="group-create-input group-info-goal-input" maxlength="200" placeholder="比如：今天把这个 PR 写完"></textarea>
-        </section>
-        <section class="settings-row settings-group-end">
-          <div>
-            <strong>维护</strong>
-            <p>清掉已压缩的群上下文摘要，后续重新积累。</p>
-          </div>
-          <button id="groupInfoResetCtx" class="button-soft danger-soft" type="button">重置群上下文</button>
-        </section>
-      </div>
-    </div>
-  </section>
-
-  <!-- Manual task create dialog — reuses .bot-dialog / .bot-form modal style -->
-  <section id="taskCreateDialog" class="bot-dialog task-create-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="taskCreateTitle">
-    <form id="taskCreateForm" class="bot-form">
-      <header class="bot-dialog-head">
-        <div>
-          <h2 id="taskCreateTitle">新建自动任务</h2>
-        </div>
-        <button id="closeTaskCreate" class="icon-button" type="button" title="关闭" aria-label="关闭">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-            <path d="M6 6l12 12M18 6L6 18"/>
-          </svg>
-        </button>
-      </header>
-
-      <label>
-        <span>名称 <i class="req">*</i></span>
-        <span class="task-field">
-          <input id="ntName" maxlength="50" autocomplete="off" placeholder="请输入任务名称">
-          <em class="task-field-count" id="ntNameCount">0/50</em>
-        </span>
-      </label>
-
-      <label>
-        <span>执行的 Agent <i class="req">*</i></span>
-        <select id="ntBot"></select>
-      </label>
-
-      <label>
-        <span>要求说明 <i class="req">*</i></span>
-        <span class="task-field">
-          <textarea id="ntPrompt" maxlength="8000" placeholder="请输入任务要求说明"></textarea>
-          <em class="task-field-count task-field-count-area" id="ntPromptCount">0/8000</em>
-        </span>
-      </label>
-
-      <label>
-        <span>执行时间 <i class="req">*</i></span>
-        <div class="task-time-row">
-          <select id="ntFreq">
-            <option value="oneshot">单次</option>
-            <option value="daily">每天</option>
-            <option value="weekly">每周</option>
-            <option value="monthly">每月</option>
-          </select>
-          <div id="ntTimeControls" class="task-time-controls"></div>
-        </div>
-      </label>
-
-      <div class="task-create-error" id="ntError" hidden></div>
-
-      <footer class="bot-dialog-actions">
-        <button id="cancelTaskCreate" class="secondary" type="button">取消</button>
-        <button class="primary" type="submit">确定</button>
-      </footer>
-    </form>
-  </section>
 
   <!-- Shared helpers (loaded first — others depend on them) -->
   <script src="../../packages/shared/avatar.js"></script>
@@ -1156,10 +787,12 @@
   <script src="./onboarding/setup-guide.js"></script>
   <script src="./settings/model-helpers.js"></script>
   <script src="./settings/engine-options.js"></script>
+  <script src="./settings/engine-detection-controller.js"></script>
   <script src="./settings/model-settings.js"></script>
   <script src="./hermes/permission-menu.js"></script>
   <script src="./settings/settings-appearance.js"></script>
   <script src="./settings/settings-remote.js"></script>
+  <script src="./settings/cloud-mobile-login-controller.js"></script>
   <script src="./settings/settings-memory.js"></script>
   <script src="./skills/skill-helpers.js"></script>
   <script src="./mcp/mcp-library.js"></script>
@@ -1186,9 +819,12 @@
   <script src="./chat/message-helpers.js"></script>
   <script src="./chat/composer.js"></script>
   <script src="./chat/message-menu.js"></script>
+  <script src="./chat/session-menu-controller.js"></script>
   <!-- Toast notifier (used by social events and other in-app announcements) -->
   <div id="appToast" class="app-toast hidden" role="status" aria-live="polite"></div>
   <div id="reactComposerSelectMenuRoot" data-react-root="composer-select-menu"></div>
+  <div id="reactRendererRoot" hidden aria-hidden="true"></div>
+  <div id="reactDialogRoot"></div>
 
   <!-- Shared avatar renderer (one entry point for every avatar display) -->
   <script src="./contact-avatar.js"></script>
@@ -1228,9 +864,7 @@
   <script src="./startup/startup-overlay.js"></script>
   <script src="../shared/slot-text-runtime.js"></script>
   <script src="./runtime-refresh-scheduler.js"></script>
-  <!-- React owns migrated renderer surfaces; legacy modules remain adapters during cutover. -->
-  <script src="./react-dist/renderer.js"></script>
-  <!-- Main app entry — assembles everything -->
-  <script src="./app.js"></script>
+  <!-- React owns renderer surfaces; classic modules expose controller adapters and services. -->
+  <script type="module" src="./react-dist/renderer.js"></script>
 </body>
 </html>

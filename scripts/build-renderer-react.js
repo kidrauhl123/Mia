@@ -11,12 +11,16 @@ const outfile = path.join(outdir, "renderer.js");
 const MAX_RENDERER_BUNDLE_BYTES = 256 * 1024;
 
 async function buildRendererReact(options = {}) {
+  fs.rmSync(outdir, { recursive: true, force: true });
   fs.mkdirSync(outdir, { recursive: true });
-  await esbuild.build({
+  const result = await esbuild.build({
     entryPoints: [entry],
-    outfile,
+    outdir,
     bundle: true,
-    format: "iife",
+    format: "esm",
+    splitting: true,
+    entryNames: "renderer",
+    chunkNames: "chunks/[name]-[hash]",
     platform: "browser",
     target: "chrome130",
     jsx: "automatic",
@@ -26,12 +30,28 @@ async function buildRendererReact(options = {}) {
       "process.env.NODE_ENV": JSON.stringify("production")
     },
     legalComments: "eof",
-    logLevel: options.quiet ? "silent" : "info"
+    logLevel: options.quiet ? "silent" : "info",
+    metafile: true
   });
-  const bundleBytes = fs.statSync(outfile).size;
+  const outputs = result.metafile.outputs;
+  const entryOutput = Object.entries(outputs).find(([, meta]) => meta.entryPoint?.endsWith("src/renderer/react/main.tsx"))?.[0];
+  if (!entryOutput) throw new Error("React renderer entry was not emitted.");
+  const initialOutputs = new Set();
+  const visitInitialOutput = (outputPath) => {
+    if (initialOutputs.has(outputPath)) return;
+    initialOutputs.add(outputPath);
+    const output = outputs[outputPath];
+    for (const dependency of output?.imports || []) {
+      if (dependency.kind === "dynamic-import" || dependency.external) continue;
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(outputPath), dependency.path));
+      if (outputs[resolved]) visitInitialOutput(resolved);
+    }
+  };
+  visitInitialOutput(entryOutput);
+  const bundleBytes = [...initialOutputs].reduce((total, outputPath) => total + outputs[outputPath].bytes, 0);
   if (bundleBytes > MAX_RENDERER_BUNDLE_BYTES) {
     throw new Error(
-      `React renderer bundle is ${bundleBytes} bytes; budget is ${MAX_RENDERER_BUNDLE_BYTES} bytes. `
+      `React renderer startup graph is ${bundleBytes} bytes; budget is ${MAX_RENDERER_BUNDLE_BYTES} bytes. `
       + "Move low-frequency UI behind a split entry instead of growing the startup bundle."
     );
   }

@@ -240,7 +240,7 @@
 
   // Decision: singleton modal — create once, re-populate on open.
   // Avoids leaking DOM nodes on repeated opens.
-  let _addFriendModal = null;
+  let _addFriendModalOpen = false;
   let _createGroupModal = null;
 
   // Cache of conversation members per conversation id (fetched on first open, updated via WS events).
@@ -2870,71 +2870,31 @@
     const shouldStickChat = isChatPinnedToBottom(chatEl);
     const request = activePermissionRequest();
     if (!request) {
-      if (global.miaReactPermissionBanner?.publish) {
-        global.miaReactPermissionBanner.publish({
-          decide: () => {},
-          description: "",
-          kicker: "",
-          pending: false,
-          preview: "",
-          requestId: "",
-          title: "",
-          visible: false
-        });
-      } else {
-        banner.classList.add("hidden");
-        banner.innerHTML = "";
-        if (banner.dataset) delete banner.dataset.requestId;
-      }
+      global.miaReactPermissionBanner.publish({
+        decide: () => {},
+        description: "",
+        kicker: "",
+        pending: false,
+        preview: "",
+        requestId: "",
+        title: "",
+        visible: false
+      });
       stickChatToBottomAfterPermissionLayout(chatEl, shouldStickChat);
       return;
     }
     const preview = compactPermissionPreview(request.preview);
     const isDecisionInFlight = _permissionDecisionInFlight.has(request.requestId);
-    if (global.miaReactPermissionBanner?.publish) {
-      global.miaReactPermissionBanner.publish({
-        decide: (decision) => { void submitPermissionDecision(decision); },
-        description: String(request.description || ""),
-        kicker: `${permissionEngineLabel(request.engine)} · ${request.toolName}`,
-        pending: isDecisionInFlight,
-        preview,
-        requestId: request.requestId,
-        title: compactPermissionTitle(request),
-        visible: true
-      });
-    } else {
-      const previewHtml = preview
-        ? `<code class="agent-permission-preview">${escapeHtml(preview)}</code>`
-        : "";
-      const disabledAttr = isDecisionInFlight ? " disabled" : "";
-      banner.classList.remove("hidden");
-      banner.dataset.requestId = request.requestId;
-      banner.innerHTML = `
-        <div class="agent-permission-heading">
-          <div class="agent-permission-source">
-            <span class="agent-permission-kicker">${escapeHtml(permissionEngineLabel(request.engine))} · ${escapeHtml(request.toolName)}</span>
-          </div>
-          <strong>${escapeHtml(compactPermissionTitle(request))}</strong>
-        </div>
-        ${request.description ? `<p class="agent-permission-description">${escapeHtml(request.description)}</p>` : ""}
-        ${previewHtml}
-        <div class="agent-permission-actions">
-          <button type="button" class="agent-permission-button ghost agent-permission-deny" data-permission-decision="deny"${disabledAttr}>
-            <span class="agent-permission-button-label">拒绝</span>
-            <span class="agent-permission-key">esc</span>
-          </button>
-          <div class="agent-permission-allow-actions">
-            <button type="button" class="agent-permission-button" data-permission-decision="allow_always"${disabledAttr}>
-              <span class="agent-permission-button-label">始终允许</span>
-            </button>
-            <button type="button" class="agent-permission-button primary" data-permission-decision="allow_once" aria-label="允许本次"${disabledAttr}>
-              <span class="agent-permission-button-label">允许</span>
-              <span class="agent-permission-key">↵</span>
-            </button>
-          </div>
-        </div>
-      `;
-    }
+    global.miaReactPermissionBanner.publish({
+      decide: (decision) => { void submitPermissionDecision(decision); },
+      description: String(request.description || ""),
+      kicker: `${permissionEngineLabel(request.engine)} · ${request.toolName}`,
+      pending: isDecisionInFlight,
+      preview,
+      requestId: request.requestId,
+      title: compactPermissionTitle(request),
+      visible: true
+    });
     stickChatToBottomAfterPermissionLayout(chatEl, shouldStickChat);
   }
 
@@ -2952,11 +2912,7 @@
     if (!canRespond) return;
     if (_permissionDecisionInFlight.has(requestId)) return;
     _permissionDecisionInFlight.add(requestId);
-    const buttons = global.miaReactPermissionBanner?.publish
-      ? []
-      : Array.from(banner?.querySelectorAll?.("button[data-permission-decision]") || []);
-    if (global.miaReactPermissionBanner?.publish) renderAgentPermissionBanner();
-    else buttons.forEach((item) => { item.disabled = true; });
+    renderAgentPermissionBanner();
     try {
       const result = isCloudRunApproval
         ? await window.mia.social.respondRunApproval(request.conversationId, request.runId, decision)
@@ -2971,7 +2927,6 @@
         renderAgentPermissionBanner();
         return;
       }
-      buttons.forEach((item) => { item.disabled = false; });
       deps?.appendTransientChat?.("assistant", message || "权限审批失败");
     } finally {
       _permissionDecisionInFlight.delete(requestId);
@@ -2990,33 +2945,9 @@
     return banner.querySelector(`button[data-permission-decision="${decision}"]:not(:disabled)`);
   }
 
-  function isPrimaryPointerActivation(event) {
-    if (event?.type !== "pointerdown" && event?.type !== "mousedown") return true;
-    return event.button == null || event.button === 0;
-  }
-
-  function closestPermissionDecisionButton(target) {
-    const element = target?.closest ? target : target?.parentElement;
-    return element?.closest?.("button[data-permission-decision]") || null;
-  }
-
-  function handlePermissionDecisionEvent(event) {
-    if (!isPrimaryPointerActivation(event)) return null;
-    const button = closestPermissionDecisionButton(event.target);
-    if (!button || button.disabled) return null;
-    event.preventDefault();
-    event.stopPropagation();
-    return submitPermissionDecision(button);
-  }
-
   function wirePermissionBanner() {
     if (_permissionBannerWired) return;
     _permissionBannerWired = true;
-    const banner = document.getElementById("agentPermissionBanner");
-    if (!global.miaReactPermissionBanner?.publish) {
-      banner?.addEventListener("pointerdown", handlePermissionDecisionEvent, true);
-      banner?.addEventListener("click", handlePermissionDecisionEvent);
-    }
     document.addEventListener("keydown", (event) => {
       if (!activePermissionRequest() || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") {
@@ -3073,90 +3004,11 @@
     );
   }
 
-  function copyStreamingArticleIdentity(target, source) {
-    if (!target || !source) return;
-    target.className = source.className || target.className || "";
-    const key = source.dataset?.messageLayoutKey
-      || (typeof source.getAttribute === "function" ? source.getAttribute("data-message-layout-key") : "");
-    if (!key) return;
-    try { target.setAttribute?.("data-message-layout-key", key); } catch (_) {}
-    try {
-      if (target.dataset) target.dataset.messageLayoutKey = key;
-    } catch (_) {}
-  }
-
-  function settleChatAfterStreamingUpdate(chatEl, wasNearBottom) {
-    if (!chatEl || !wasNearBottom) return;
-    scrollChatToBottom(chatEl);
-    scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
-  }
-
   function updateActiveCloudRunStreamingArticleImpl(conversationId) {
     if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
     const chatEl = document.getElementById("chat");
     if (!chatEl) return false;
-    if (global.miaReactMessageList?.render) {
-      renderConversationChat(chatEl);
-      return true;
-    }
-    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
-    const existing = findActiveStreamingArticle(chatEl);
-    if (_messageRenderWindowStates.get(conversationId)?.mode === "history") {
-      existing?.remove?.();
-      if (Array.isArray(chatEl.children)) {
-        const index = chatEl.children.indexOf(existing);
-        if (index >= 0) chatEl.children.splice(index, 1);
-      }
-      markChatStreamRenderFresh(chatEl, conversationId);
-      return true;
-    }
-    if (!streamingRunHasRenderableOutput(run)) {
-      if (existing && typeof existing.remove === "function") {
-        existing.remove();
-        if (Array.isArray(chatEl.children)) {
-          const index = chatEl.children.indexOf(existing);
-          if (index >= 0) chatEl.children.splice(index, 1);
-        }
-        markChatStreamRenderFresh(chatEl, conversationId);
-        settleChatAfterStreamingUpdate(chatEl, isChatPinnedToBottom(chatEl));
-      }
-      return true;
-    }
-    const conversation = moduleState.conversations.find((r) => r.id === conversationId);
-    const color = avatarColor(conversationId);
-    const conversationType = conversationTypeFor(conversation, conversationId);
-    const members = (conversationType === "group" || conversationType === "bot")
-      ? (_conversationMembersCache.get(conversationId) || [])
-      : [];
-    const nextArticle = _buildCloudAgentStreamingArticle(
-      conversationId,
-      color,
-      members,
-      { groupMessage: conversationType === "group" }
-    );
-    if (!nextArticle) return false;
-    const wasNearBottom = isChatPinnedToBottom(chatEl);
-    if (!existing) {
-      chatEl.appendChild?.(nextArticle);
-      window.miaAvatar?.hydrateAvatarVideos?.(nextArticle);
-      markRenderedTraceBlocks(nextArticle);
-      startPhaseOrbAnimation(nextArticle);
-      initNameBadgeLotties(nextArticle);
-      markChatStreamRenderFresh(chatEl, conversationId);
-      settleChatAfterStreamingUpdate(chatEl, wasNearBottom);
-      return true;
-    }
-    copyStreamingArticleIdentity(existing, nextArticle);
-    const nextHtml = String(nextArticle.innerHTML || "");
-    if (String(existing.innerHTML || "") !== nextHtml) {
-      existing.innerHTML = nextHtml;
-    }
-    window.miaAvatar?.hydrateAvatarVideos?.(existing);
-    markRenderedTraceBlocks(existing);
-    startPhaseOrbAnimation(existing);
-    initNameBadgeLotties(existing);
-    markChatStreamRenderFresh(chatEl, conversationId);
-    settleChatAfterStreamingUpdate(chatEl, wasNearBottom);
+    renderConversationChat(chatEl);
     return true;
   }
 
@@ -5330,62 +5182,10 @@
     if (!rendererWorkActive()) return;
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
-    if (global.miaReactMessageList?.render) {
-      renderConversationChat(chatEl);
-      if (stick) {
-        scrollChatToBottom(chatEl);
-        scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
-      }
-      return;
-    }
-    const entry = moduleState.messageCache.get(moduleState.activeConversationId);
-    const cachedMessages = Array.isArray(entry?.messages) ? entry.messages : [];
-    const messageWindow = resolveConversationMessageWindow(
-      moduleState.activeConversationId,
-      cachedMessages,
-      { focusId: "" }
-    );
-    if (messageWindow.hasNewer || messageWindow.mode === "history") {
-      _reRenderActiveChat({ force: true });
-      return;
-    }
-    const startBottomGap = chatBottomGap(chatEl);
-    const nearBottom = isChatPinnedToBottom(chatEl);
-    const previousMessageLayout = prefersReducedMotion() ? null : captureMessageLayout(chatEl);
-    const conversation = moduleState.conversations.find((r) => r.id === moduleState.activeConversationId);
-    const color = conversation ? avatarColor(conversation.id) : "#5e5ce6";
-    const conversationType = conversationTypeFor(conversation, moduleState.activeConversationId);
-    const members = _conversationMembersCache.get(moduleState.activeConversationId) || [];
-    const shouldFollow = stick || nearBottom;
-    const shouldAnimateTail = nearBottom && !prefersReducedMotion();
-    const messageIndex = cachedMessages.findIndex((message) => message?.id === msg?.id);
-    const previousMessage = messageIndex > 0
-      ? cachedMessages[messageIndex - 1]
-      : messageIndex < 0 && cachedMessages.length
-        ? cachedMessages[cachedMessages.length - 1]
-        : null;
-    const article = conversationType === "group"
-      ? _buildGroupMessageArticle(msg, color, _conversationMembersCache.get(moduleState.activeConversationId) || [])
-      : _buildMessageArticle(msg, color, conversationType === "bot" ? members : []);
-    if (article) {
-      addMessageDateDivider(article, msg, previousMessage);
-      chatEl.appendChild(article);
-      if (shouldAnimateTail) animateMessageTailEnter(article);
-      window.miaAvatar?.hydrateAvatarVideos?.(article);
-      initNameBadgeLotties(article);
-      trimActiveTailMessageDom(chatEl);
-      refreshMessageWindowNavigation(chatEl, moduleState.activeConversationId, messageWindow);
-      markChatRenderFresh(chatEl);
-      if (shouldFollow) {
-        if (shouldAnimateTail) {
-          animateChatTailToBottom(chatEl, startBottomGap);
-        } else {
-          scrollChatToBottom(chatEl);
-          scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
-        }
-      }
-      animateMessageLayoutShift(chatEl, previousMessageLayout);
-      rememberRenderedConversationMessages(moduleState.activeConversationId, cachedMessages, messageWindow);
+    renderConversationChat(chatEl);
+    if (stick) {
+      scrollChatToBottom(chatEl);
+      scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
     }
   }
 
@@ -6018,179 +5818,90 @@
   }
 
   function openAddFriendDialog() {
-    if (!document.body) return;
-    if (!_addFriendModal) {
-      _addFriendModal = document.createElement("section");
-      _addFriendModal.className = "skill-preview-dialog hidden";
-      _addFriendModal.setAttribute("role", "dialog");
-      _addFriendModal.setAttribute("aria-modal", "true");
-      document.body.appendChild(_addFriendModal);
-    }
-
-    // Define close() first so the close button rendered by _renderAddFriendModal
-    // references this open's own teardown, not a stale handler from a prior open.
-    function onEsc(e) {
-      if (e.key === "Escape") { close(); }
-    }
-    function onBackdrop(e) {
-      if (e.target === _addFriendModal) close();
-    }
-    function close() {
-      _addFriendModal.classList.add("hidden");
-      document.removeEventListener("keydown", onEsc);
-      _addFriendModal.removeEventListener("click", onBackdrop);
-    }
-    // Assign before rendering so _renderAddFriendModal picks up the fresh closure.
-    _addFriendModal._closeModal = close;
-
-    // Render once immediately with whatever cached state we have so the
-    // dialog feels responsive…
-    _renderAddFriendModal(_addFriendModal);
-    _addFriendModal.classList.remove("hidden");
-    document.addEventListener("keydown", onEsc);
-    _addFriendModal.addEventListener("click", onBackdrop);
-    // …then re-fetch from the cloud and re-render. This is the safety net
-    // for stale moduleState (WS dropped, bootstrap never fired, etc.).
+    _addFriendModalOpen = true;
+    _renderAddFriendModal();
     refreshFriendRequestState().then((ok) => {
-      if (ok && !_addFriendModal.classList.contains("hidden")) {
-        _renderAddFriendModal(_addFriendModal);
-      }
+      if (ok && _addFriendModalOpen) _renderAddFriendModal();
     });
   }
 
-  function _renderAddFriendModal(modal) {
-    const closeModal = modal._closeModal || (() => modal.classList.add("hidden"));
-    modal.innerHTML = "";
+  function closeAddFriendDialog() {
+    _addFriendModalOpen = false;
+    window.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
+  }
 
-    const card = document.createElement("div");
-    card.className = "skill-preview-card group-create-card add-friend-card";
-
-    // Header
-    const toolbar = document.createElement("div");
-    toolbar.className = "skill-preview-toolbar";
-    toolbar.innerHTML = `
-      <div class="skill-preview-title"><h2>添加好友</h2></div>
-    `;
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "icon-button";
-    closeBtn.type = "button";
-    closeBtn.setAttribute("aria-label", "关闭");
-    closeBtn.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-        <path d="M6 6l12 12M18 6L6 18"/>
-      </svg>
-    `;
-    closeBtn.addEventListener("click", closeModal);
-    toolbar.appendChild(closeBtn);
-    card.appendChild(toolbar);
-
-    const body = document.createElement("div");
-    body.className = "group-create-body";
-
-    // My UID row
-    const meSection = document.createElement("section");
-    meSection.className = "group-create-section";
-    const myUserIdDisplay = escapeHtml(moduleState.myUserId || "—");
-    meSection.innerHTML = `
-      <div class="group-create-section-header">
-        <span class="group-create-section-title">我的 UID</span>
-      </div>
-      <div style="display:flex; align-items:center; gap:8px; padding:6px 0;">
-        <span id="socialMyUserIdLabel" style="font-weight:500; font-variant-numeric:tabular-nums;">${myUserIdDisplay}</span>
-        <button type="button" class="button-soft" id="socialCopyUserId" style="font-size:12px; padding:3px 8px;">复制</button>
-      </div>
-    `;
-    body.appendChild(meSection);
-
-    // Send request section
-    const sendSection = document.createElement("section");
-    sendSection.className = "group-create-section";
-    sendSection.innerHTML = `
-      <div class="group-create-section-header">
-        <span class="group-create-section-title">发送好友请求</span>
-      </div>
-      <div class="add-friend-send-row">
-        <input id="socialAddUserIdInput" class="group-create-input" type="text" placeholder="对方的 UID" inputmode="numeric" style="flex:1;">
-        <button type="button" class="add-friend-icon-button" id="socialSendRequestBtn" title="发送好友请求" aria-label="发送好友请求">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 17 17 7"></path>
-            <path d="M9 7h8v8"></path>
-          </svg>
-        </button>
-      </div>
-      <p id="socialSendError" style="color:#ff3b30; font-size:13px; margin-top:4px; min-height:18px;"></p>
-    `;
-    body.appendChild(sendSection);
-
-    if (moduleState.incomingRequests.length) {
-      const incomingSection = document.createElement("section");
-      incomingSection.className = "group-create-section";
-      incomingSection.innerHTML = `<div class="group-create-section-header"><span class="group-create-section-title">收到的好友请求</span></div>`;
-      const incomingList = document.createElement("div");
-      incomingList.id = "socialIncomingList";
-      _renderRequestList(incomingList, moduleState.incomingRequests, "incoming", modal);
-      incomingSection.appendChild(incomingList);
-      body.appendChild(incomingSection);
+  function addFriendRequestView(request, direction) {
+    const { otherUser, fallbackId, displayName } = requestOtherUser(request, direction);
+    const color = otherUser.avatarColor
+      || otherUser.avatar_color
+      || window.miaMemberColor?.memberAccentColor?.(otherUser.id || fallbackId || displayName)
+      || "#5e5ce6";
+    const base = {
+      accept: null,
+      avatar: {
+        color,
+        crop: otherUser.avatarCrop || otherUser.avatar_crop || null,
+        image: otherUser.avatarImage || otherUser.avatar_image || "",
+        text: requestAvatarText(displayName)
+      },
+      badge: statusBadgeFrom(otherUser) || null,
+      cancel: null,
+      id: request.id,
+      name: displayName,
+      reject: null
+    };
+    if (direction === "incoming") {
+      return {
+        ...base,
+        accept: async () => {
+          await respondToIncomingContactRequest(request.id, "accept");
+          if (_addFriendModalOpen) _renderAddFriendModal();
+        },
+        reject: async () => {
+          await respondToIncomingContactRequest(request.id, "reject");
+          if (_addFriendModalOpen) _renderAddFriendModal();
+        }
+      };
     }
+    return {
+      ...base,
+      cancel: async () => {
+        const response = await window.mia.social.cancelFriendRequest(request.id);
+        if (!response.ok) return;
+        moduleState.outgoingRequests = moduleState.outgoingRequests.filter((item) => item.id !== request.id);
+        if (_addFriendModalOpen) _renderAddFriendModal();
+        if (deps && typeof deps.render === "function") deps.render();
+      }
+    };
+  }
 
-    if (moduleState.outgoingRequests.length) {
-      const outgoingSection = document.createElement("section");
-      outgoingSection.className = "group-create-section";
-      outgoingSection.innerHTML = `<div class="group-create-section-header"><span class="group-create-section-title">我发出的请求</span></div>`;
-      const outgoingList = document.createElement("div");
-      outgoingList.id = "socialOutgoingList";
-      _renderRequestList(outgoingList, moduleState.outgoingRequests, "outgoing", modal);
-      outgoingSection.appendChild(outgoingList);
-      body.appendChild(outgoingSection);
-    }
-
-    card.appendChild(body);
-    modal.appendChild(card);
-
-    // Wire copy button
-    card.querySelector("#socialCopyUserId")?.addEventListener("click", () => {
-      try { navigator.clipboard.writeText(moduleState.myUserId || ""); } catch { /* ignore */ }
-      const btn = card.querySelector("#socialCopyUserId");
-      if (btn) {
-        window.miaSlotText?.flash?.(btn, "已复制", { restingText: "复制", revertAfter: 1200 });
-        if (!window.miaSlotText?.flash) {
-          btn.textContent = "已复制";
-          setTimeout(() => { btn.textContent = "复制"; }, 1200);
+  function _renderAddFriendModal() {
+    window.miaReactDialogs?.publish?.({
+      dialog: {
+        close: closeAddFriendDialog,
+        copyUid: async () => {
+          try { await navigator.clipboard.writeText(moduleState.myUserId || ""); } catch { /* best effort */ }
+        },
+        incoming: moduleState.incomingRequests.map((request) => addFriendRequestView(request, "incoming")),
+        kind: "add-friend",
+        myUid: moduleState.myUserId || "",
+        outgoing: moduleState.outgoingRequests.map((request) => addFriendRequestView(request, "outgoing")),
+        send: async (value) => {
+          const toUserId = String(value || "").trim();
+          if (!toUserId) return "请输入 UID";
+          if (!isValidPublicUid(toUserId)) return "请输入有效 UID";
+          try {
+            const response = await window.mia.social.sendFriendRequest(toUserId);
+            if (!response.ok) return response.error || "发送失败";
+            const outgoing = await window.mia.social.listFriendRequests("outgoing");
+            if (outgoing.ok) moduleState.outgoingRequests = outgoing.data?.requests || [];
+            if (_addFriendModalOpen) _renderAddFriendModal();
+            return "";
+          } catch (error) {
+            return String(error?.message || error);
+          }
         }
       }
-    });
-
-    // Wire send button
-    const sendBtn = card.querySelector("#socialSendRequestBtn");
-    const userIdInput = card.querySelector("#socialAddUserIdInput");
-    const errorEl = card.querySelector("#socialSendError");
-    sendBtn?.addEventListener("click", async () => {
-      const toUserId = (userIdInput?.value || "").trim();
-      if (!toUserId) { if (errorEl) errorEl.textContent = "请输入 UID"; return; }
-      if (!isValidPublicUid(toUserId)) { if (errorEl) errorEl.textContent = "请输入有效 UID"; return; }
-      if (errorEl) errorEl.textContent = "";
-      sendBtn.disabled = true;
-      try {
-        const res = await window.mia.social.sendFriendRequest(toUserId);
-        if (!res.ok) {
-          if (errorEl) errorEl.textContent = res.error || "发送失败";
-          return;
-        }
-        if (userIdInput) userIdInput.value = "";
-        // Refresh outgoing list
-        const outRes = await window.mia.social.listFriendRequests("outgoing");
-        if (outRes.ok) moduleState.outgoingRequests = outRes.data?.requests || [];
-        _renderAddFriendModal(modal);
-      } catch (err) {
-        if (errorEl) errorEl.textContent = String(err && err.message ? err.message : err);
-      } finally {
-        sendBtn.disabled = false;
-      }
-    });
-    userIdInput?.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter") return;
-      event.preventDefault();
-      sendBtn?.click();
     });
   }
 
@@ -6207,151 +5918,47 @@
     return (Array.from(String(displayName || "?"))[0] || "?").toUpperCase();
   }
 
-  function paintRequestAvatar(avatar, otherUser, fallbackId, displayName) {
-    const color = otherUser.avatarColor
-      || otherUser.avatar_color
-      || window.miaMemberColor?.memberAccentColor?.(otherUser.id || fallbackId || displayName)
-      || "#5e5ce6";
-    const text = requestAvatarText(displayName);
-    if (typeof window.miaAvatar?.applyAvatarMedia === "function") {
-      try {
-        window.miaAvatar.applyAvatarMedia(
-          avatar,
-          otherUser.avatarImage || otherUser.avatar_image || "",
-          otherUser.avatarCrop || otherUser.avatar_crop || null,
-          color,
-          text
-        );
-        return;
-      } catch {
-        // Keep friend-request rows visible even if optional avatar media fails.
-      }
-    }
-    avatar.style.backgroundColor = color;
-    avatar.textContent = text;
-  }
-
   function absorbAcceptedFriendResponse(res) {
     const data = res?.data || {};
     if (data.friend) moduleState.friends = dedup([...moduleState.friends, data.friend]);
     if (data.conversation) upsertConversation(data.conversation);
   }
 
-  function _renderRequestList(container, requests, direction, modal) {
-    if (!container) return;
-    container.innerHTML = "";
-    const list = Array.isArray(requests) ? requests : [];
-    if (!list.length) {
-      container.innerHTML = `<p class="contact-request-empty">暂无新的好友请求</p>`;
-      return;
-    }
-    for (const req of list) {
-      const row = document.createElement("div");
-      row.className = `contact-request-row ${direction}`;
+  function incomingContactRequestViews() {
+    return moduleState.incomingRequests.map((request) => {
+      const { otherUser, fallbackId, displayName } = requestOtherUser(request, "incoming");
+      const color = otherUser.avatarColor
+        || otherUser.avatar_color
+        || window.miaMemberColor?.memberAccentColor?.(otherUser.id || fallbackId || displayName)
+        || "#5e5ce6";
+      return {
+        id: String(request.id || ""),
+        name: displayName,
+        badge: statusBadgeFrom(otherUser) || null,
+        avatar: {
+          image: otherUser.avatarImage || otherUser.avatar_image || "",
+          crop: otherUser.avatarCrop || otherUser.avatar_crop || null,
+          color,
+          text: requestAvatarText(displayName)
+        },
+        accept: () => respondToIncomingContactRequest(request.id, "accept"),
+        reject: () => respondToIncomingContactRequest(request.id, "reject")
+      };
+    });
+  }
 
-      // Cloud REST hydrates the request with `other` (the user on the
-      // opposite end). Live WS events use `from` instead — accept either.
-      const { otherUser, fallbackId, displayName } = requestOtherUser(req, direction);
-
-      const avatar = document.createElement("span");
-      avatar.className = "avatar request-avatar";
-      paintRequestAvatar(avatar, otherUser, fallbackId, displayName);
-      row.appendChild(avatar);
-
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "contact-request-main";
-      nameSpan.innerHTML = renderNameWithBadgeHtml({
-        identity: { kind: "user", id: otherUser.id || fallbackId || "", displayName, statusBadge: statusBadgeFrom(otherUser) },
-        fallbackName: displayName,
-        statusBadge: statusBadgeFrom(otherUser)
-      });
-      row.appendChild(nameSpan);
-
-      if (direction === "incoming") {
-        const acceptBtn = document.createElement("button");
-        acceptBtn.type = "button";
-        acceptBtn.className = "button-primary contact-request-action";
-        acceptBtn.textContent = "同意";
-        acceptBtn.addEventListener("click", async () => {
-          acceptBtn.disabled = true;
-          try {
-            const res = await window.mia.social.respondFriendRequest(req.id, "accept");
-            if (!res.ok) { acceptBtn.disabled = false; return; }
-            moduleState.incomingRequests = moduleState.incomingRequests.filter((r) => r.id !== req.id);
-            absorbAcceptedFriendResponse(res);
-            // Re-render
-            if (modal) _renderAddFriendModal(modal);
-            if (deps && typeof deps.render === "function") deps.render();
-          } catch { acceptBtn.disabled = false; }
-        });
-
-        const rejectBtn = document.createElement("button");
-        rejectBtn.type = "button";
-        rejectBtn.className = "button-soft contact-request-action";
-        rejectBtn.textContent = "拒绝";
-        rejectBtn.addEventListener("click", async () => {
-          rejectBtn.disabled = true;
-          try {
-            const res = await window.mia.social.respondFriendRequest(req.id, "reject");
-            if (!res.ok) { rejectBtn.disabled = false; return; }
-            moduleState.incomingRequests = moduleState.incomingRequests.filter((r) => r.id !== req.id);
-            if (modal) _renderAddFriendModal(modal);
-            if (deps && typeof deps.render === "function") deps.render();
-          } catch { rejectBtn.disabled = false; }
-        });
-
-        row.appendChild(acceptBtn);
-        row.appendChild(rejectBtn);
-      } else {
-        const cancelBtn = document.createElement("button");
-        cancelBtn.type = "button";
-        cancelBtn.className = "button-soft contact-request-action";
-        cancelBtn.textContent = "撤回";
-        cancelBtn.addEventListener("click", async () => {
-          cancelBtn.disabled = true;
-          try {
-            const res = await window.mia.social.cancelFriendRequest(req.id);
-            if (!res.ok) { cancelBtn.disabled = false; return; }
-            moduleState.outgoingRequests = moduleState.outgoingRequests.filter((r) => r.id !== req.id);
-            if (modal) _renderAddFriendModal(modal);
-            if (deps && typeof deps.render === "function") deps.render();
-          } catch { cancelBtn.disabled = false; }
-        });
-        row.appendChild(cancelBtn);
-      }
-
-      container.appendChild(row);
-    }
-    initNameBadgeLotties(container);
+  async function respondToIncomingContactRequest(requestId, decision) {
+    const id = String(requestId || "").trim();
+    if (!id) return;
+    const response = await window.mia.social.respondFriendRequest(id, decision);
+    if (!response?.ok) return;
+    moduleState.incomingRequests = moduleState.incomingRequests.filter((request) => request.id !== id);
+    if (decision === "accept") absorbAcceptedFriendResponse(response);
+    if (deps && typeof deps.render === "function") deps.render();
   }
 
   function pendingRequestCount() {
     return moduleState.incomingRequests.length;
-  }
-
-  // Paint the incoming friend-request list into an arbitrary container (the
-  // contacts right pane). Reuses _renderRequestList with no modal, so accept /
-  // reject fall back to the global render() and repaint the pane in place.
-  function renderRequestsInto(container) {
-    if (!container) return;
-    const count = moduleState.incomingRequests.length;
-    const html = `
-      <article class="contact-profile contact-requests">
-        <section class="contact-note contact-requests-card">
-          <header class="contact-requests-head">
-            <strong>收到的好友请求</strong>
-            ${count ? `<span class="contact-requests-count">${unreadBadgeText(count)}</span>` : ""}
-          </header>
-          <div id="socialContactRequestPane" class="contact-request-list"></div>
-        </section>
-      </article>
-    `;
-    if (global.miaReactSurface?.renderHtml) {
-      global.miaReactSurface.renderHtml(container, html, `contact-requests:${count}`);
-    } else {
-      container.innerHTML = html;
-    }
-    _renderRequestList(container.querySelector("#socialContactRequestPane"), moduleState.incomingRequests, "incoming", null);
   }
 
   // ── Cloud-conversation send: DM, bot conversations, and groups share one path. ─────────
@@ -7467,7 +7074,7 @@
     renderSidebarRows,
     renderConversationChat,
     pendingRequestCount,
-    renderRequestsInto,
+    incomingContactRequestViews,
     openAddFriendDialog,
     openCreateGroupDialog,
     sendInActiveConversation,

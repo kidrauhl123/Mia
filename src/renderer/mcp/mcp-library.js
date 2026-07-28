@@ -1,20 +1,15 @@
 (function () {
   "use strict";
 
-  let state, els, escapeHtml, setText;
-  let layoutCards = () => {};
+  let state, els, setText;
   let activeLoadPromise = null;
-  let activeDialog = null;
-  let activeMessageDialog = null;
 
   const MCP_TRANSPORT_TYPES = Object.freeze(["stdio", "http", "sse", "streamable_http"]);
 
   function initMcpLibrary(deps) {
     state = deps.state;
     els = deps.els;
-    escapeHtml = deps.escapeHtml;
     setText = deps.setText;
-    layoutCards = typeof deps.layoutCards === "function" ? deps.layoutCards : () => {};
   }
 
   function mcpState() {
@@ -134,13 +129,7 @@
   }
 
   function closeActiveDialog() {
-    if (!activeDialog) return;
-    const { overlay, onKeyDown } = activeDialog;
-    if (typeof document !== "undefined" && onKeyDown) {
-      document.removeEventListener("keydown", onKeyDown);
-    }
-    overlay?.remove?.();
-    activeDialog = null;
+    window.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
     const mcp = mcpState();
     mcp.formOpen = false;
     mcp.templateWizardOpen = false;
@@ -148,49 +137,8 @@
     mcp.activeTemplateId = "";
   }
 
-  function bindDialogClose(overlay) {
-    if (!overlay || typeof document === "undefined") return;
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") closeActiveDialog();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    activeDialog = { overlay, onKeyDown };
-    overlay.querySelectorAll("[data-mcp-close]").forEach((button) => {
-      button.addEventListener("click", () => closeActiveDialog());
-    });
-  }
-
-  function appendDialog(overlay) {
-    if (!overlay || typeof document === "undefined" || !document.body) return false;
-    closeActiveDialog();
-    document.body.appendChild(overlay);
-    bindDialogClose(overlay);
-    return true;
-  }
-
   function closeMessageDialog() {
-    if (!activeMessageDialog) return;
-    const { overlay, onKeyDown } = activeMessageDialog;
-    if (typeof document !== "undefined" && onKeyDown) {
-      document.removeEventListener("keydown", onKeyDown);
-    }
-    overlay?.remove?.();
-    activeMessageDialog = null;
-  }
-
-  function appendMessageDialog(overlay) {
-    if (!overlay || typeof document === "undefined" || !document.body) return false;
-    closeMessageDialog();
-    document.body.appendChild(overlay);
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") closeMessageDialog();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    activeMessageDialog = { overlay, onKeyDown };
-    overlay.querySelectorAll("[data-mcp-message-close]").forEach((button) => {
-      button.addEventListener("click", () => closeMessageDialog());
-    });
-    return true;
+    window.miaReactDialogs?.publish?.({ message: null });
   }
 
   function alertText(message) {
@@ -200,23 +148,12 @@
       else console.warn(text);
       return;
     }
-    const overlay = document.createElement("section");
-    overlay.className = "mcp-dialog mcp-message-dialog";
-    overlay.setAttribute("role", "alertdialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", "MCP 提示");
-    overlay.innerHTML = `
-      <div class="mcp-dialog-backdrop" data-mcp-message-close></div>
-      <div class="mcp-dialog-panel mcp-message-panel" data-mcp-alert>
-        <p>${escapeHtml(text || "操作失败，请重试。")}</p>
-        <footer class="mcp-dialog-actions">
-          <button class="mcp-dialog-primary" type="button" data-mcp-message-close>确定</button>
-        </footer>
-      </div>
-    `;
-    if (!appendMessageDialog(overlay)) return;
-    const button = overlay.querySelector("button[data-mcp-message-close]");
-    button?.focus?.();
+    window.miaReactDialogs?.publish?.({
+      message: {
+        close: closeMessageDialog,
+        text: text || "操作失败，请重试。"
+      }
+    });
   }
 
   async function loadMcpServers(options = {}) {
@@ -290,21 +227,15 @@
   }
 
   function renderMcpTabs() {
-    const row = els?.skillChipRow;
-    if (!row) return;
-    row.classList?.add?.("mcp-toolbar-row");
-    row.setAttribute?.("aria-label", "MCP 操作");
-    const renderKey = "mcp-toolbar:create";
-    if (row.__miaRenderKey !== renderKey) {
-      row.innerHTML = `
-      <button type="button" data-mcp-toolbar-action="create">自定义 MCP</button>
-    `;
-      row.__miaRenderKey = renderKey;
-      row.querySelectorAll("[data-mcp-toolbar-action]").forEach((button) => {
-        button.addEventListener("click", () => handleMcpAction(button.dataset.mcpToolbarAction || "", ""));
-      });
-    }
-    syncMcpTabsIndicator();
+    window.miaReactSkills?.publish?.({
+      chips: [{
+        active: false,
+        id: "mcp:create",
+        label: "自定义 MCP",
+        select: () => handleMcpAction("create", "")
+      }],
+      mode: "mcp"
+    });
   }
 
   function syncMcpTabsIndicator() {
@@ -330,13 +261,6 @@
     };
     if (typeof requestAnimationFrame === "function") requestAnimationFrame(update);
     else update();
-  }
-
-  function requiredInputHtml(field = {}) {
-    const key = escapeHtml(field.key || "");
-    const label = escapeHtml(field.label || field.key || "");
-    const type = field.secret ? "password" : "text";
-    return `<label>${label}<input name="${key}" type="${type}" autocomplete="off" ${field.required === false ? "" : "required"}></label>`;
   }
 
   function managedActionLabel(action = "") {
@@ -534,159 +458,113 @@
     const label = item.statusLabel || simpleConnectionLabel(server, template);
     const statusClass = simpleStatusClass(label);
     const action = primaryActionForItem(item);
-    const idAttr = server
-      ? `data-mcp-id="${escapeHtml(server.id || "")}"`
-      : `data-mcp-template-id="${escapeHtml(template?.id || "")}"`;
-    const actionTargetAttr = server
-      ? `data-mcp-id="${escapeHtml(server.id || "")}"`
-      : `data-mcp-template="${escapeHtml(template?.id || "")}"`;
     const showCustomActions = server && !isInstalledBuiltIn(server);
-    return `
-      <article class="skill-card mcp-card mcp-connection-card" ${idAttr}>
-        <div class="skill-card-head">
-          <div class="skill-card-titlerow">
-            <strong>${escapeHtml(title)}</strong>
-            <span class="mcp-connect-status mcp-connect-status-${escapeHtml(statusClass)}">${escapeHtml(label)}</span>
-          </div>
-          <p>${escapeHtml(description)}</p>
-        </div>
-        <div class="mcp-card-actions" aria-label="MCP 服务操作">
-          <button class="mcp-action-button ${action.action === "disconnect-server" ? "mcp-action-secondary" : "mcp-action-primary"}" type="button" data-mcp-action="${escapeHtml(action.action)}" ${actionTargetAttr} ${action.disabled ? "disabled" : ""}>${escapeHtml(action.label)}</button>
-          ${showCustomActions ? `
-            <div class="mcp-card-secondary-actions">
-              <button class="mcp-action-button mcp-action-ghost" type="button" data-mcp-action="edit" data-mcp-id="${escapeHtml(server.id || "")}">配置</button>
-              <button class="mcp-action-button mcp-action-danger" type="button" data-mcp-action="delete" data-mcp-id="${escapeHtml(server.id || "")}">删除</button>
-            </div>
-          ` : ""}
-        </div>
-      </article>
-    `;
+    const targetId = server?.id || template?.id || "";
+    const actions = [{
+      className: `mcp-action-button ${action.action === "disconnect-server" ? "mcp-action-secondary" : "mcp-action-primary"}`,
+      disabled: action.disabled,
+      id: `${targetId}:${action.action}`,
+      label: action.label,
+      run: () => handleMcpAction(action.action, targetId)
+    }];
+    if (showCustomActions) {
+      actions.push(
+        {
+          className: "mcp-action-button mcp-action-ghost",
+          disabled: false,
+          id: `${targetId}:edit`,
+          label: "配置",
+          run: () => handleMcpAction("edit", targetId)
+        },
+        {
+          className: "mcp-action-button mcp-action-danger",
+          disabled: false,
+          id: `${targetId}:delete`,
+          label: "删除",
+          run: () => handleMcpAction("delete", targetId)
+        }
+      );
+    }
+    return {
+      actions,
+      className: "mcp-card mcp-connection-card",
+      description,
+      id: `${item.kind}:${targetId}`,
+      open: () => {},
+      sourceLogo: null,
+      sourceText: "",
+      statusClass,
+      statusLabel: label,
+      title
+    };
   }
 
-  function bindMcpActionHandlers() {
-    els.skillCardGrid.querySelectorAll("[data-mcp-action]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault?.();
-        event.stopPropagation?.();
-        if (button.disabled || Object.prototype.hasOwnProperty.call(button.attributes || {}, "disabled")) return;
-        handleMcpAction(
-          button.dataset.mcpAction,
-          button.dataset.mcpId || button.dataset.mcpTemplate || "",
-          button
-        );
-      });
+  function renderGrid(cards, emptyText = "") {
+    window.miaReactSkills?.publish?.({
+      cards,
+      emptyText,
+      pageDirection: 0
     });
-  }
-
-  function renderGrid(kind, html) {
-    const renderKey = `${kind}:${html}`;
-    if (els.skillCardGrid.__miaRenderKey === renderKey) {
-      layoutCards();
-      return;
-    }
-    if (window.miaReactSurface?.renderHtml) {
-      window.miaReactSurface.renderHtml(els.skillCardGrid, html, renderKey);
-    } else {
-      els.skillCardGrid.innerHTML = html;
-    }
-    els.skillCardGrid.__miaRenderKey = renderKey;
-    bindMcpActionHandlers();
-    layoutCards();
   }
 
   function renderState(text) {
-    renderGrid("mcp-state", `<div class="skill-empty-state">${escapeHtml(text)}</div>`);
+    renderGrid([], text);
   }
 
   function renderCards(items, renderItem) {
-    renderGrid("mcp-cards", items.map((item) => renderItem(item)).join(""));
-  }
-
-  function toggleTransportFields(form, type) {
-    const isStdio = normalizeTransportType(type) === "stdio";
-    form.querySelectorAll("[data-mcp-stdio]").forEach((node) => {
-      node.hidden = !isStdio;
-    });
-    form.querySelectorAll("[data-mcp-url]").forEach((node) => {
-      node.hidden = isStdio;
-    });
+    renderGrid(items.map((item) => renderItem(item)));
   }
 
   function openMcpForm(server) {
-    if (typeof document === "undefined" || !document.body) return;
     const mcp = mcpState();
     const isEdit = !!server;
     const transport = normalizeDialogTransport(server?.transport || {});
-    const overlay = document.createElement("section");
-    overlay.className = "mcp-dialog";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", isEdit ? "编辑 MCP 服务" : "添加 MCP 服务");
-    overlay.innerHTML = `
-      <div class="mcp-dialog-backdrop" data-mcp-close></div>
-      <form class="mcp-dialog-panel" data-mcp-form>
-        <header class="mcp-dialog-head">
-          <h2>${isEdit ? "编辑 MCP 服务" : "添加 MCP 服务"}</h2>
-          <button type="button" data-mcp-close aria-label="关闭">×</button>
-        </header>
-        <label>名称<input name="name" value="${escapeHtml(server?.name || "")}" required></label>
-        <label>描述<input name="description" value="${escapeHtml(server?.description || "")}"></label>
-        <label>传输类型
-          <select name="type">
-            ${MCP_TRANSPORT_TYPES.map((type) => (
-              `<option value="${type}" ${transport.type === type ? "selected" : ""}>${type}</option>`
-            )).join("")}
-          </select>
-        </label>
-        <label data-mcp-stdio>命令<input name="command" value="${escapeHtml(transport.command || "")}"></label>
-        <label data-mcp-stdio>参数<textarea name="args">${escapeHtml((transport.args || []).join("\n"))}</textarea></label>
-        <label data-mcp-stdio>环境变量<textarea name="env">${escapeHtml(serializeKeyValueLines(transport.env || {}, "="))}</textarea></label>
-        <label data-mcp-url>URL<input name="url" value="${escapeHtml(transport.url || "")}"></label>
-        <label data-mcp-url>Headers<textarea name="headers">${escapeHtml(serializeKeyValueLines(transport.headers || {}, ": "))}</textarea></label>
-        <label data-mcp-url>Bearer Token 环境变量<input name="bearerTokenEnvVar" value="${escapeHtml(transport.bearerTokenEnvVar || "")}"></label>
-        <footer class="mcp-dialog-actions">
-          <button type="button" data-mcp-close>取消</button>
-          <button class="mcp-dialog-primary" type="submit">${isEdit ? "保存" : "添加"}</button>
-        </footer>
-      </form>
-    `;
-    if (!appendDialog(overlay)) return;
+    closeActiveDialog();
     mcp.formOpen = true;
     mcp.formMode = isEdit ? "edit" : "create";
     mcp.formDraft = server || null;
-    const form = overlay.querySelector("[data-mcp-form]");
-    const typeSelect = form?.querySelector('select[name="type"]');
-    toggleTransportFields(form, transport.type);
-    typeSelect?.addEventListener("change", () => toggleTransportFields(form, typeSelect.value));
-    form?.addEventListener("submit", (event) => submitMcpForm(event, {
-      id: server?.id || "",
-      enabled: server?.enabled !== false
-    }));
+    const options = { id: server?.id || "", enabled: server?.enabled !== false };
+    window.miaReactDialogs?.publish?.({
+      dialog: {
+        close: closeActiveDialog,
+        id: options.id,
+        initial: {
+          args: (transport.args || []).join("\n"),
+          bearerTokenEnvVar: transport.bearerTokenEnvVar || "",
+          command: transport.command || "",
+          description: server?.description || "",
+          env: serializeKeyValueLines(transport.env || {}, "="),
+          headers: serializeKeyValueLines(transport.headers || {}, ": "),
+          name: server?.name || "",
+          type: transport.type,
+          url: transport.url || ""
+        },
+        kind: "mcp-form",
+        submit: (values) => submitMcpForm(values, options),
+        title: isEdit ? "编辑 MCP 服务" : "添加 MCP 服务"
+      }
+    });
   }
 
-  async function submitMcpForm(event, options = {}) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    if (!form || typeof FormData === "undefined") return;
-    const data = new FormData(form);
-    const type = normalizeTransportType(data.get("type"));
+  async function submitMcpForm(values, options = {}) {
+    const type = normalizeTransportType(values.type);
     const transport = type === "stdio"
       ? {
         type,
-        command: String(data.get("command") || "").trim(),
-        args: parseLineList(data.get("args")),
-        env: parseKeyValueLines(data.get("env"), /^([^=]+)=(.*)$/)
+        command: String(values.command || "").trim(),
+        args: parseLineList(values.args),
+        env: parseKeyValueLines(values.env, /^([^=]+)=(.*)$/)
       }
       : {
         type,
-        url: String(data.get("url") || "").trim(),
-        headers: parseKeyValueLines(data.get("headers"), /^([^:]+):(.*)$/),
-        bearerTokenEnvVar: String(data.get("bearerTokenEnvVar") || "").trim()
+        url: String(values.url || "").trim(),
+        headers: parseKeyValueLines(values.headers, /^([^:]+):(.*)$/),
+        bearerTokenEnvVar: String(values.bearerTokenEnvVar || "").trim()
       };
     const result = await window.mia.mcp.save({
       id: String(options.id || "").trim(),
-      name: String(data.get("name") || "").trim(),
-      description: String(data.get("description") || "").trim(),
+      name: String(values.name || "").trim(),
+      description: String(values.description || "").trim(),
       enabled: options.enabled !== false,
       transport
     });
@@ -699,58 +577,49 @@
   }
 
   function openTemplateWizard(template) {
-    if (typeof document === "undefined" || !document.body || !template) return;
+    if (!template) return;
     const mcp = mcpState();
     const fields = Array.isArray(template.requiredInputs) ? template.requiredInputs : [];
-    const overlay = document.createElement("section");
-    overlay.className = "mcp-dialog";
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", `连接 ${template.name || template.id || "MCP"}`);
-    overlay.innerHTML = `
-      <div class="mcp-dialog-backdrop" data-mcp-close></div>
-      <form class="mcp-dialog-panel" data-mcp-template-form>
-        <header class="mcp-dialog-head">
-          <h2>${escapeHtml(template.name || template.id || "MCP 服务")}</h2>
-          <button type="button" data-mcp-close aria-label="关闭">×</button>
-        </header>
-        <p class="mcp-dialog-copy">${escapeHtml(template.description || "")}</p>
-        ${fields.map((field) => requiredInputHtml(field)).join("")}
-        <footer class="mcp-dialog-actions">
-          <button type="button" data-mcp-close>取消</button>
-          <button class="mcp-dialog-primary" type="submit">连接</button>
-        </footer>
-      </form>
-    `;
-    if (!appendDialog(overlay)) return;
+    closeActiveDialog();
     mcp.templateWizardOpen = true;
     mcp.activeTemplateId = template.id || "";
-    const form = overlay.querySelector("[data-mcp-template-form]");
-    form?.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (typeof FormData === "undefined") return;
-      if (!window.mia?.mcp?.installTemplate) {
-        alertText("MCP 连接暂不可用");
-        return;
-      }
-      const data = new FormData(form);
-      const values = {};
-      fields.forEach((field) => {
-        values[field.key] = String(data.get(field.key) || "").trim();
-      });
-      mcp.templateWizardBusy = true;
-      try {
-        const result = await window.mia.mcp.installTemplate(template.id, values);
-        if (!result?.success) {
-          alertText(managedFailureMessage("connect", result?.error || "未知错误"));
-          return;
-        }
-        closeActiveDialog();
-        await loadMcpServers({ force: true });
-      } finally {
-        mcp.templateWizardBusy = false;
+    const publishWizard = (busy = false) => window.miaReactDialogs?.publish?.({
+      dialog: {
+        busy,
+        close: closeActiveDialog,
+        copy: template.description || "",
+        fields: fields.map((field) => ({
+          key: field.key || "",
+          label: field.label || field.key || "",
+          required: field.required !== false,
+          secret: !!field.secret
+        })),
+        id: template.id || "",
+        kind: "mcp-template",
+        submit: async (values) => {
+          if (!window.mia?.mcp?.installTemplate) {
+            alertText("MCP 连接暂不可用");
+            return;
+          }
+          mcp.templateWizardBusy = true;
+          publishWizard(true);
+          try {
+            const result = await window.mia.mcp.installTemplate(template.id, values);
+            if (!result?.success) {
+              alertText(managedFailureMessage("connect", result?.error || "未知错误"));
+              return;
+            }
+            closeActiveDialog();
+            await loadMcpServers({ force: true });
+          } finally {
+            mcp.templateWizardBusy = false;
+            if (mcp.templateWizardOpen) publishWizard(false);
+          }
+        },
+        title: template.name || template.id || "MCP 服务"
       }
     });
+    publishWizard(false);
   }
 
   async function testMcpServer(id) {

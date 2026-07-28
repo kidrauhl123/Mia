@@ -346,30 +346,13 @@
   function renderConnectedProviders(runtime = state?.runtime) {
     if (!els || !els.connectedProviderList) return;
     const providers = runtime?.connectedProviders || [];
-    const section = els.connectedProviderList.closest(".connected-providers");
-    section?.classList.toggle("hidden", !providers.length);
-    if (!providers.length) {
-      if (window.miaReactSurface?.clear) {
-        window.miaReactSurface.clear(els.connectedProviderList, "connected-providers:empty");
-      } else {
-        els.connectedProviderList.innerHTML = "";
-      }
-      return;
-    }
-    const html = providers.map((provider) => `
-      <div class="connected-provider">
-        <span class="provider-logo-wrap"><img class="provider-logo" src="${escapeHtml(window.miaModelHelpers.modelIconSrc({ provider: provider.provider }))}" alt="" onerror="this.style.display='none'"></span>
-        <span class="provider-main">
-          <strong>${escapeHtml(provider.providerLabel || provider.provider)}</strong>
-        </span>
-        <span class="provider-check">✓</span>
-      </div>
-    `).join("");
-    if (window.miaReactSurface?.renderHtml) {
-      window.miaReactSurface.renderHtml(els.connectedProviderList, html, `connected-providers:${html}`);
-    } else {
-      els.connectedProviderList.innerHTML = html;
-    }
+    window.miaReactSettingsCompat?.publish?.({
+      providers: providers.map((provider) => ({
+        id: provider.provider,
+        label: provider.providerLabel || provider.provider,
+        logoSrc: window.miaModelHelpers.modelIconSrc({ provider: provider.provider })
+      }))
+    });
   }
 
   window.miaModelSettings = {

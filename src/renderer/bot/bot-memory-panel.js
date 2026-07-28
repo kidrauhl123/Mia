@@ -136,6 +136,54 @@
     return `${count} 条记忆 · ${data.usedChars || 0}/${data.limitChars || 2200} 字`;
   }
 
+  function memoryStateText(data, loading) {
+    if (data?.mode === "native") return "Mia 记忆已关闭；已有记录会保留，重新开启后可查看和编辑。";
+    if (!data && loading) return "正在读取这位伙伴的记忆…";
+    if (data?.error && !data.entries?.length) return data.error;
+    if (!data?.entries?.length) return "这位伙伴还没有长期记忆。";
+    return data?.error || "";
+  }
+
+  function botMemoryView(bot = {}) {
+    const key = botKey(bot);
+    const data = panelData(bot);
+    const loading = memoryLoadingKeys().has(key);
+    const editor = currentEditor();
+    const entries = Array.isArray(data?.entries) ? data.entries : [];
+    return {
+      cancelEdit: () => {
+        clearEditor();
+        renderContacts?.();
+      },
+      edit: (index) => editEntry(bot, index),
+      entries: entries.map((entry, index) => ({
+        draft: editor.botKey === key && editor.entryIndex === index ? editor.draft : "",
+        editing: editor.botKey === key && editor.entryIndex === index,
+        error: editor.botKey === key && editor.entryIndex === index ? editor.error : "",
+        index,
+        saving: editor.botKey === key && editor.entryIndex === index && Boolean(editor.saving),
+        text: entry
+      })),
+      mode: data?.mode === "native" ? "native" : "mia",
+      open: openPanelKeys().has(key),
+      saveEdit: () => saveEntry(bot),
+      stateText: memoryStateText(data, loading),
+      summary: memorySummary(data, loading),
+      toggle: (open) => {
+        if (open) {
+          openPanelKeys().add(key);
+          loadBotMemory(bot, { force: true });
+        } else {
+          openPanelKeys().delete(key);
+        }
+      },
+      updateDraft: (value) => {
+        const active = currentEditor();
+        if (active.botKey === key) active.draft = String(value || "");
+      }
+    };
+  }
+
   function renderMemoryEntry(bot, entry, index) {
     const key = botKey(bot);
     const editor = currentEditor();
@@ -288,6 +336,7 @@
 
   window.miaBotMemoryPanel = {
     initBotMemoryPanel,
+    botMemoryView,
     renderBotMemoryPanel,
     wireBotMemoryPanel,
     loadBotMemory

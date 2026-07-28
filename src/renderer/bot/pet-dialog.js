@@ -6,8 +6,8 @@
   "use strict";
 
   let state, els, mia;
-  let botByKey, cryptoRandomId, avatarBackgroundStyle;
-  let escapeHtml, setText, renderView, refreshRuntime, appendTransientChat;
+  let botByKey, cryptoRandomId;
+  let escapeHtml, renderView, refreshRuntime, appendTransientChat;
 
   function initPetDialog(deps = {}) {
     state = deps.state;
@@ -15,9 +15,7 @@
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     botByKey = deps.botByKey;
     cryptoRandomId = deps.cryptoRandomId;
-    avatarBackgroundStyle = deps.avatarBackgroundStyle;
     escapeHtml = deps.escapeHtml;
-    setText = deps.setText;
     renderView = deps.renderView;
     refreshRuntime = deps.refreshRuntime;
     appendTransientChat = deps.appendTransientChat;
@@ -30,8 +28,7 @@
     state.petGenerateBotKey = bot.key;
     const reference = bot.avatarImage || "";
     state.petReferences = reference ? [{ id: cryptoRandomId(), src: reference }] : [];
-    if (els.petPrompt) els.petPrompt.value = "";
-    if (els.petStylePreset) els.petStylePreset.value = "codex";
+    renderPetGenerateDialog();
     renderView();
   }
 
@@ -39,34 +36,54 @@
     state.petGenerateOpen = false;
     state.petGenerateBotKey = "";
     state.petReferences = [];
+    window.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
     renderView();
   }
 
   function renderPetGenerateDialog() {
-    const controls = els || {};
     const currentState = state || {};
-    if (!controls.petGenerateDialog || !currentState.petGenerateOpen) return;
+    if (!currentState.petGenerateOpen) return;
     const bot = typeof botByKey === "function" ? botByKey(currentState.petGenerateBotKey) : null;
     if (!bot) return;
-    const writeText = typeof setText === "function" ? setText : (node, value) => { if (node) node.textContent = value; };
-    const escape = typeof escapeHtml === "function" ? escapeHtml : (value) => String(value || "");
-    const avatarStyle = typeof avatarBackgroundStyle === "function" ? avatarBackgroundStyle : () => "";
-    writeText(controls.petGenerateTitle, `生成「${bot.name}」桌宠`);
-    writeText(controls.petGenerateSubtitle, "会在后台调用 AlkakaPet/Hatch Pet 流程，耗时可能较长。");
-    if (!controls.petReferenceList) return;
     const references = Array.isArray(currentState.petReferences) ? currentState.petReferences : [];
-    controls.petReferenceList.innerHTML = references.length
-      ? references.map((item) => `
-        <div class="pet-reference-thumb" style="${avatarStyle(item.src, { x: 50, y: 50, zoom: 1 }, "#eef0ff")}">
-          <button type="button" data-remove-pet-reference="${escape(item.id)}" title="删除">×</button>
-        </div>
-      `).join("")
-      : `<div class="pet-reference-empty">没有参考图片</div>`;
-    controls.petReferenceList.querySelectorAll("[data-remove-pet-reference]").forEach((button) => {
-      button.addEventListener("click", () => {
-        currentState.petReferences = references.filter((item) => item.id !== button.dataset.removePetReference);
-        renderPetGenerateDialog();
-      });
+    window.miaReactDialogs?.publish?.({
+      dialog: {
+        addReference: readPetReferenceFile,
+        close: closePetGenerateDialog,
+        kind: "pet-generate",
+        references: references.map((item) => ({ id: item.id, src: item.src })),
+        removeReference: (id) => {
+          currentState.petReferences = references.filter((item) => item.id !== id);
+          renderPetGenerateDialog();
+        },
+        submit: async (prompt, stylePreset) => {
+          try {
+            const job = await mia.generateBotPet({
+              botKey: bot.key,
+              bot: {
+                id: bot.id || bot.key,
+                key: bot.key,
+                name: bot.name || bot.displayName || bot.key,
+                displayName: bot.displayName || bot.name || bot.key,
+                avatarImage: bot.avatarImage || "",
+                avatarCrop: bot.avatarCrop || null
+              },
+              prompt,
+              stylePreset: stylePreset || "codex",
+              referenceImages: currentState.petReferences.map((item) => item.src)
+            });
+            currentState.petJobs = [job, ...currentState.petJobs.filter((item) => item.id !== job.id)];
+            currentState.petJobPanelOpen = true;
+            closePetGenerateDialog();
+            renderPetJobs();
+            return "";
+          } catch (error) {
+            return `生成失败：${error?.message || error}`;
+          }
+        },
+        subtitle: "会在后台调用 AlkakaPet/Hatch Pet 流程，耗时可能较长。",
+        title: `生成「${bot.name}」桌宠`
+      }
     });
   }
 

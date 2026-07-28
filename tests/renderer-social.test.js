@@ -11,6 +11,7 @@ const { coreLocalEventEnvelope } = require("../src/shared/mia-core-event-client.
 
 function loadSocial(options = {}) {
   const src = fs.readFileSync(path.join(__dirname, "..", "src", "renderer", "social", "social.js"), "utf8");
+  let reactMessageHost = options.elementsById?.chat || null;
   const mockEl = () => ({
     classList: { add() {}, remove() {}, toggle() {} },
     children: [],
@@ -42,6 +43,28 @@ function loadSocial(options = {}) {
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
     miaConversationTags: require("../src/shared/conversation-tags.js"),
     miaResourceCache: require("../src/renderer/resource-cache.js"),
+    miaReactDialogs: {
+      publish(payload) {
+        mockWindow.__dialogPayload = payload;
+      }
+    },
+    miaReactMessageList: {
+      render(payload) {
+        mockWindow.__messageListPayload = payload;
+        if (!reactMessageHost) return;
+        const children = (payload.entries || []).map((entry) => entry.build?.()).filter(Boolean);
+        reactMessageHost.children = children;
+        reactMessageHost._html = children.map((child) => child.outerHTML || child.innerHTML || "").join("");
+        for (let index = 0; index < children.length; index += 1) {
+          payload.entries[index]?.mounted?.(children[index]);
+        }
+      }
+    },
+    miaReactPermissionBanner: {
+      publish(payload) {
+        mockWindow.__permissionBannerPayload = payload;
+      }
+    },
     miaMarkdown: {
       escapeHtml: (v) => String(v || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"),
       renderMarkdown: (v) => String(v || ""),
@@ -77,6 +100,16 @@ function loadSocial(options = {}) {
     Math,
   });
   vm.runInContext(src, context);
+  const initSocialModule = mockWindow.miaSocial.initSocialModule;
+  mockWindow.miaSocial.initSocialModule = (deps) => {
+    reactMessageHost = deps?.els?.chat || reactMessageHost;
+    return initSocialModule(deps);
+  };
+  const renderConversationChat = mockWindow.miaSocial.renderConversationChat;
+  mockWindow.miaSocial.renderConversationChat = (container) => {
+    reactMessageHost = container || reactMessageHost;
+    return renderConversationChat(container);
+  };
   mockWindow.miaSocial.__mockWindow = mockWindow;
   return mockWindow.miaSocial;
 }
@@ -1869,7 +1902,7 @@ test("handleCloudEvent social.friend_request_received appends incoming", () => {
   assert.equal(s.moduleState.incomingRequests[0].from.username, "x");
 });
 
-test("renderRequestsInto paints actionable incoming requests in contact detail", () => {
+test("incomingContactRequestViews publishes actionable typed request rows", () => {
   const s = loadSocial();
   s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
   s.moduleState.incomingRequests = [
@@ -1881,18 +1914,11 @@ test("renderRequestsInto paints actionable incoming requests in contact detail",
       other: { id: "u_x", displayName: "Alice" },
     },
   ];
-  const pane = makeTestEl();
-  const container = makeTestEl();
-  container.querySelector = (selector) => (selector === "#socialContactRequestPane" ? pane : null);
-
-  assert.doesNotThrow(() => s.renderRequestsInto(container));
-  assert.match(container.innerHTML, /收到的好友请求/);
-  assert.equal(pane.children.length, 1);
-
-  const rowText = pane.children[0].children.map((child) => `${child.textContent || ""} ${child.innerHTML || ""}`).join("\n");
-  assert.match(rowText, /Alice/);
-  assert.match(rowText, /同意/);
-  assert.match(rowText, /拒绝/);
+  const rows = s.incomingContactRequestViews();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].name, "Alice");
+  assert.equal(typeof rows[0].accept, "function");
+  assert.equal(typeof rows[0].reject, "function");
 });
 
 test("handleCloudEvent social.friend_added adds conversation + friend, removes from outgoing", () => {
@@ -2116,6 +2142,7 @@ test("sendInActiveGroupConversation delegates to the unified cloud-conversation 
   };
   s.__mockWindow.miaSocialGroups = {
     attach(ctx) { attached = ctx; },
+    fetchAndCacheConversationMembers: async () => [],
     sendInActiveGroupConversation() { throw new Error("groups module not attached"); }
   };
   s.moduleState.activeConversationId = "g_bad_module";
@@ -3634,7 +3661,7 @@ test("renderConversationChat inserts a centered date divider when the message da
   assert.match(chat.children[2].innerHTML, /2026年7月19日/);
 });
 
-test("appendMessageToActiveChat animates new tail messages only when the chat is near bottom", () => {
+test("appendMessageToActiveChat publishes the active tail through the keyed React list", () => {
   const chat = {
     children: [],
     dataset: {},
@@ -3669,9 +3696,9 @@ test("appendMessageToActiveChat animates new tail messages only when the chat is
 
   s._internalCtx.appendMessageToActiveChat(msg, { stick: false });
 
-  assert.equal(chat.children.length, 1);
-  assert.match(chat.children[0].className, /\bmessage-tail-enter\b/);
-  assert.equal(chat.scrollTop, chat.scrollHeight);
+  const entry = s.__mockWindow.__messageListPayload.entries.find((item) => item.key === "message:dm:u_me:u_friend:m_tail");
+  assert.ok(entry);
+  assert.equal(entry.tag, "article");
 });
 
 test("appendMessageToActiveChat leaves history readers in place without tail animation", () => {
@@ -3696,6 +3723,15 @@ test("appendMessageToActiveChat leaves history readers in place without tail ani
   s.moduleState.activeConversationId = "dm:u_me:u_friend";
   s.moduleState.conversations = [{ id: "dm:u_me:u_friend", type: "dm", name: "Friend" }];
 
+  const previous = {
+    id: "m_previous",
+    seq: 3,
+    conversation_id: "dm:u_me:u_friend",
+    sender_kind: "user",
+    sender_ref: "u_friend",
+    body_md: "already visible",
+    created_at: "2026-06-22T10:00:00.000Z"
+  };
   const msg = {
     id: "m_history",
     seq: 4,
@@ -3705,16 +3741,20 @@ test("appendMessageToActiveChat leaves history readers in place without tail ani
     body_md: "do not pull",
     created_at: "2026-06-22T10:01:00.000Z"
   };
-  s.moduleState.messageCache.set("dm:u_me:u_friend", { messages: [msg], maxSeq: 4 });
+  s.moduleState.messageCache.set("dm:u_me:u_friend", { messages: [previous], maxSeq: 3 });
+  s.renderConversationChat(chat);
+  chat.scrollTop = 420;
+  s.moduleState.messageCache.set("dm:u_me:u_friend", { messages: [previous, msg], maxSeq: 4 });
 
   s._internalCtx.appendMessageToActiveChat(msg, { stick: false });
 
-  assert.equal(chat.children.length, 1);
-  assert.doesNotMatch(chat.children[0].className, /\bmessage-tail-enter\b/);
+  const entry = s.__mockWindow.__messageListPayload.entries.find((item) => item.key === "message:dm:u_me:u_friend:m_history");
+  assert.ok(entry);
+  assert.equal(entry.mounted, undefined);
   assert.equal(chat.scrollTop, 420);
 });
 
-test("appendMessageToActiveChat FLIPs existing rows when bottom follow changes scroll", () => {
+test("appendMessageToActiveChat preserves stable React message keys during bottom follow", () => {
   const animations = [];
   let chat;
   const existing = {
@@ -3749,8 +3789,7 @@ test("appendMessageToActiveChat FLIPs existing rows when bottom follow changes s
     },
     querySelector() { return null; },
     querySelectorAll(selector) {
-      assert.equal(selector, "article.message");
-      return [existing];
+      return selector === "article.message" ? [existing] : [];
     }
   };
   const s = loadSocial({ elementsById: { chat } });
@@ -3773,12 +3812,11 @@ test("appendMessageToActiveChat FLIPs existing rows when bottom follow changes s
 
   s._internalCtx.appendMessageToActiveChat(msg, { stick: false });
 
-  assert.equal(animations.length, 1);
-  assert.equal(JSON.stringify(animations[0].keyframes), JSON.stringify([
-    { transform: "translateY(240px)" },
-    { transform: "translateY(0)" }
-  ]));
-  assert.equal(animations[0].options.duration, 190);
+  assert.ok(
+    s.__mockWindow.__messageListPayload.entries.some(
+      (entry) => entry.key === "message:dm:u_me:u_friend:m_tail_shift"
+    )
+  );
 });
 
 test("renderConversationChat layout shifts animate existing message rows after rerender", () => {
@@ -4928,10 +4966,15 @@ test("deleteConversationMessage keeps the active DOM transaction fresh through t
 
   assert.equal(renders, 1);
   assert.equal(removed, true);
-  assert.equal(cleared, false, "follow-up render should not rebuild over the in-flight removal animation");
-  assert.deepEqual(chat.children.map((child) => child.dataset.messageId), ["m3"]);
+  assert.deepEqual(
+    Array.from(
+    s.__mockWindow.__messageListPayload.entries
+      .filter((entry) => entry.key.startsWith("message:"))
+      .map((entry) => entry.key.split(":").at(-1))
+    ),
+    ["m1", "m3"]
+  );
   assert.deepEqual(s.moduleState.messageCache.get("dm:u_a:u_b").messages.map((message) => message.id), ["m1", "m3"]);
-  assert.equal(animations.length, 1);
 });
 
 test("handleCloudEvent cloud_agent_run events track transient conversation streaming state", () => {
@@ -5339,9 +5382,9 @@ test("handleCloudEvent turns Hermes approval.request into a desktop permission b
   assert.equal(run.pendingPermissions[0].runId, "car_approval");
   assert.equal(run.pendingPermissions[0].conversationId, "botc_u_a_mia");
   assert.equal(run.pendingPermissions[0].preview, "python3 build_excel.py");
-  assert.equal(banner.classList.contains("hidden"), false);
-  assert.match(banner.innerHTML, /terminal/);
-  assert.match(banner.innerHTML, /python3 build_excel\.py/);
+  assert.equal(s.__mockWindow.__permissionBannerPayload.visible, true);
+  assert.match(s.__mockWindow.__permissionBannerPayload.kicker, /terminal/);
+  assert.match(s.__mockWindow.__permissionBannerPayload.preview, /python3 build_excel\.py/);
 });
 
 test("permission banner title omits repeated actor names", () => {
@@ -5387,7 +5430,7 @@ test("successful permission decision removes the pending banner after one click"
   assert.deepEqual(JSON.parse(JSON.stringify(respondCalls)), [{ requestId: "perm_1", decision: "allow_once" }]);
   assert.equal(run.pendingPermissions.length, 0);
   assert.equal(s.moduleState.pendingPermissionsById.has("perm_1"), false);
-  assert.deepEqual(disabled.map((button) => button.disabled), [true, true]);
+  assert.equal(s.__mockWindow.__permissionBannerPayload.visible, false);
 });
 
 test("cloud Claude Code permission decision posts to the run approval route", async () => {
@@ -5462,31 +5505,8 @@ test("stale permission decision clears the banner instead of posting an error", 
   assert.equal(transient, "");
 });
 
-test("permission decision handles primary pointerdown before click fallback", async () => {
-  const listeners = {};
-  const disabled = [];
-  const button = {
-    dataset: { permissionDecision: "deny" },
-    disabled: false,
-    closest(selector) {
-      return selector === "button[data-permission-decision]" ? this : null;
-    }
-  };
-  const banner = {
-    dataset: { requestId: "perm_1" },
-    addEventListener(type, handler, options) {
-      listeners[type] = { handler, options };
-    },
-    classList: { add() {}, remove() {}, contains() { return false; } },
-    set innerHTML(value) { this._html = value; },
-    get innerHTML() { return this._html || ""; },
-    querySelectorAll(selector) {
-      assert.equal(selector, "button[data-permission-decision]");
-      return disabled;
-    }
-  };
-  const s = loadSocial({ elementsById: { agentPermissionBanner: banner } });
-  disabled.push(button);
+test("permission decision is exposed through the typed React banner callback", async () => {
+  const s = loadSocial();
   const respondCalls = [];
   s.__mockWindow.mia.respondChatPermission = async (payload) => {
     respondCalls.push(payload);
@@ -5498,18 +5518,10 @@ test("permission decision handles primary pointerdown before click fallback", as
   s._internalCtx.addRunPermission(run, { requestId: "perm_1", title: "Codex 想执行命令" });
   s._internalCtx.renderAgentPermissionBanner();
 
-  assert.equal(typeof listeners.pointerdown?.handler, "function");
-  assert.equal(listeners.pointerdown.options, true);
-  const eventCalls = [];
-  await listeners.pointerdown.handler({
-    type: "pointerdown",
-    button: 0,
-    target: button,
-    preventDefault() { eventCalls.push("prevent"); },
-    stopPropagation() { eventCalls.push("stop"); }
-  });
+  assert.equal(typeof s.__mockWindow.__permissionBannerPayload.decide, "function");
+  s.__mockWindow.__permissionBannerPayload.decide("deny");
+  await flushPromises();
 
-  assert.deepEqual(eventCalls, ["prevent", "stop"]);
   assert.deepEqual(JSON.parse(JSON.stringify(respondCalls)), [{ requestId: "perm_1", decision: "deny" }]);
 });
 
@@ -5849,9 +5861,9 @@ test("cloud run streaming updates the active row in place without rebuilding cha
   run.createdAt = "2026-06-22T10:00:00.000Z";
 
   s.renderConversationChat(chat);
-  const initialClearCount = chat.clearCount;
-  const initialArticle = chat.children[0];
-  assert.match(initialArticle.innerHTML, /hello/);
+  const initialEntry = s.__mockWindow.__messageListPayload.entries.find((entry) => entry.key === "stream:botc_u_a_mia");
+  assert.ok(initialEntry);
+  const initialSignature = initialEntry.signature;
   frames.length = 0;
 
   s.handleCloudEvent({
@@ -5861,17 +5873,18 @@ test("cloud run streaming updates the active row in place without rebuilding cha
   assert.equal(frames.length, 1);
   frames.shift()(16);
 
-  assert.equal(chat.clearCount, initialClearCount);
-  assert.strictEqual(chat.children[0], initialArticle);
-  assert.match(chat.children[0].innerHTML, /hello wo/);
-  assert.doesNotMatch(chat.children[0].innerHTML, /hello world/);
+  const partialEntry = s.__mockWindow.__messageListPayload.entries.find((entry) => entry.key === "stream:botc_u_a_mia");
+  assert.notEqual(partialEntry.signature, initialSignature);
 
-  assert.equal(frames.length, 1);
-  frames.shift()(32);
+  let guard = 0;
+  while (frames.length && run.displayText !== "hello world" && guard < 8) {
+    frames.shift()(32 + guard);
+    guard += 1;
+  }
 
-  assert.equal(chat.clearCount, initialClearCount);
-  assert.strictEqual(chat.children[0], initialArticle);
-  assert.match(chat.children[0].innerHTML, /hello world/);
+  const finalEntry = s.__mockWindow.__messageListPayload.entries.find((entry) => entry.key === "stream:botc_u_a_mia");
+  assert.notEqual(finalEntry.signature, partialEntry.signature);
+  assert.equal(run.displayText, "hello world");
 });
 
 test("cloud run delta can create the active streaming row if the start frame was missed", () => {

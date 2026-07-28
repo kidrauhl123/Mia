@@ -32,32 +32,7 @@
     { key: "ok",     label: "成功",      match: (r) => r.status === "ok" },
     { key: "failed", label: "失败/错过", match: (r) => r.status === "failed" || r.status === "missed" }
   ];
-  let modeToggleIndicatorHost = null;
-  let modeToggleIndicatorResizeBound = false;
   let pageTurnDirection = 0;
-
-  function syncModeToggleIndicator(host) {
-    modeToggleIndicatorHost = host || modeToggleIndicatorHost;
-    if (!modeToggleIndicatorHost) return;
-
-    const update = () => {
-      const active = modeToggleIndicatorHost.querySelector("button.active");
-      if (!active || typeof active.getBoundingClientRect !== "function") return;
-      const hostRect = modeToggleIndicatorHost.getBoundingClientRect();
-      const activeRect = active.getBoundingClientRect();
-      modeToggleIndicatorHost.style.setProperty("--pill-x", `${activeRect.left - hostRect.left}px`);
-      modeToggleIndicatorHost.style.setProperty("--pill-w", `${activeRect.width}px`);
-      modeToggleIndicatorHost.style.setProperty("--pill-ready", "1");
-    };
-
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(update);
-    else update();
-
-    if (!modeToggleIndicatorResizeBound && typeof window !== "undefined") {
-      modeToggleIndicatorResizeBound = true;
-      window.addEventListener("resize", () => syncModeToggleIndicator(modeToggleIndicatorHost));
-    }
-  }
 
   // Single source of truth for run-status presentation. Any new run.status
   // value must extend this map so task cards and compact output stay in sync.
@@ -103,18 +78,19 @@
     return botContact(botId).displayName || botId;
   }
 
-  function taskExecutorAvatarHtml(task) {
+  function taskExecutorAvatarView(task) {
     const resolved = botContact(task?.botId || "");
     const avatar = resolved.avatar || {};
     const label = resolved.displayName || task?.botId || "";
-    return __global.miaAvatar.avatarHtml({
-      className: "avatar task-output-avatar",
-      image: avatar.image || "",
-      crop: avatar.crop || null,
-      color: avatar.color || "#5e5ce6",
-      text: avatar.image ? "" : avatar.text || label,
-      attrs: `role="img" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}"`
-    });
+    return {
+      avatar: {
+        color: avatar.color || "#5e5ce6",
+        crop: avatar.crop || null,
+        image: avatar.image || "",
+        text: avatar.image ? "" : avatar.text || label
+      },
+      label
+    };
   }
 
   function ownedBots() {
@@ -211,141 +187,71 @@
         .filter((task) => (task.runs || []).length > 0)
         .reduce((n, task) => n + taskUnreadCount(task), 0)
     };
-    const renderKey = JSON.stringify({
-      kind: "task-mode-toggle",
-      mode,
-      counts,
-      unreadCounts
-    });
-    const html = MODES.map((m) => `
-      <button type="button" role="tab" class="${m.key === mode ? "active" : ""}" data-mode="${m.key}">
-        ${escapeHtml(m.label)}<span class="task-mode-count">${counts[m.key]}</span>${modeUnreadBadgeHtml(unreadCounts[m.key])}
-      </button>
-    `).join("");
-    if (host.__miaRenderKey !== renderKey) {
-      if (__global.miaReactSurface?.renderHtml) {
-        __global.miaReactSurface.renderHtml(host, html, renderKey);
-      } else {
-        host.innerHTML = html;
-      }
-      host.__miaRenderKey = renderKey;
-      host.querySelectorAll("[data-mode]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          if (state.taskMode === btn.dataset.mode) return;
+    __global.miaReactTasks?.publish?.({
+      modeTabs: MODES.map((entry) => ({
+        active: entry.key === mode,
+        count: counts[entry.key],
+        id: entry.key,
+        label: entry.label,
+        select: () => {
+          if (state.taskMode === entry.key) return;
           const fromIndex = Math.max(0, MODES.findIndex((item) => item.key === state.taskMode));
-          const toIndex = Math.max(0, MODES.findIndex((item) => item.key === btn.dataset.mode));
+          const toIndex = Math.max(0, MODES.findIndex((item) => item.key === entry.key));
           pageTurnDirection = toIndex >= fromIndex ? 1 : -1;
           window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
-          state.taskMode = btn.dataset.mode;
+          state.taskMode = entry.key;
           renderTaskView();
-        });
-      });
-    }
-    syncModeToggleIndicator(host);
+        },
+        unread: unreadCounts[entry.key]
+      }))
+    });
   }
 
   function taskUnreadCount(task) {
     return state.tasksUnread?.get?.(task?.id) || 0;
   }
 
-  function modeUnreadBadgeHtml(unread) {
-    const badge = unreadShared().unreadBadgeHtml(unread);
-    return badge ? badge.replace('class="unread-badge"', 'class="task-mode-unread"') : "";
+  function openTaskPreview(taskId) {
+    state.selectedTaskId = taskId;
+    state.tasksUnread.delete(state.selectedTaskId);
+    updateTasksRailBadge();
+    renderTaskView();
   }
 
-  function cardUnreadBadgeHtml(task) {
-    const badge = unreadShared().unreadBadgeHtml(taskUnreadCount(task));
-    return badge ? badge.replace('class="unread-badge"', 'class="task-card-unread"') : "";
-  }
-
-  function setTasksContentHtml(kind, html, bind) {
-    const renderKey = `${kind}:${html}`;
-    if (els.tasksContent.__miaRenderKey === renderKey) {
-      try { window.miaLottieIcons?.init?.(els.tasksContent); } catch { /* decorative task animation is optional */ }
-      return false;
-    }
-    if (__global.miaReactSurface?.renderHtml) {
-      __global.miaReactSurface.renderHtml(els.tasksContent, html, renderKey);
-    } else {
-      els.tasksContent.innerHTML = html;
-    }
-    els.tasksContent.__miaRenderKey = renderKey;
-    if (typeof bind === "function") bind();
-    try { window.miaLottieIcons?.init?.(els.tasksContent); } catch { /* decorative task animation is optional */ }
-    return true;
+  function publishTaskCards(cards, emptyKind = "") {
+    __global.miaReactTasks?.publish?.({
+      cards,
+      emptyKind,
+      newTask: openTaskCreate,
+      pageDirection: pageTurnDirection
+    });
+    pageTurnDirection = 0;
   }
 
   function renderActiveView() {
-    const chipRow = document.getElementById("taskChipRow");
-    if (chipRow) {
-      if (chipRow.__miaRenderKey !== "task-chip-row:hidden") {
-        if (__global.miaReactSurface?.clear) {
-          __global.miaReactSurface.clear(chipRow, "task-chip-row:hidden");
-        } else {
-          chipRow.innerHTML = "";
-        }
-        chipRow.__miaRenderKey = "task-chip-row:hidden";
-      }
-      chipRow.hidden = true;
-    }
+    __global.miaReactTasks?.publish?.({ chips: [] });
     const tasks = filterTasks(activeTasks(state.tasks), state.taskFilter);
     if (tasks.length === 0) {
-      setTasksContentHtml("task-active-empty", renderActiveEmpty(), () => {
-        els.tasksContent.querySelector("[data-action='new-task']")
-          ?.addEventListener("click", openTaskCreate);
-      });
-      layoutTaskCards();
+      publishTaskCards([], "active");
       return;
     }
-    const html = tasks.map(cardHtml).join("");
-    setTasksContentHtml("task-active-cards", html, () => {
-      els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          state.selectedTaskId = btn.dataset.taskId;
-          state.tasksUnread.delete(state.selectedTaskId);
-          updateTasksRailBadge();
-          renderTaskView();
-        });
-      });
-    });
-    layoutTaskCards();
-  }
-
-  function layoutTaskCards() {
-    const direction = pageTurnDirection;
-    pageTurnDirection = 0;
-    window.miaMasonryGrid?.layout(els.tasksContent, ".task-card", { animate: direction });
+    publishTaskCards(tasks.map(cardView));
   }
 
   function renderHistoryView() {
-    const chipRow = document.getElementById("taskChipRow");
     const filterKey = state.taskHistoryFilter || "all";
     const allHistoryTasks = filterHistoryTasks(historyTasks(state.tasks), state.taskFilter);
-    if (chipRow) {
-      chipRow.hidden = false;
-      const counts = Object.fromEntries(
-        HISTORY_FILTERS.map((f) => [f.key, allHistoryTasks.filter((task) => f.match(latestRun(task))).length])
-      );
-      const renderKey = JSON.stringify({
-        kind: "task-history-chips",
-        filterKey,
-        counts
-      });
-      const html = HISTORY_FILTERS.map((f) => `
-        <button type="button" class="${f.key === filterKey ? "active" : ""}" data-history-filter="${f.key}">
-          ${escapeHtml(f.label)}<span>${counts[f.key]}</span>
-        </button>
-      `).join("");
-      if (chipRow.__miaRenderKey !== renderKey) {
-        if (__global.miaReactSurface?.renderHtml) {
-          __global.miaReactSurface.renderHtml(chipRow, html, renderKey);
-        } else {
-          chipRow.innerHTML = html;
-        }
-        chipRow.__miaRenderKey = renderKey;
-        chipRow.querySelectorAll("[data-history-filter]").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const next = btn.dataset.historyFilter || "all";
+    const counts = Object.fromEntries(
+      HISTORY_FILTERS.map((entry) => [entry.key, allHistoryTasks.filter((task) => entry.match(latestRun(task))).length])
+    );
+    __global.miaReactTasks?.publish?.({
+      chips: HISTORY_FILTERS.map((entry) => ({
+        active: entry.key === filterKey,
+        count: counts[entry.key],
+        id: entry.key,
+        label: entry.label,
+        select: () => {
+            const next = entry.key;
             if ((state.taskHistoryFilter || "all") === next) return;
             const fromIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === (state.taskHistoryFilter || "all")));
             const toIndex = Math.max(0, HISTORY_FILTERS.findIndex((item) => item.key === next));
@@ -353,49 +259,35 @@
             window.miaMasonryGrid?.capture(els.tasksContent, pageTurnDirection);
             state.taskHistoryFilter = next;
             renderTaskView();
-          });
-        });
-      }
-    }
+        }
+      }))
+    });
     const match = (HISTORY_FILTERS.find((f) => f.key === filterKey) || HISTORY_FILTERS[0]).match;
     const visible = allHistoryTasks.filter((task) => match(latestRun(task)));
     if (visible.length === 0) {
-      setTasksContentHtml("task-history-empty", `<div class="tasks-empty"><p>当前筛选下没有任务记录</p></div>`);
-      layoutTaskCards();
+      publishTaskCards([], "history");
       return;
     }
-    const html = visible.map(historyCardHtml).join("");
-    setTasksContentHtml("task-history-cards", html, () => {
-      els.tasksContent.querySelectorAll("[data-task-id]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          state.selectedTaskId = btn.dataset.taskId;
-          state.tasksUnread.delete(state.selectedTaskId);
-          updateTasksRailBadge();
-          renderTaskView();
-        });
-      });
-    });
-    layoutTaskCards();
+    publishTaskCards(visible.map(historyCardView));
   }
 
-  function cardHtml(task) {
-    const badge = cardUnreadBadgeHtml(task);
+  function cardView(task) {
     const dotClass = dotClassFor(task);
     const lastRun = (task.runs || [])[(task.runs || []).length - 1];
     const statusText = cardStatusText(task, lastRun);
-    return `
-      <button class="task-card" type="button" data-task-id="${escapeHtml(task.id)}">
-        <div class="task-card-title">
-          <span class="task-card-dot ${dotClass}"></span>
-          <strong>${escapeHtml(task.title)}</strong>
-        </div>
-        <div class="task-card-meta">${escapeHtml(botName(task.botId))} · ${escapeHtml(scheduleText(task))}</div>
-        <div class="task-card-foot">
-          <em class="task-card-status">${escapeHtml(statusText)}</em>
-          ${badge}
-        </div>
-      </button>
-    `;
+    return {
+      botLabel: "",
+      dotClass,
+      historyIcon: "",
+      historyStatus: "",
+      id: task.id,
+      meta: `${botName(task.botId)} · ${scheduleText(task)}`,
+      open: () => openTaskPreview(task.id),
+      statusText,
+      title: task.title,
+      type: "active",
+      unread: taskUnreadCount(task)
+    };
   }
 
   function dotClassFor(task) {
@@ -422,48 +314,30 @@
     return "—";
   }
 
-  function renderActiveEmpty() {
-    return `
-      <div class="tasks-empty tasks-empty-active">
-        <div class="tasks-empty-lottie"
-             data-lottie="task-schedule"
-             data-lottie-path="./assets/lottie/task-schedule.tgs"
-             data-lottie-format="tgs"
-             data-lottie-trigger="loop"
-             aria-hidden="true"></div>
-        <h2>还没有活跃任务</h2>
-        <p>需要 Mia 定时处理的事，可以从聊天开始，也可以手动新建。</p>
-        <button class="secondary" type="button" data-action="new-task">＋ 手动新建任务</button>
-      </div>
-    `;
-  }
-
-  function historyCardHtml(task) {
+  function historyCardView(task) {
     const run = latestRun(task);
     const runCount = (task.runs || []).length;
     const icon = runStatusIcon(run.status);
     const label = runStatusLabel(run.status);
-    const badge = cardUnreadBadgeHtml(task);
     const detail = run.status === "missed"
       ? `离线期间错过 ${run.missedCount || 1} 次触发`
       : (run.outputText || run.error || "本次没有产生输出")
           .toString()
           .replace(/\s+/g, " ")
           .trim();
-    return `
-      <button class="task-card task-history-card" type="button" data-task-id="${escapeHtml(task.id)}">
-        <div class="task-card-title">
-          <span class="task-history-icon ${run.status}">${icon}</span>
-          <strong>${escapeHtml(task.title)}</strong>
-        </div>
-        <div class="task-card-meta">${escapeHtml(detail)}</div>
-        <div class="task-card-foot">
-          <em class="task-card-status">${escapeHtml(label)} · ${escapeHtml(formatRunTime(run.firedAt))} · 执行 ${runCount} 次</em>
-          ${badge}
-          <em class="task-card-bot">${escapeHtml(botName(task.botId))}</em>
-        </div>
-      </button>
-    `;
+    return {
+      botLabel: botName(task.botId),
+      dotClass: "",
+      historyIcon: icon,
+      historyStatus: run.status,
+      id: task.id,
+      meta: detail,
+      open: () => openTaskPreview(task.id),
+      statusText: `${label} · ${formatRunTime(run.firedAt)} · 执行 ${runCount} 次`,
+      title: task.title,
+      type: "history",
+      unread: taskUnreadCount(task)
+    };
   }
 
   // ── Preview dialog (overlay): task detail OR run detail ──────────────────
@@ -477,11 +351,7 @@
       ? state.tasks.find((t) => t.id === state.selectedTaskId)
       : null;
     if (!task) {
-      const actions = document.getElementById("taskPreviewActions");
-      if (actions) {
-        if (__global.miaReactSurface?.clear) __global.miaReactSurface.clear(actions, "task-preview-actions:empty");
-        else actions.innerHTML = "";
-      }
+      __global.miaReactTasks?.publish?.({ preview: null });
       hidePreviewDialog();
       return;
     }
@@ -515,20 +385,12 @@
 
   function closePreviewDialog() {
     state.selectedTaskId = "";
-    const actions = document.getElementById("taskPreviewActions");
-    if (actions) {
-      if (__global.miaReactSurface?.clear) __global.miaReactSurface.clear(actions, "task-preview-actions:closed");
-      else actions.innerHTML = "";
-    }
+    __global.miaReactTasks?.publish?.({ preview: null });
     hidePreviewDialog();
     renderTaskView();
   }
 
   function renderTaskDetail(task) {
-    const body = document.getElementById("taskPreviewBody");
-    const actions = document.getElementById("taskPreviewActions");
-    if (!body) return;
-
     const runs = Array.isArray(task.runs)
       ? task.runs.slice().sort((a, b) => (a.firedAt || 0) - (b.firedAt || 0))
       : [];
@@ -536,118 +398,81 @@
 
     setText(document.getElementById("taskPreviewTitle"), task.title);
 
-    if (actions) {
-      const pauseAction = task.status === "paused" ? "resume" : "pause";
-      const pauseLabel = task.status === "paused" ? "恢复任务" : "暂停任务";
-      const closed = task.status === "done" || task.status === "failed";
-      const actionsHtml = `
-        <details class="task-more-menu">
-          <summary class="icon-button" aria-label="更多操作" title="更多操作">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="5" cy="12" r="1.5" fill="currentColor"></circle>
-              <circle cx="12" cy="12" r="1.5" fill="currentColor"></circle>
-              <circle cx="19" cy="12" r="1.5" fill="currentColor"></circle>
-            </svg>
-          </summary>
-          <div class="task-more-popover">
-            ${closed ? "" : `<button type="button" data-action="${pauseAction}">${pauseLabel}</button>`}
-            <button class="danger" type="button" data-action="delete">删除任务</button>
-          </div>
-        </details>
-      `;
-      if (__global.miaReactSurface?.renderHtml) {
-        __global.miaReactSurface.renderHtml(actions, actionsHtml, `task-preview-actions:${task.id}:${task.status}`);
-      } else {
-        actions.innerHTML = actionsHtml;
+    const pauseAction = task.status === "paused" ? "resume" : "pause";
+    const closed = task.status === "done" || task.status === "failed";
+    __global.miaReactTasks?.publish?.({
+      preview: {
+        canPause: !closed,
+        deleteTask: () => runTaskAction(task, "delete"),
+        pauseLabel: task.status === "paused" ? "恢复任务" : "暂停任务",
+        pauseTask: () => runTaskAction(task, pauseAction),
+        runs: runs.length
+          ? runs.map((run) => taskOutputView(task, run, conversationId))
+          : [taskOutputView(task, null, conversationId)],
+        title: task.title
       }
-    }
-
-    const bodyHtml = `
-      <div class="task-detail-card">
-        ${runs.length
-          ? runs.map((run) => taskOutputHtml(task, run, conversationId)).join("")
-          : taskOutputHtml(task, null, conversationId)}
-      </div>
-    `;
-    if (__global.miaReactSurface?.renderHtml) {
-      __global.miaReactSurface.renderHtml(body, bodyHtml, `task-preview-body:${task.id}:${JSON.stringify(runs)}`);
-    } else {
-      body.innerHTML = bodyHtml;
-    }
-    __global.miaAvatar.hydrateAvatarMedia?.(body);
-    attachTaskDetailHandlers(task);
+    });
   }
 
-  function taskOutputHtml(task, run, conversationId) {
+  function taskOutputView(task, run, conversationId) {
+    const executor = taskExecutorAvatarView(task);
     if (!run) {
-      return `
-        <section class="task-output-pending">
-          等待首次执行
-        </section>
-      `;
+      return {
+        avatar: executor.avatar,
+        avatarLabel: executor.label,
+        jump: null,
+        outputClass: "",
+        outputHtml: "",
+        outputText: "",
+        pending: true,
+        statusText: "",
+        timeText: ""
+      };
     }
 
     const outputText = String(run.outputText || "").trim();
-    let output;
+    let displayText = "";
+    let outputClass = "";
+    let outputHtml = "";
     if (run.status === "missed") {
       const range = run.firstMissedAt && run.lastMissedAt
         ? `（${formatRunTime(run.firstMissedAt)} – ${formatRunTime(run.lastMissedAt)}）`
         : "";
-      output = `<div class="task-output-state missed">设备离线期间错过 ${escapeHtml(run.missedCount || 1)} 次触发${escapeHtml(range)}，未补跑。</div>`;
+      displayText = `设备离线期间错过 ${run.missedCount || 1} 次触发${range}，未补跑。`;
+      outputClass = "missed";
     } else if (!outputText) {
-      const message = run.error ? `运行失败：${run.error}` : "本次没有产生输出。";
-      output = `<div class="task-output-state ${run.error ? "failed" : "empty"}">${escapeHtml(message)}</div>`;
+      displayText = run.error ? `运行失败：${run.error}` : "本次没有产生输出。";
+      outputClass = run.error ? "failed" : "empty";
     } else {
-      output = `<div class="bubble task-output-bubble">${window.miaMarkdown.renderMarkdown(outputText)}</div>`;
+      outputHtml = window.miaMarkdown.renderMarkdown(outputText);
     }
-
-    const jumpButton = conversationId
-      ? `<button class="task-open-chat icon-button" type="button" data-jump-conversation="${escapeHtml(conversationId)}" aria-label="打开对话" title="打开对话">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M20 15a3 3 0 0 1-3 3H9l-5 3V7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v8Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-            <path d="m13.5 9 2.5 2.5-2.5 2.5M16 11.5h-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path>
-          </svg>
-        </button>`
-      : "";
-
-    return `
-      <section class="task-output-section">
-        <div class="task-output-meta">
-          <span>${escapeHtml(formatRunTime(run.firedAt))}</span>
-          <span>${escapeHtml(runStatusLabel(run.status))}${escapeHtml(runStatusSuffix(run))}</span>
-        </div>
-        <div class="task-output-row message assistant">
-          ${taskExecutorAvatarHtml(task)}
-          ${output}
-          ${jumpButton}
-        </div>
-      </section>
-    `;
+    return {
+      avatar: executor.avatar,
+      avatarLabel: executor.label,
+      jump: conversationId ? () => jumpToTaskConversation(task) : null,
+      outputClass,
+      outputHtml,
+      outputText: displayText,
+      pending: false,
+      statusText: `${runStatusLabel(run.status)}${runStatusSuffix(run)}`,
+      timeText: formatRunTime(run.firedAt)
+    };
   }
 
-  function attachTaskDetailHandlers(task) {
-    const body = document.getElementById("taskPreviewBody");
-    const actions = document.getElementById("taskPreviewActions");
-    if (!body) return;
-    for (const root of [body, actions].filter(Boolean)) root.querySelectorAll("[data-action]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const action = btn.dataset.action;
-        try {
-          if (action === "pause")   await mia.tasks.pause(task.id, task.taskSource);
-          if (action === "resume")  await mia.tasks.resume(task.id, task.taskSource);
-          if (action === "delete") {
-            if (!confirm(`删除任务「${task.title}」？已经发送的回复仍会保留在对话里。`)) return;
-            await mia.tasks.delete(task.id, task.taskSource);
-            state.selectedTaskId = "";
-          }
-        } catch (e) { console.warn("[task action]", action, e); }
-        await loadTasksFromDaemon();
-        renderTaskView();
-      });
-    });
-    body.querySelectorAll("[data-jump-conversation]").forEach((btn) => {
-      btn.addEventListener("click", () => { jumpToTaskConversation(task); });
-    });
+  async function runTaskAction(task, action) {
+    try {
+      if (action === "pause") await mia.tasks.pause(task.id, task.taskSource);
+      if (action === "resume") await mia.tasks.resume(task.id, task.taskSource);
+      if (action === "delete") {
+        if (!confirm(`删除任务「${task.title}」？已经发送的回复仍会保留在对话里。`)) return;
+        await mia.tasks.delete(task.id, task.taskSource);
+        state.selectedTaskId = "";
+      }
+    } catch (error) {
+      console.warn("[task action]", action, error);
+    }
+    await loadTasksFromDaemon();
+    renderTaskView();
   }
 
   function jumpToTaskConversation(task) {
@@ -762,133 +587,56 @@
 
   // ── Create dialog (unchanged behaviour) ──────────────────────────────────
 
-  let _taskCreateBound = false;
-
   function openTaskCreate() {
-    const dialog = document.getElementById("taskCreateDialog");
-    if (!dialog) return;
     const bots = ownedBots();
-    const botSel = document.getElementById("ntBot");
-    if (botSel) {
-      if (bots.length === 0) {
-        botSel.innerHTML = `<option value="">（请先在通讯录添加一个 Agent）</option>`;
-      } else {
-        const def = bots.some((f) => f.key === state.activeKey) ? state.activeKey : bots[0].key;
-        botSel.innerHTML = bots
-          .map((f) => `<option value="${escapeHtml(f.key)}"${f.key === def ? " selected" : ""}>${escapeHtml(botName(f.key))}</option>`)
-          .join("");
+    const botId = bots.some((bot) => bot.key === state.activeKey) ? state.activeKey : bots[0]?.key || "";
+    window.miaReactDialogs?.publish?.({
+      dialog: {
+        botId,
+        bots: bots.map((bot) => ({ id: bot.key, label: botName(bot.key) })),
+        close: closeTaskCreate,
+        kind: "task-create",
+        submit: submitTaskCreate
       }
-    }
-    setFieldValue("ntName", "");
-    setFieldValue("ntPrompt", "");
-    updateCount("ntName", "ntNameCount", 50);
-    updateCount("ntPrompt", "ntPromptCount", 8000);
-    const freq = document.getElementById("ntFreq");
-    if (freq) freq.value = "oneshot";
-    renderTimeControls("oneshot");
-    hideTaskError();
-    bindTaskCreateHandlers();
-    dialog.classList.remove("hidden");
-    document.getElementById("ntName")?.focus();
+    });
   }
 
   function closeTaskCreate() {
-    document.getElementById("taskCreateDialog")?.classList.add("hidden");
+    window.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
   }
 
-  function setFieldValue(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.value = value;
-  }
-
-  function updateCount(inputId, countId, max) {
-    const input = document.getElementById(inputId);
-    const out = document.getElementById(countId);
-    if (input && out) out.textContent = `${input.value.length}/${max}`;
-  }
-
-  function hideTaskError() {
-    const el = document.getElementById("ntError");
-    if (el) { el.hidden = true; el.textContent = ""; }
-  }
-
-  function renderTimeControls(freq) {
-    const host = document.getElementById("ntTimeControls");
-    if (!host) return;
-    const pad = (n) => String(n).padStart(2, "0");
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const timeInput = `<input type="time" id="ntTime" value="09:00">`;
-    if (freq === "daily") {
-      host.innerHTML = timeInput;
-    } else if (freq === "weekly") {
-      const days = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-      host.innerHTML = `<select id="ntWeekday">${days.map((d, i) => `<option value="${i}">${d}</option>`).join("")}</select>${timeInput}`;
-    } else if (freq === "monthly") {
-      let opts = "";
-      for (let i = 1; i <= 28; i += 1) opts += `<option value="${i}">${i} 号</option>`;
-      host.innerHTML = `<select id="ntDay">${opts}</select>${timeInput}`;
-    } else {
-      host.innerHTML = `<input type="date" id="ntDate" value="${todayStr}">${timeInput}`;
-    }
-  }
-
-  function bindTaskCreateHandlers() {
-    if (_taskCreateBound) return;
-    _taskCreateBound = true;
-    const dialog = document.getElementById("taskCreateDialog");
-    document.getElementById("closeTaskCreate")?.addEventListener("click", closeTaskCreate);
-    document.getElementById("cancelTaskCreate")?.addEventListener("click", closeTaskCreate);
-    dialog?.addEventListener("click", (e) => { if (e.target === dialog) closeTaskCreate(); });
-    document.getElementById("taskCreateForm")?.addEventListener("submit", (e) => {
-      e.preventDefault(); submitTaskCreate();
-    });
-    document.getElementById("ntName")?.addEventListener("input", () => updateCount("ntName", "ntNameCount", 50));
-    document.getElementById("ntPrompt")?.addEventListener("input", () => updateCount("ntPrompt", "ntPromptCount", 8000));
-    document.getElementById("ntFreq")?.addEventListener("change", (e) => renderTimeControls(e.target.value));
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !dialog?.classList.contains("hidden")) closeTaskCreate();
-    });
-  }
-
-  async function submitTaskCreate() {
-    const showError = (msg) => {
-      const el = document.getElementById("ntError");
-      if (el) { el.textContent = msg; el.hidden = false; }
-    };
-    const botId = document.getElementById("ntBot")?.value || "";
-    const title = (document.getElementById("ntName")?.value || "").trim();
-    const prompt = (document.getElementById("ntPrompt")?.value || "").trim();
-    const freq = document.getElementById("ntFreq")?.value || "oneshot";
-
-    if (!botId) return showError("请先选择执行的 Agent（去通讯录添加一个）。");
-    if (!title) return showError("请填写任务名称。");
-    if (!prompt) return showError("请填写要求说明。");
-
-    const time = document.getElementById("ntTime")?.value || "";
-    if (!time) return showError("请选择执行时间。");
+  async function submitTaskCreate(values = {}) {
+    const botId = String(values.botId || "");
+    const title = String(values.title || "").trim();
+    const prompt = String(values.prompt || "").trim();
+    const freq = String(values.frequency || "oneshot");
+    if (!botId) return "请先选择执行的 Agent（去通讯录添加一个）。";
+    if (!title) return "请填写任务名称。";
+    if (!prompt) return "请填写要求说明。";
+    const time = String(values.time || "");
+    if (!time) return "请选择执行时间。";
 
     let timezone = "UTC";
     try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* keep UTC */ }
 
     const scheduleIntent = { kind: freq, time, timezone };
     if (freq === "oneshot") {
-      const date = document.getElementById("ntDate")?.value || "";
-      if (!date) return showError("请选择执行日期。");
+      const date = String(values.date || "");
+      if (!date) return "请选择执行日期。";
       scheduleIntent.date = date;
     } else if (freq === "weekly") {
-      scheduleIntent.weekday = Number(document.getElementById("ntWeekday")?.value || "0");
+      scheduleIntent.weekday = Number(values.weekday || 0);
     } else if (freq === "monthly") {
-      scheduleIntent.dayOfMonth = Number(document.getElementById("ntDay")?.value || "1");
+      scheduleIntent.dayOfMonth = Number(values.dayOfMonth || 1);
     }
 
     let conversationId;
     try {
       conversationId = await resolveConversationForBot(botId);
     } catch (e) {
-      return showError("无法为该 Agent 准备云端对话：" + (e?.message || e));
+      return "无法为该 Agent 准备云端对话：" + (e?.message || e);
     }
-    if (!conversationId) return showError("该 Agent 还没有可用云端对话，请先完成登录后重试。");
+    if (!conversationId) return "该 Agent 还没有可用云端对话，请先完成登录后重试。";
 
     try {
       const created = await mia.tasks.create({ title, botId, conversationId, instructions: prompt, scheduleIntent });
@@ -896,8 +644,9 @@
       state.selectedTaskId = created?.id || "";
       await loadTasksFromDaemon();
       renderTaskView();
+      return "";
     } catch (e) {
-      showError(taskCreateErrorMessage(e));
+      return taskCreateErrorMessage(e);
     }
   }
 

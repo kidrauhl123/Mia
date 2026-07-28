@@ -178,6 +178,7 @@ function createBotDialogContext({
   const select = new FakeSelect();
   const calls = [];
   const events = [];
+  const dialogs = [];
   const defaultRuntime = {
     cloud: {
       enabled: true,
@@ -272,6 +273,11 @@ function createBotDialogContext({
         }
       },
       miaCloudRuntime: cloudRuntime,
+      miaReactDialogs: {
+        publish(payload) {
+          dialogs.push(payload.dialog);
+        }
+      },
       mia: {
         social: {
           getBotRuntimeTargetOptions: async (input) => {
@@ -304,19 +310,28 @@ function createBotDialogContext({
     renderView() { events.push("renderView"); },
     render() {}
   });
-  return { context, calls, events, state, select, els };
+  return {
+    context,
+    calls,
+    dialogs,
+    events,
+    state,
+    select,
+    els,
+    currentDialog: () => dialogs[dialogs.length - 1]
+  };
 }
 
-function decodedRuntimeOptions(select) {
-  return select.options.map((option) => ({
-    label: option.textContent,
+function decodedRuntimeOptions(dialog) {
+  return (dialog?.runtimeGroups || []).flatMap((group) => group.options || []).map((option) => ({
+    label: option.label,
     disabled: option.disabled,
     ...JSON.parse(option.value)
   }));
 }
 
 test("creating a bot renders Core-provided Mia Cloud and local engine options", async () => {
-  const { context, select } = createBotDialogContext({
+  const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: {
         enabled: true,
@@ -341,7 +356,7 @@ test("creating a bot renders Core-provided Mia Cloud and local engine options", 
   context.window.miaBotDialog.openBotDialog();
   await flushDialogAsyncWork();
 
-  const options = decodedRuntimeOptions(select);
+  const options = decodedRuntimeOptions(currentDialog());
   assert.ok(options.some((option) => option.runtimeKind === "cloud-claude-code"), "Mia Cloud should be available");
   assert.deepEqual(
     options
@@ -354,7 +369,7 @@ test("creating a bot renders Core-provided Mia Cloud and local engine options", 
 });
 
 test("bot dialog repairs an old Core 本机 option with the desktop runtime name", async () => {
-  const { context, select } = createBotDialogContext({
+  const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
       localDevice: { id: "mac-air-8", name: "jungdeMacBook-Air-8" },
@@ -381,12 +396,12 @@ test("bot dialog repairs an old Core 本机 option with the desktop runtime name
   context.window.miaBotDialog.openBotDialog();
   await flushDialogAsyncWork();
 
-  assert.equal(decodedRuntimeOptions(select)[0].deviceName, "jungdeMacBook-Air-8");
+  assert.equal(decodedRuntimeOptions(currentDialog())[0].deviceName, "jungdeMacBook-Air-8");
   assert.equal(context.window.miaBotDialog.readSelectedRuntimeTarget().targetDeviceName, "jungdeMacBook-Air-8");
 });
 
 test("creating a bot renders Core local runtime options before device ids load", async () => {
-  const { context, select } = createBotDialogContext({
+  const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
       agentEngines: {},
@@ -397,7 +412,7 @@ test("creating a bot renders Core local runtime options before device ids load",
   context.window.miaBotDialog.openBotDialog();
   await flushDialogAsyncWork();
 
-  assert.deepEqual(decodedRuntimeOptions(select), [{
+  assert.deepEqual(decodedRuntimeOptions(currentDialog()), [{
     label: "Hermes",
     disabled: false,
     runtimeKind: "desktop-local",
@@ -408,7 +423,7 @@ test("creating a bot renders Core local runtime options before device ids load",
 });
 
 test("creating a bot renders Core-normalized local agent inventory engine choices", async () => {
-  const { context, select } = createBotDialogContext({
+  const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
       localDevice: { id: "win-local", name: "Windows PC" },
@@ -430,7 +445,7 @@ test("creating a bot renders Core-normalized local agent inventory engine choice
   await flushDialogAsyncWork();
 
   assert.deepEqual(
-    decodedRuntimeOptions(select)
+    decodedRuntimeOptions(currentDialog())
       .filter((option) => option.deviceId === "win-local")
       .map((option) => option.agentEngine),
     ["hermes", "claude-code", "codex"]
@@ -438,7 +453,7 @@ test("creating a bot renders Core-normalized local agent inventory engine choice
 });
 
 test("creating a bot renders Core local engine choices while agent scan is still running", async () => {
-  const { context, select } = createBotDialogContext({
+  const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
       localDevice: { id: "win-local", name: "Windows PC" },
@@ -459,7 +474,7 @@ test("creating a bot renders Core local engine choices while agent scan is still
   await flushDialogAsyncWork();
 
   assert.deepEqual(
-    decodedRuntimeOptions(select)
+    decodedRuntimeOptions(currentDialog())
       .filter((option) => option.deviceId === "win-local")
       .map((option) => option.agentEngine),
     ["hermes", "claude-code", "codex"]
@@ -480,8 +495,8 @@ test("creating a bot paints the dialog before refreshing bridge devices", async 
   assert.ok(events.includes("listBridgeDevices"));
 });
 
-test("opening create after editing a bot clears the previous bot fields", () => {
-  const { context, els } = createBotDialogContext();
+test("opening create after editing a bot clears the previous bot draft", () => {
+  const { context, currentDialog } = createBotDialogContext();
 
   context.window.miaBotDialog.openBotDialog({
     key: "codex",
@@ -493,15 +508,15 @@ test("opening create after editing a bot clears the previous bot fields", () => 
 
   context.window.miaBotDialog.openBotDialog();
 
-  assert.equal(els.botDialogTitle.textContent, "添加伙伴");
-  assert.equal(els.botKey.value, "");
-  assert.equal(els.botName.value, "");
-  assert.equal(els.botSeed.value, "");
-  assert.equal(els.botPersonaDetails.open, false);
+  assert.equal(currentDialog().title, "添加伙伴");
+  assert.equal(currentDialog().key, "");
+  assert.equal(currentDialog().name, "");
+  assert.equal(currentDialog().persona, "");
+  assert.equal(currentDialog().personaOpen, false);
 });
 
 test("opening an existing id-only bot edits it instead of treating it as a create seed", () => {
-  const { context, els, state } = createBotDialogContext();
+  const { context, currentDialog, state } = createBotDialogContext();
 
   context.window.miaBotDialog.openBotDialog({
     id: "4020623",
@@ -512,14 +527,14 @@ test("opening an existing id-only bot edits it instead of treating it as a creat
   }, "你是 Claude Code。");
 
   assert.equal(state.botDialogMode, "edit");
-  assert.equal(els.botDialogTitle.textContent, "编辑「？？」");
-  assert.equal(els.botKey.value, "4020623");
-  assert.equal(els.botName.value, "？？");
-  assert.equal(els.botSeed.value, "你是 Claude Code。");
+  assert.equal(currentDialog().title, "编辑「？？」");
+  assert.equal(currentDialog().key, "4020623");
+  assert.equal(currentDialog().name, "？？");
+  assert.equal(currentDialog().persona, "你是 Claude Code。");
 });
 
-test("closing an edited bot dialog clears hidden form fields", () => {
-  const { context, els } = createBotDialogContext();
+test("closing an edited bot dialog closes the typed dialog", () => {
+  const { context, currentDialog, state } = createBotDialogContext();
 
   context.window.miaBotDialog.openBotDialog({
     key: "codex",
@@ -531,15 +546,12 @@ test("closing an edited bot dialog clears hidden form fields", () => {
 
   context.window.miaBotDialog.closeBotDialog();
 
-  assert.equal(els.botKey.value, "");
-  assert.equal(els.botName.value, "");
-  assert.equal(els.botNameText.textContent, "");
-  assert.equal(els.botSeed.value, "");
-  assert.equal(els.botPersonaDetails.open, false);
+  assert.equal(state.botDialogOpen, false);
+  assert.equal(currentDialog().kind, "closed");
 });
 
 test("creating a bot renders Core options supplemented from loaded engine capabilities", async () => {
-  const { context, select } = createBotDialogContext({
+  const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: { enabled: true, agentRuntime: CLOUD_AGENT_RUNTIME, devices: [] },
       localDevice: { id: "mac-local", name: "Work Mac" },
@@ -560,7 +572,7 @@ test("creating a bot renders Core options supplemented from loaded engine capabi
   await flushDialogAsyncWork();
 
   assert.deepEqual(
-    decodedRuntimeOptions(select)
+    decodedRuntimeOptions(currentDialog())
       .filter((option) => option.deviceId === "mac-local")
       .map((option) => option.agentEngine)
       .sort(),

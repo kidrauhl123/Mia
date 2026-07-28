@@ -188,21 +188,6 @@
     return "没有匹配的 Skill";
   }
 
-  function renderUnifiedSkillCard({ title, description, sourceHtml, className = "", attrs = "" }) {
-    const cardClass = ["skill-card", className].filter(Boolean).join(" ");
-    return `
-      <article class="${escapeHtml(cardClass)}"${attrs ? ` ${attrs}` : ""}>
-        <div class="skill-card-head">
-          <div class="skill-card-titlerow">
-            <strong>${escapeHtml(title || "Skill")}</strong>
-          </div>
-          <p>${escapeHtml(description || "")}</p>
-        </div>
-        <span class="skill-card-source">${sourceHtml || ""}</span>
-      </article>
-    `;
-  }
-
   function localSkillMarketSourceLabel(skill) {
     const explicit = String(skill?.marketSourceLabel || "").trim();
     if (explicit) return explicit;
@@ -210,10 +195,10 @@
     return marketSourceLogo(skill, sourceKey)?.label || "";
   }
 
-  function skillSourceLogoHtml(skill) {
+  function skillSourceLogoView(skill) {
     const sourceLabel = localSkillMarketSourceLabel(skill);
-    if (!sourceLabel && !skill?.marketUpstreamSource) return "";
-    return marketSourceLogoHtml({
+    if (!sourceLabel && !skill?.marketUpstreamSource) return null;
+    return marketSourceLogoView({
       sourceLabel,
       ownerLabel: sourceLabel,
       upstreamSource: skill.marketUpstreamSource || skill.upstreamSource || "",
@@ -223,68 +208,67 @@
 
   function renderSkillCard(skill) {
     const sourceText = localSkillMarketSourceLabel(skill) || skill.pluginLabel || window.miaSkillHelpers.skillAuthorLabel(skill);
-    return renderUnifiedSkillCard({
-      title: window.miaSkillHelpers.skillDisplayName(skill),
-      description: window.miaSkillHelpers.skillSummaryZh(skill),
-      sourceHtml: `${skillSourceLogoHtml(skill)}<span class="skill-card-source-text">${escapeHtml(sourceText)}</span>`,
+    return {
+      actions: [],
       className: skill.id === state.selectedSkillId ? "featured" : "",
-      attrs: `data-skill-select="${escapeHtml(skill.id)}"`
-    });
+      description: window.miaSkillHelpers.skillSummaryZh(skill),
+      id: `local:${skill.id}`,
+      open: () => selectSkill(skill.id),
+      openContextMenu: (x, y) => openSkillContextMenu(skill.id, x, y),
+      sourceLogo: skillSourceLogoView(skill),
+      sourceText,
+      statusClass: "",
+      statusLabel: "",
+      title: window.miaSkillHelpers.skillDisplayName(skill),
+    };
   }
 
-  function setSkillCardGridHtml(kind, html, bind) {
-    const renderKey = `${kind}:${html}`;
-    if (els.skillCardGrid.__miaRenderKey === renderKey) return false;
-    if (window.miaReactSurface?.renderHtml) {
-      window.miaReactSurface.renderHtml(els.skillCardGrid, html, renderKey);
-    } else {
-      els.skillCardGrid.innerHTML = html;
-    }
-    els.skillCardGrid.__miaRenderKey = renderKey;
-    if (typeof bind === "function") bind();
-    return true;
+  function publishSkillGrid(cards, emptyText = "") {
+    window.miaReactSkills?.publish?.({
+      cards,
+      emptyText,
+      pageDirection: pageTurnDirection
+    });
   }
 
   function renderChips(entries) {
-    const wasMcpToolbar = els.skillChipRow.classList?.contains?.("mcp-toolbar-row") === true;
-    els.skillChipRow.classList?.remove?.("mcp-toolbar-row");
-    els.skillChipRow.setAttribute?.("aria-label", "Skill 分类");
     const mode = currentSkillMode();
     const categoryEntries = entries.slice(0, 12);
     const chipKeys = ["", "__mine__", ...categoryEntries.map(([category]) => category)];
-    const renderKey = JSON.stringify({
-      kind: "skill-chips",
-      mode,
-      filter: state.skillCategoryFilter || "",
-      categories: categoryEntries
-    });
     const scopeChips = isSkillCollectionMode(mode)
       ? [
-          `<button class="${mode === "market" && !state.skillCategoryFilter ? "active" : ""}" type="button" data-skill-filter="">全部</button>`,
-          `<button class="${mode === "mine" ? "active" : ""}" type="button" data-skill-scope="mine">我的技能</button>`
+          {
+            active: mode === "market" && !state.skillCategoryFilter,
+            id: "scope:all",
+            label: "全部",
+            select: () => {
+              if (currentSkillMode() === "market" && !state.skillCategoryFilter) return;
+              pageTurnDirection = currentSkillMode() === "mine" ? -1 : 1;
+              window.miaMasonryGrid?.capture(els.skillCardGrid, pageTurnDirection);
+              state.skillCapabilityMode = "market";
+              state.skillMarketMode = true;
+              state.skillCategoryFilter = "";
+              closeSkillContextMenu();
+              renderSkillLibrary();
+            }
+          },
+          {
+            active: mode === "mine",
+            id: "scope:mine",
+            label: "我的技能",
+            select: () => switchSkillMode("mine")
+          }
         ]
       : [];
-    const html = [
+    const chips = [
       ...scopeChips,
-      ...categoryEntries.map(([category, count]) => `
-        <button class="${mode === "market" && state.skillCategoryFilter === category ? "active" : ""}" type="button" data-skill-filter="${escapeHtml(category)}" aria-label="${escapeHtml(count ? `${category}，${count} 个技能` : category)}">
-          ${escapeHtml(category)}
-        </button>
-      `)
-    ].join("");
-    if (els.skillChipRow.__miaRenderKey !== renderKey || wasMcpToolbar) {
-      if (window.miaReactSurface?.renderHtml) {
-        window.miaReactSurface.renderHtml(els.skillChipRow, html, renderKey);
-      } else {
-        els.skillChipRow.innerHTML = html;
-      }
-      els.skillChipRow.__miaRenderKey = renderKey;
-      els.skillChipRow.querySelectorAll("[data-skill-scope]").forEach((button) => {
-        button.addEventListener("click", () => switchSkillMode(button.dataset.skillScope));
-      });
-      els.skillChipRow.querySelectorAll("[data-skill-filter]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const next = button.dataset.skillFilter || "";
+      ...categoryEntries.map(([category, count]) => ({
+        active: mode === "market" && state.skillCategoryFilter === category,
+        ariaLabel: count ? `${category}，${count} 个技能` : category,
+        id: `category:${category}`,
+        label: category,
+        select: () => {
+          const next = category;
           const modeNow = currentSkillMode();
           if (modeNow === "market" && state.skillCategoryFilter === next) return;
           const fromKey = modeNow === "mine" ? "__mine__" : (state.skillCategoryFilter || "");
@@ -297,10 +281,10 @@
           state.skillCategoryFilter = next;
           closeSkillContextMenu();
           renderSkillLibrary();
-        });
-      });
-    }
-    syncChipRowIndicator("auto");
+        }
+      }))
+    ];
+    window.miaReactSkills?.publish?.({ chips, mode: "skills" });
   }
 
   function currentSkillMode() {
@@ -317,23 +301,23 @@
     if (!els.skillModeToggle) return;
     const mode = currentSkillMode();
     const skillActive = isSkillCollectionMode(mode);
-    const renderKey = JSON.stringify({ kind: "skill-mode-toggle", mode, skillActive });
-    const html = `
-      <button class="${skillActive ? "active" : ""}" type="button" role="tab" data-skill-mode="${skillActive ? mode : "market"}">技能</button>
-      <button class="${mode === "mcp" ? "active" : ""}" type="button" role="tab" data-skill-mode="mcp">MCP 服务</button>
-    `;
-    if (els.skillModeToggle.__miaRenderKey !== renderKey) {
-      if (window.miaReactSurface?.renderHtml) {
-        window.miaReactSurface.renderHtml(els.skillModeToggle, html, renderKey);
-      } else {
-        els.skillModeToggle.innerHTML = html;
-      }
-      els.skillModeToggle.__miaRenderKey = renderKey;
-      els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
-        button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode));
-      });
-    }
-    syncModeToggleIndicator(els.skillModeToggle);
+    window.miaReactSkills?.publish?.({
+      mode: mode === "mcp" ? "mcp" : "skills",
+      modeTabs: [
+        {
+          active: skillActive,
+          id: "skills",
+          label: "技能",
+          select: () => switchSkillMode(skillActive ? mode : "market")
+        },
+        {
+          active: mode === "mcp",
+          id: "mcp",
+          label: "MCP 服务",
+          select: () => switchSkillMode("mcp")
+        }
+      ]
+    });
   }
 
   function switchSkillMode(nextMode) {
@@ -415,19 +399,8 @@
     setText(els.skillPageTitle, state.skillsLoading ? "正在扫描能力" : "技能");
     renderChips(marketCategoryEntries());
     const shown = visibleSkills();
-    const html = shown.length
-      ? shown.map((skill) => renderSkillCard(skill)).join("")
-      : `<div class="skill-empty-state">${skillEmptyText()}</div>`;
-    setSkillCardGridHtml("skill-local-grid", html, () => {
-      els.skillCardGrid.querySelectorAll("[data-skill-select]").forEach((card) => {
-        card.addEventListener("click", () => selectSkill(card.dataset.skillSelect));
-        card.addEventListener("contextmenu", (event) => {
-          event.preventDefault();
-          openSkillContextMenu(card.dataset.skillSelect, event.clientX, event.clientY);
-        });
-      });
-    });
-    layoutSkillCards();
+    publishSkillGrid(shown.map((skill) => renderSkillCard(skill)), shown.length ? "" : skillEmptyText());
+    pageTurnDirection = 0;
   }
 
   // 「使用」: attach the skill to the conversation the user is currently viewing
@@ -637,27 +610,33 @@
     return MARKET_SOURCE_LOGOS[sourceKey] || null;
   }
 
-  function marketSourceLogoHtml(skill) {
-    const sourceKey = marketSourceKey(skill);
-    const logo = marketSourceLogo(skill, sourceKey);
-    if (!logo) return "";
-    const className = `skill-source-logo skill-source-logo-${sourceKey}`;
-    const title = logo.label ? ` title="${escapeHtml(logo.label)}"` : "";
-    if (logo.mask) {
-      return `<span class="${escapeHtml(className)}" aria-hidden="true"${title}><span class="skill-source-logo-mask"></span></span>`;
-    }
-    return `<span class="${escapeHtml(className)}" aria-hidden="true"${title}><img src="${escapeHtml(logo.src)}" alt=""></span>`;
+  function marketSourceLogoView(skill) {
+    const key = marketSourceKey(skill);
+    const logo = marketSourceLogo(skill, key);
+    if (!logo) return null;
+    return {
+      key,
+      label: logo.label || "",
+      mask: !!logo.mask,
+      src: logo.src || ""
+    };
   }
 
   function renderMarketCard(skill) {
     const meta = [skill.sourceLabel, formatInstallCount(skill.installCount)].filter(Boolean).join(" · ");
-    return renderUnifiedSkillCard({
-      title: skill.name_zh || skill.name,
-      description: marketDescriptionZh(skill),
-      sourceHtml: `${marketSourceLogoHtml(skill)}<span class="skill-card-source-text">${escapeHtml(meta)}</span>`,
+    return {
+      actions: [],
       className: "market-card",
-      attrs: `data-market-id="${escapeHtml(skill.id)}"`
-    });
+      description: marketDescriptionZh(skill),
+      id: `market:${skill.id}`,
+      open: () => openMarketModal(skill.id),
+      openContextMenu: () => reportMarketSkill(skill.id),
+      sourceLogo: marketSourceLogoView(skill),
+      sourceText: meta,
+      statusClass: "",
+      statusLabel: "",
+      title: skill.name_zh || skill.name,
+    };
   }
 
   function renderMarketView() {
@@ -675,29 +654,18 @@
       return;
     }
     if (state.skillMarket.loading && !state.skillMarket.loaded) {
-      setSkillCardGridHtml("skill-market-loading", `<div class="skill-empty-state">正在加载技能...</div>`);
-      layoutSkillCards();
+      publishSkillGrid([], "正在加载技能...");
+      pageTurnDirection = 0;
       return;
     }
     if (state.skillMarket.error && !(state.skillMarket.skills || []).length) {
-      setSkillCardGridHtml("skill-market-error", `<div class="skill-empty-state">技能加载失败，请稍后重试。</div>`);
-      layoutSkillCards();
+      publishSkillGrid([], "技能加载失败，请稍后重试。");
+      pageTurnDirection = 0;
       return;
     }
     const shown = visibleMarketSkills();
-    const html = shown.length
-      ? shown.map((skill) => renderMarketCard(skill)).join("")
-      : `<div class="skill-empty-state">没有匹配的技能</div>`;
-    setSkillCardGridHtml("skill-market-grid", html, () => {
-      els.skillCardGrid.querySelectorAll("[data-market-id]").forEach((card) => {
-        card.addEventListener("click", () => openMarketModal(card.dataset.marketId));
-        card.addEventListener("contextmenu", (event) => {
-          event.preventDefault();
-          reportMarketSkill(card.dataset.marketId);
-        });
-      });
-    });
-    layoutSkillCards();
+    publishSkillGrid(shown.map((skill) => renderMarketCard(skill)), shown.length ? "" : "没有匹配的技能");
+    pageTurnDirection = 0;
   }
 
   async function loadMarketSkills(params = marketRequestParams(), options = {}) {
@@ -800,7 +768,6 @@
   // Market and local skill cards reuse this popup. It opens on the intro and
   // keeps a visible 「展开正文」 path to the raw SKILL.md body.
   let skillModal = { kind: "", skillId: "", showBody: false };
-  let skillModalEl = null;
 
   function renderMarketSkillInstallState(skillId) {
     renderSkillLibrary();
@@ -822,65 +789,6 @@
     return null;
   }
 
-  function ensureMarketModalEl() {
-    if (skillModalEl) return skillModalEl;
-    const el = document.createElement("div");
-    el.id = "skillMarketModal";
-    el.className = "skill-market-modal hidden";
-    el.setAttribute("role", "dialog");
-    el.setAttribute("aria-modal", "true");
-    el.innerHTML = `
-      <div class="smm-backdrop" data-smm-close></div>
-      <div class="smm-panel">
-        <button class="smm-close" type="button" data-smm-close aria-label="关闭">×</button>
-        <div class="smm-intro">
-          <div class="smm-source-logo"></div>
-          <div class="smm-title"></div>
-          <div class="smm-meta"></div>
-          <p class="smm-summary"></p>
-        </div>
-        <div class="smm-body hidden">
-          <button class="smm-back" type="button">‹ 返回简介</button>
-          <div class="smm-body-content"></div>
-        </div>
-        <div class="smm-actions">
-          <button class="smm-body-toggle" type="button">展开正文</button>
-          <button class="smm-add" type="button"></button>
-        </div>
-      </div>`;
-    el.querySelectorAll("[data-smm-close]").forEach((node) => {
-      node.addEventListener("click", closeMarketModal);
-    });
-    el.querySelector(".smm-body-toggle").addEventListener("click", () => {
-      skillModal.showBody = !skillModal.showBody;
-      renderSkillModal();
-      if (skillModal.showBody && skillModal.kind === "market") loadMarketSkillBody(skillModal.skillId);
-    });
-    el.querySelector(".smm-back").addEventListener("click", () => {
-      skillModal.showBody = false;
-      renderSkillModal();
-    });
-    el.querySelector(".smm-add").addEventListener("click", () => {
-      const skill = findModalSkill();
-      if (!skill) return;
-      if (skillModal.kind === "local") {
-        useSkillInComposer(skill.id);
-        closeMarketModal();
-        return;
-      }
-      const installed = installedLocalSkillForMarket(skill);
-      if (installed) {
-        useSkillInComposer(installed.id);
-        closeMarketModal();
-      } else {
-        installMarketSkill(skill.id);
-      }
-    });
-    document.body.appendChild(el);
-    skillModalEl = el;
-    return el;
-  }
-
   function onMarketModalKeydown(event) {
     if (event.key === "Escape") closeMarketModal();
   }
@@ -888,7 +796,6 @@
   function openMarketModal(skillId) {
     if (!skillId || !findMarketSkill(skillId)) return;
     skillModal = { kind: "market", skillId, showBody: false };
-    ensureMarketModalEl().classList.remove("hidden");
     document.addEventListener("keydown", onMarketModalKeydown);
     renderSkillModal();
   }
@@ -896,14 +803,13 @@
   function openLocalSkillModal(skillId) {
     if (!skillId || !findLocalSkill(skillId)) return;
     skillModal = { kind: "local", skillId, showBody: false };
-    ensureMarketModalEl().classList.remove("hidden");
     document.addEventListener("keydown", onMarketModalKeydown);
     renderSkillModal();
   }
 
   function closeMarketModal() {
     skillModal = { kind: "", skillId: "", showBody: false };
-    if (skillModalEl) skillModalEl.classList.add("hidden");
+    window.miaReactDialogs?.publish?.({ dialog: { kind: "closed" } });
     document.removeEventListener("keydown", onMarketModalKeydown);
   }
 
@@ -932,12 +838,11 @@
       : (skill.summary_zh || marketDescriptionZh(skill));
   }
 
-  function modalSourceLogoHtml(skill) {
-    return skillModal.kind === "local" ? skillSourceLogoHtml(skill) : marketSourceLogoHtml(skill);
+  function modalSourceLogoView(skill) {
+    return skillModal.kind === "local" ? skillSourceLogoView(skill) : marketSourceLogoView(skill);
   }
 
   function renderSkillModal() {
-    if (!skillModalEl) return;
     const skill = findModalSkill();
     if (!skill) {
       closeMarketModal();
@@ -949,40 +854,51 @@
     const bodyLoading = skillModal.kind === "market" && !!skill.marketBodyLoading;
     const bodyError = skillModal.kind === "market" ? String(skill.marketBodyError || "").trim() : "";
 
-    skillModalEl.querySelector(".smm-source-logo").innerHTML = modalSourceLogoHtml(skill);
-    setText(skillModalEl.querySelector(".smm-title"), modalTitle(skill));
-    setText(skillModalEl.querySelector(".smm-meta"), modalMeta(skill));
-    setText(skillModalEl.querySelector(".smm-summary"), modalSummary(skill));
-
-    const intro = skillModalEl.querySelector(".smm-intro");
-    const body = skillModalEl.querySelector(".smm-body");
-    const bodyContent = skillModalEl.querySelector(".smm-body-content");
-    const toggle = skillModalEl.querySelector(".smm-body-toggle");
-    const add = skillModalEl.querySelector(".smm-add");
-
-    if (skillModal.showBody) {
-      intro.classList.add("hidden");
-      body.classList.remove("hidden");
-      bodyContent.innerHTML = hasBody
-        ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body)
-        : `<div class="skill-empty-state">${escapeHtml(bodyError || "正在读取完整正文...")}</div>`;
-      bodyContent.querySelectorAll("a[href]").forEach((link) => {
-        link.setAttribute("target", "_blank");
-        link.setAttribute("rel", "noreferrer");
-      });
-      if (skillModal.kind === "market" && !hasBody && !bodyLoading && !bodyError) {
-        loadMarketSkillBody(skill.id);
+    const primary = () => {
+      const current = findModalSkill();
+      if (!current) return;
+      if (skillModal.kind === "local") {
+        useSkillInComposer(current.id);
+        closeMarketModal();
+        return;
       }
-    } else {
-      intro.classList.remove("hidden");
-      body.classList.add("hidden");
+      const currentInstalled = installedLocalSkillForMarket(current);
+      if (currentInstalled) {
+        useSkillInComposer(currentInstalled.id);
+        closeMarketModal();
+      } else {
+        installMarketSkill(current.id);
+      }
+    };
+    window.miaReactDialogs?.publish?.({
+      dialog: {
+        actionDisabled: installing,
+        actionInstalled: !!installed,
+        actionLabel: skillModal.kind === "local" || installed ? "使用" : installing ? "添加中…" : "添加",
+        back: () => {
+          skillModal.showBody = false;
+          renderSkillModal();
+        },
+        bodyHtml: hasBody ? window.miaSkillHelpers.renderSkillMarkdownSource(skill.body) : "",
+        bodyState: bodyError || (bodyLoading ? "正在读取完整正文..." : "正在读取完整正文..."),
+        close: closeMarketModal,
+        kind: "skill",
+        meta: modalMeta(skill),
+        primary,
+        showBody: skillModal.showBody,
+        sourceLogo: modalSourceLogoView(skill),
+        summary: modalSummary(skill),
+        title: modalTitle(skill),
+        toggleBody: () => {
+          skillModal.showBody = !skillModal.showBody;
+          renderSkillModal();
+          if (skillModal.showBody && skillModal.kind === "market") loadMarketSkillBody(skillModal.skillId);
+        }
+      }
+    });
+    if (skillModal.showBody && skillModal.kind === "market" && !hasBody && !bodyLoading && !bodyError) {
+      loadMarketSkillBody(skill.id);
     }
-
-    toggle.textContent = skillModal.showBody ? "收起正文" : "展开正文";
-    toggle.disabled = false;
-    add.disabled = installing;
-    add.classList.toggle("smm-add-installed", !!installed);
-    add.textContent = skillModal.kind === "local" || installed ? "使用" : installing ? "添加中…" : "添加";
   }
 
   window.miaSkillLibrary = {
