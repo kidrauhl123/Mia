@@ -226,7 +226,7 @@
   function renderTraceBlocks({ reasoning, tools, content, expanded, scopeKey, showReasoningWithoutTools, completed = false, processing = false, durationSeconds = 0 }) {
     if (!state) return "";
     const animatedKeys = animatedTraceKeys();
-    const defaultExpanded = completed || Boolean(expanded);
+    const defaultExpanded = Boolean(expanded);
     const toolList = Array.isArray(tools) ? tools : [];
     const displayReasoning = traceReasoningForDisplay(reasoning, toolList, content, {
       showWithoutTools: Boolean(showReasoningWithoutTools)
@@ -652,7 +652,7 @@
     const processHtml = () => renderAssistantBlockEntries({
       entries: processEntries,
       renderTextBlock,
-      expanded: true,
+      expanded: processing && Boolean(expanded),
       scopeKey,
       assistantContent,
       process: true

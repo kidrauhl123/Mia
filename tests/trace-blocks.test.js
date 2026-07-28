@@ -129,8 +129,8 @@ test("completed legacy trace is grouped behind one manually expandable process r
   const expanded = traceBlocks.renderTraceBlocks(input);
   assert.match(expanded, /checking project files/);
   assert.match(expanded, /git status/);
-  assert.match(expanded, /class="trace-row reasoning[^"]*"[^>]*open/);
-  assert.match(expanded, /class="trace-row tool[^"]*"[^>]*open/);
+  assert.doesNotMatch(expanded, /class="trace-row reasoning[^"]*"[^>]*open/);
+  assert.doesNotMatch(expanded, /class="trace-row tool[^"]*"[^>]*open/);
 });
 
 test("in-progress legacy trace is labelled as processing instead of completed", () => {
@@ -147,6 +147,8 @@ test("in-progress legacy trace is labelled as processing instead of completed", 
   assert.match(html, /class="trace-row assistant-process/);
   assert.match(html, /<span class="assistant-process-label">正在处理<\/span>/);
   assert.doesNotMatch(html, /<span class="assistant-process-label">已处理<\/span>/);
+  assert.match(html, /class="trace-row reasoning[^"]*"[^>]*open/);
+  assert.match(html, /class="trace-row tool[^"]*"[^>]*open/);
 });
 
 test("collapsed trace bodies are hydrated only when the row opens", () => {
@@ -293,8 +295,8 @@ test("completed assistant content collapses prior text and trace while keeping t
   state.openTraceKeys.add("msg:m_completed::process");
   const expanded = traceBlocks.renderAssistantContentBlocks(input);
   assert.match(expanded, /class="trace-row assistant-process[^"]*"[^>]*open/);
-  assert.match(expanded, /class="trace-row reasoning[^"]*"[^>]*open/);
-  assert.match(expanded, /class="trace-row tool[^"]*"[^>]*open/);
+  assert.doesNotMatch(expanded, /class="trace-row reasoning[^"]*"[^>]*open/);
+  assert.doesNotMatch(expanded, /class="trace-row tool[^"]*"[^>]*open/);
   assert.match(expanded, /我先看一下目录。/);
   assert.match(expanded, /检查上下文/);
   assert.match(expanded, /pwd/);
@@ -319,6 +321,7 @@ test("in-progress assistant content uses the processing disclosure state", () =>
   assert.match(html, /class="trace-row assistant-process/);
   assert.match(html, /<span class="assistant-process-label">正在处理<\/span>/);
   assert.doesNotMatch(html, /<span class="assistant-process-label">已处理<\/span>/);
+  assert.match(html, /class="trace-row reasoning[^"]*"[^>]*open/);
   assert.match(html, /我正在看目录。/);
 });
 

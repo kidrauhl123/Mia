@@ -148,7 +148,7 @@ test("chat floor overlay text uses the adaptive floor palette", () => {
   assert.doesNotMatch(chatCss, /:root\[data-theme="dark"\]\s+\.message-time/);
 });
 
-test("completed trace uses the quiet processed disclosure treatment on desktop and web", () => {
+test("process disclosure keeps the original message bubbles on desktop and web", () => {
   const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const webCss = fs.readFileSync(path.join(root, "src/web/styles.css"), "utf8");
 
@@ -157,8 +157,14 @@ test("completed trace uses the quiet processed disclosure treatment on desktop a
     assert.match(css, /\.assistant-process\s*>\s*summary\s*\{[\s\S]*?font-family:\s*inherit;[\s\S]*?cursor:\s*default;/);
     assert.match(css, /\.assistant-process\[open\]\s*>\s*summary\s*\{[\s\S]*?border-bottom:/);
     assert.match(css, /\.assistant-process\s*>\s*summary\s*>\s*\.trace-chevron\s*\{[\s\S]*?border-right:/);
-    assert.match(css, /\.assistant-process-content\s+\.trace-row\.reasoning\s*>\s*summary\s*\{[\s\S]*?display:\s*none;/);
-    assert.match(css, /\.assistant-process-content\s+\.trace-row\.reasoning\s+\.trace-body\s*\{[\s\S]*?border:\s*0;/);
+    const processContentRule = cssRuleBody(css, ".assistant-process-content");
+    const processBubbleRule = cssRuleBody(css, ".assistant-process-content .bubble");
+    assert.match(processContentRule, /gap:\s*4px;/);
+    assert.match(processContentRule, /padding:\s*3px 0 3px 12px;/);
+    assert.match(processBubbleRule, /max-width:\s*100%;/);
+    assert.doesNotMatch(processBubbleRule, /(?:^|\s)width:\s*100%;/);
+    assert.doesNotMatch(processBubbleRule, /padding:|border-radius:|background:|color:|font-size:|line-height:/);
+    assert.doesNotMatch(css, /\.assistant-process-content\s+\.trace-row\.reasoning\s*>\s*summary/);
   }
 });
 

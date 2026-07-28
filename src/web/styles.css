@@ -4111,49 +4111,13 @@ p {
 .assistant-process-content {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
-  padding: 0 0 5px;
+  padding: 3px 0 3px 12px;
 }
 
 .assistant-process-content .bubble {
-  width: 100%;
   max-width: 100%;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted, #6b7280);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.assistant-process-content .trace {
-  font-family: inherit;
-}
-
-.assistant-process-content .trace-row.reasoning > summary {
-  display: none;
-}
-
-.assistant-process-content .trace-row.reasoning .trace-accordion-body {
-  overflow: visible;
-}
-
-.assistant-process-content .trace-row.reasoning .trace-body {
-  max-height: none;
-  margin: 0 0 8px;
-  padding: 0;
-  overflow: visible;
-  border: 0;
-  color: var(--muted, #6b7280);
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.65;
-}
-
-.assistant-process-content .trace-row.tool > summary {
-  padding: 3px 0;
-  font-family: inherit;
 }
 
 .trace-glyph {
