@@ -16,6 +16,8 @@
     "dev": "node scripts/start-dev.js",
     "dev:multi": "node scripts/start-dev.js --multi",
     "start:multi": "node scripts/start-dev.js --multi",
+    "renderer:build": "node scripts/build-renderer-react.js",
+    "renderer:typecheck": "tsc --noEmit -p src/renderer/react/tsconfig.json",
     "web": "node scripts/serve-web.js",
     "cloud": "node scripts/serve-cloud.js",
     "cloud:release": "node scripts/build-cloud-release.js",
@@ -52,7 +54,7 @@
     "core:prepare": "node scripts/prepare-mia-core-rs.js",
     "core:publish": "node scripts/publish-mia-core-release.js",
     "bridge": "node scripts/local-agent-bridge.js",
-    "check": "node src/check.js",
+    "check": "npm run renderer:build && npm run renderer:typecheck && node src/check.js",
     "hermes:runtime:mac-arm64": "bash scripts/build-hermes-runtime.sh mac-arm64",
     "hermes:runtime:mac-x64": "bash scripts/build-hermes-runtime.sh mac-x64",
     "hermes:runtime:linux-x64": "bash scripts/build-hermes-runtime.sh linux-x64",
@@ -89,8 +91,11 @@
   "miaCoreVersion": "v0.1.3",
   "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
     "electron": "^39.2.6",
-    "electron-builder": "^26.0.12"
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.28.1"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.1.0",
@@ -102,13 +107,15 @@
     "js-yaml": "^4.1.1",
     "lottie-web": "^5.13.0",
     "qrcode": "^1.5.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "ws": "^8.20.1",
     "zod": "^4.4.3"
   },
   "build": {
     "appId": "ai.mia.app",
     "productName": "Mia",
-    "beforePack": "./scripts/prepare-mia-core-rs.js",
+    "beforePack": "./scripts/prepare-desktop-package.js",
     "directories": {
       "output": "release"
     },

@@ -2870,52 +2870,79 @@
     const shouldStickChat = isChatPinnedToBottom(chatEl);
     const request = activePermissionRequest();
     if (!request) {
-      banner.classList.add("hidden");
-      banner.innerHTML = "";
-      if (banner.dataset) delete banner.dataset.requestId;
+      if (global.miaReactPermissionBanner?.publish) {
+        global.miaReactPermissionBanner.publish({
+          decide: () => {},
+          description: "",
+          kicker: "",
+          pending: false,
+          preview: "",
+          requestId: "",
+          title: "",
+          visible: false
+        });
+      } else {
+        banner.classList.add("hidden");
+        banner.innerHTML = "";
+        if (banner.dataset) delete banner.dataset.requestId;
+      }
       stickChatToBottomAfterPermissionLayout(chatEl, shouldStickChat);
       return;
     }
     const preview = compactPermissionPreview(request.preview);
-    const previewHtml = preview
-      ? `<code class="agent-permission-preview">${escapeHtml(preview)}</code>`
-      : "";
     const isDecisionInFlight = _permissionDecisionInFlight.has(request.requestId);
-    const disabledAttr = isDecisionInFlight ? " disabled" : "";
-    banner.classList.remove("hidden");
-    banner.dataset.requestId = request.requestId;
-    banner.innerHTML = `
-      <div class="agent-permission-heading">
-        <div class="agent-permission-source">
-          <span class="agent-permission-kicker">${escapeHtml(permissionEngineLabel(request.engine))} · ${escapeHtml(request.toolName)}</span>
+    if (global.miaReactPermissionBanner?.publish) {
+      global.miaReactPermissionBanner.publish({
+        decide: (decision) => { void submitPermissionDecision(decision); },
+        description: String(request.description || ""),
+        kicker: `${permissionEngineLabel(request.engine)} · ${request.toolName}`,
+        pending: isDecisionInFlight,
+        preview,
+        requestId: request.requestId,
+        title: compactPermissionTitle(request),
+        visible: true
+      });
+    } else {
+      const previewHtml = preview
+        ? `<code class="agent-permission-preview">${escapeHtml(preview)}</code>`
+        : "";
+      const disabledAttr = isDecisionInFlight ? " disabled" : "";
+      banner.classList.remove("hidden");
+      banner.dataset.requestId = request.requestId;
+      banner.innerHTML = `
+        <div class="agent-permission-heading">
+          <div class="agent-permission-source">
+            <span class="agent-permission-kicker">${escapeHtml(permissionEngineLabel(request.engine))} · ${escapeHtml(request.toolName)}</span>
+          </div>
+          <strong>${escapeHtml(compactPermissionTitle(request))}</strong>
         </div>
-        <strong>${escapeHtml(compactPermissionTitle(request))}</strong>
-      </div>
-      ${request.description ? `<p class="agent-permission-description">${escapeHtml(request.description)}</p>` : ""}
-      ${previewHtml}
-      <div class="agent-permission-actions">
-        <button type="button" class="agent-permission-button ghost agent-permission-deny" data-permission-decision="deny"${disabledAttr}>
-          <span class="agent-permission-button-label">拒绝</span>
-          <span class="agent-permission-key">esc</span>
-        </button>
-        <div class="agent-permission-allow-actions">
-          <button type="button" class="agent-permission-button" data-permission-decision="allow_always"${disabledAttr}>
-            <span class="agent-permission-button-label">始终允许</span>
+        ${request.description ? `<p class="agent-permission-description">${escapeHtml(request.description)}</p>` : ""}
+        ${previewHtml}
+        <div class="agent-permission-actions">
+          <button type="button" class="agent-permission-button ghost agent-permission-deny" data-permission-decision="deny"${disabledAttr}>
+            <span class="agent-permission-button-label">拒绝</span>
+            <span class="agent-permission-key">esc</span>
           </button>
-          <button type="button" class="agent-permission-button primary" data-permission-decision="allow_once" aria-label="允许本次"${disabledAttr}>
-            <span class="agent-permission-button-label">允许</span>
-            <span class="agent-permission-key">↵</span>
-          </button>
+          <div class="agent-permission-allow-actions">
+            <button type="button" class="agent-permission-button" data-permission-decision="allow_always"${disabledAttr}>
+              <span class="agent-permission-button-label">始终允许</span>
+            </button>
+            <button type="button" class="agent-permission-button primary" data-permission-decision="allow_once" aria-label="允许本次"${disabledAttr}>
+              <span class="agent-permission-button-label">允许</span>
+              <span class="agent-permission-key">↵</span>
+            </button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
     stickChatToBottomAfterPermissionLayout(chatEl, shouldStickChat);
   }
 
-  async function submitPermissionDecision(button) {
+  async function submitPermissionDecision(input) {
     const banner = document.getElementById("agentPermissionBanner");
-    const requestId = banner?.dataset?.requestId || "";
-    const decision = button?.dataset?.permissionDecision || "";
+    const activeRequest = activePermissionRequest();
+    const requestId = activeRequest?.requestId || banner?.dataset?.requestId || "";
+    const decision = typeof input === "string" ? input : (input?.dataset?.permissionDecision || "");
     if (!requestId || !decision) return;
     const request = moduleState.pendingPermissionsById.get(requestId) || null;
     const isCloudRunApproval = request?.kind === "cloud-run-approval";
@@ -2925,8 +2952,11 @@
     if (!canRespond) return;
     if (_permissionDecisionInFlight.has(requestId)) return;
     _permissionDecisionInFlight.add(requestId);
-    const buttons = banner.querySelectorAll("button[data-permission-decision]");
-    buttons.forEach((item) => { item.disabled = true; });
+    const buttons = global.miaReactPermissionBanner?.publish
+      ? []
+      : Array.from(banner?.querySelectorAll?.("button[data-permission-decision]") || []);
+    if (global.miaReactPermissionBanner?.publish) renderAgentPermissionBanner();
+    else buttons.forEach((item) => { item.disabled = true; });
     try {
       const result = isCloudRunApproval
         ? await window.mia.social.respondRunApproval(request.conversationId, request.runId, decision)
@@ -2945,6 +2975,7 @@
       deps?.appendTransientChat?.("assistant", message || "权限审批失败");
     } finally {
       _permissionDecisionInFlight.delete(requestId);
+      renderAgentPermissionBanner();
     }
   }
 
@@ -2982,8 +3013,10 @@
     if (_permissionBannerWired) return;
     _permissionBannerWired = true;
     const banner = document.getElementById("agentPermissionBanner");
-    banner?.addEventListener("pointerdown", handlePermissionDecisionEvent, true);
-    banner?.addEventListener("click", handlePermissionDecisionEvent);
+    if (!global.miaReactPermissionBanner?.publish) {
+      banner?.addEventListener("pointerdown", handlePermissionDecisionEvent, true);
+      banner?.addEventListener("click", handlePermissionDecisionEvent);
+    }
     document.addEventListener("keydown", (event) => {
       if (!activePermissionRequest() || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       if (event.key === "Escape") {
@@ -3062,6 +3095,10 @@
     if (!conversationId || conversationId !== moduleState.activeConversationId) return false;
     const chatEl = document.getElementById("chat");
     if (!chatEl) return false;
+    if (global.miaReactMessageList?.render) {
+      renderConversationChat(chatEl);
+      return true;
+    }
     const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
     const existing = findActiveStreamingArticle(chatEl);
     if (_messageRenderWindowStates.get(conversationId)?.mode === "history") {
@@ -4574,6 +4611,103 @@
     return current.key;
   }
 
+  function renderConversationChatWithReact({
+    color,
+    conversation,
+    conversationId,
+    conversationType,
+    messageWindow,
+    messages,
+    allMessages,
+    shouldAnimateMessage,
+    streamRenderSignature
+  }) {
+    const reactList = global.miaReactMessageList;
+    if (!reactList?.render) return false;
+    const groupMessage = conversationType === "group";
+    const members = (groupMessage || conversationType === "bot")
+      ? (_conversationMembersCache.get(conversationId) || [])
+      : [];
+    const sharedSignature = jsonSignature({
+      color,
+      conversation: conversationSignature(conversation),
+      conversationType,
+      members: members.map(memberSignature)
+    });
+    const entries = [];
+    if (messageWindow.hasOlder) {
+      entries.push({
+        key: `navigation:${conversationId}:top`,
+        signature: jsonSignature({
+          olderCount: messageWindow.olderCount,
+          start: messageWindow.start
+        }),
+        tag: "div",
+        build: () => createMessageWindowNavigation(conversationId, messageWindow, "top")
+      });
+    }
+
+    let previousMessage = messageWindow.start > 0 ? allMessages[messageWindow.start - 1] : null;
+    for (const msg of messages) {
+      if (activeRunCoversProcessingMessage(conversationId, msg)) continue;
+      const prior = previousMessage;
+      const stableId = messageStableId(msg);
+      entries.push({
+        key: `message:${conversationId}:${stableId}`,
+        signature: jsonSignature({
+          message: messageSignature(msg),
+          previousDate: messageDateInfo(prior?.created_at || prior?.createdAt)?.key || "",
+          shared: sharedSignature
+        }),
+        tag: "article",
+        build: () => {
+          const article = groupMessage
+            ? _buildGroupMessageArticle(msg, color, members)
+            : _buildMessageArticle(msg, color, members);
+          if (article) addMessageDateDivider(article, msg, prior);
+          return article;
+        },
+        ...(shouldAnimateMessage(msg)
+          ? { mounted: (article) => animateMessageTailEnter(article) }
+          : {})
+      });
+      previousMessage = msg;
+    }
+
+    const run = moduleState.cloudAgentRunsByConversation.get(conversationId);
+    if (!messageWindow.hasNewer && streamingRunHasRenderableOutput(run)) {
+      entries.push({
+        key: `stream:${conversationId}`,
+        signature: jsonSignature({
+          shared: sharedSignature,
+          stream: streamRenderSignature
+        }),
+        tag: "article",
+        build: () => _buildCloudAgentStreamingArticle(
+          conversationId,
+          color,
+          members,
+          { groupMessage }
+        )
+      });
+    }
+
+    if (messageWindow.hasNewer) {
+      entries.push({
+        key: `navigation:${conversationId}:bottom`,
+        signature: jsonSignature({
+          end: messageWindow.end,
+          newerCount: messageWindow.newerCount
+        }),
+        tag: "div",
+        build: () => createMessageWindowNavigation(conversationId, messageWindow, "bottom")
+      });
+    }
+
+    reactList.render({ conversationId, entries });
+    return true;
+  }
+
   // ── renderConversationChat ─────────────────────────────────────────────────────────
 
   function renderConversationChat(containerEl) {
@@ -4657,7 +4791,8 @@
       }
     };
 
-    if (!isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
+    const reactMessageListActive = Boolean(global.miaReactMessageList?.render);
+    if (!reactMessageListActive && !isConversationSwitch && containerEl.dataset?.conversationRenderSignature === renderSignature) {
       if (containerEl.dataset?.conversationStreamRenderSignature !== streamRenderSignature) {
         updateActiveCloudRunStreamingArticle(conversationId);
       }
@@ -4672,6 +4807,29 @@
     if (containerEl.dataset) {
       containerEl.dataset.conversationRenderSignature = renderSignature;
       containerEl.dataset.conversationStreamRenderSignature = streamRenderSignature;
+    }
+    if (renderConversationChatWithReact({
+      color,
+      conversation,
+      conversationId,
+      conversationType,
+      messageWindow,
+      messages,
+      allMessages,
+      shouldAnimateMessage,
+      streamRenderSignature
+    })) {
+      window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
+      markRenderedTraceBlocks(containerEl);
+      startPhaseOrbAnimation(containerEl);
+      initNameBadgeLotties(containerEl);
+      applyScroll();
+      animateMessageLayoutShift(containerEl, previousMessageLayout);
+      if ((conversationType === "group" || conversationType === "bot")
+        && !_conversationMembersCache.has(conversationId)) {
+        _fetchAndCacheConversationMembers(conversationId);
+      }
+      return;
     }
     containerEl.innerHTML = "";
     appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "top");
@@ -5172,6 +5330,14 @@
     if (!rendererWorkActive()) return;
     const chatEl = document.getElementById("chat");
     if (!chatEl) return;
+    if (global.miaReactMessageList?.render) {
+      renderConversationChat(chatEl);
+      if (stick) {
+        scrollChatToBottom(chatEl);
+        scheduleChatBottomStick(chatEl, chatEl.scrollTop, 1, false);
+      }
+      return;
+    }
     const entry = moduleState.messageCache.get(moduleState.activeConversationId);
     const cachedMessages = Array.isArray(entry?.messages) ? entry.messages : [];
     const messageWindow = resolveConversationMessageWindow(
@@ -6169,7 +6335,7 @@
   function renderRequestsInto(container) {
     if (!container) return;
     const count = moduleState.incomingRequests.length;
-    container.innerHTML = `
+    const html = `
       <article class="contact-profile contact-requests">
         <section class="contact-note contact-requests-card">
           <header class="contact-requests-head">
@@ -6180,6 +6346,11 @@
         </section>
       </article>
     `;
+    if (global.miaReactSurface?.renderHtml) {
+      global.miaReactSurface.renderHtml(container, html, `contact-requests:${count}`);
+    } else {
+      container.innerHTML = html;
+    }
     _renderRequestList(container.querySelector("#socialContactRequestPane"), moduleState.incomingRequests, "incoming", null);
   }
 

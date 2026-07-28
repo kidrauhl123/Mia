@@ -235,7 +235,11 @@
   function setSkillCardGridHtml(kind, html, bind) {
     const renderKey = `${kind}:${html}`;
     if (els.skillCardGrid.__miaRenderKey === renderKey) return false;
-    els.skillCardGrid.innerHTML = html;
+    if (window.miaReactSurface?.renderHtml) {
+      window.miaReactSurface.renderHtml(els.skillCardGrid, html, renderKey);
+    } else {
+      els.skillCardGrid.innerHTML = html;
+    }
     els.skillCardGrid.__miaRenderKey = renderKey;
     if (typeof bind === "function") bind();
     return true;
@@ -269,7 +273,11 @@
       `)
     ].join("");
     if (els.skillChipRow.__miaRenderKey !== renderKey || wasMcpToolbar) {
-      els.skillChipRow.innerHTML = html;
+      if (window.miaReactSurface?.renderHtml) {
+        window.miaReactSurface.renderHtml(els.skillChipRow, html, renderKey);
+      } else {
+        els.skillChipRow.innerHTML = html;
+      }
       els.skillChipRow.__miaRenderKey = renderKey;
       els.skillChipRow.querySelectorAll("[data-skill-scope]").forEach((button) => {
         button.addEventListener("click", () => switchSkillMode(button.dataset.skillScope));
@@ -315,7 +323,11 @@
       <button class="${mode === "mcp" ? "active" : ""}" type="button" role="tab" data-skill-mode="mcp">MCP 服务</button>
     `;
     if (els.skillModeToggle.__miaRenderKey !== renderKey) {
-      els.skillModeToggle.innerHTML = html;
+      if (window.miaReactSurface?.renderHtml) {
+        window.miaReactSurface.renderHtml(els.skillModeToggle, html, renderKey);
+      } else {
+        els.skillModeToggle.innerHTML = html;
+      }
       els.skillModeToggle.__miaRenderKey = renderKey;
       els.skillModeToggle.querySelectorAll("[data-skill-mode]").forEach((button) => {
         button.addEventListener("click", () => switchSkillMode(button.dataset.skillMode));

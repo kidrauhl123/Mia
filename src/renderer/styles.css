@@ -6252,9 +6252,27 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   padding-top: 3px;
 }
 
-.composer-input-field > .composer-editor {
+.composer-input-field > .composer-editor,
+.react-composer-input-root > .composer-editor {
   flex: 1 1 140px;
   min-width: 120px;
+}
+
+.react-composer-input-root {
+  display: contents;
+}
+
+.react-conversation-card-host,
+.react-conversation-group-host {
+  display: contents;
+}
+
+.react-legacy-node-host {
+  display: contents;
+}
+
+.react-chat-html-host {
+  display: contents;
 }
 
 /* Skill chips flow directly before the editable text. */

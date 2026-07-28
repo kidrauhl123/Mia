@@ -584,7 +584,11 @@
       layoutCards();
       return;
     }
-    els.skillCardGrid.innerHTML = html;
+    if (window.miaReactSurface?.renderHtml) {
+      window.miaReactSurface.renderHtml(els.skillCardGrid, html, renderKey);
+    } else {
+      els.skillCardGrid.innerHTML = html;
+    }
     els.skillCardGrid.__miaRenderKey = renderKey;
     bindMcpActionHandlers();
     layoutCards();

@@ -435,7 +435,7 @@
     if (key === lastCategoryKey) return;
     lastCategoryKey = key;
     if (!cats.includes(activeCat)) activeCat = "全部";
-    cap.innerHTML = "";
+    const categoryButtons = [];
     cats.forEach((c) => {
       const b = document.createElement("button");
       b.type = "button";
@@ -454,8 +454,13 @@
         movePill();
         renderGrid();
       });
-      cap.appendChild(b);
+      categoryButtons.push(b);
     });
+    if (window.miaReactSurface?.renderNodes) {
+      window.miaReactSurface.renderNodes(cap, categoryButtons, `bot-store-categories:${key}:${activeCat}`);
+    } else {
+      cap.replaceChildren(...categoryButtons);
+    }
     scrollCategoryButtonIntoView(cap.querySelector("button.active"), "auto");
     movePill();
   }
@@ -515,12 +520,17 @@
     renderCategories();
     const list = presets().filter((f) => activeCat === "全部" || (f.cat || f.category) === activeCat);
     if (!list.length) {
-      grid.innerHTML = `<div class="bot-store-empty">这个分类暂时还没有 AI 助手</div>`;
+      const emptyHtml = `<div class="bot-store-empty">这个分类暂时还没有 AI 助手</div>`;
+      if (window.miaReactSurface?.renderHtml) {
+        window.miaReactSurface.renderHtml(grid, emptyHtml, `bot-store-grid:empty:${activeCat}`);
+      } else {
+        grid.innerHTML = emptyHtml;
+      }
       window.miaMasonryGrid?.layout(grid, ".bot-store-card", { animate: pageTurnDirection });
       pageTurnDirection = 0;
       return;
     }
-    grid.innerHTML = list.map((f) => {
+    const gridHtml = list.map((f) => {
       return `
         <div class="bot-store-card" data-key="${escapeHtml(f.key)}" style="${cardStyle(f)}">
           <div class="bot-store-card-cover">
@@ -535,6 +545,15 @@
           </div>
         </div>`;
     }).join("");
+    if (window.miaReactSurface?.renderHtml) {
+      window.miaReactSurface.renderHtml(
+        grid,
+        gridHtml,
+        `bot-store-grid:${activeCat}:${gridHtml}`
+      );
+    } else {
+      grid.innerHTML = gridHtml;
+    }
     grid.querySelectorAll(".bot-store-card").forEach((card) => {
       card.addEventListener("click", () => {
         const f = presets().find((x) => x.key === card.dataset.key);
@@ -569,7 +588,7 @@
     sheet.classList.remove("is-enrolling");
     sheet.classList.remove("is-stamped");
     const skills = skillSummary(f);
-    sheet.innerHTML = `
+    const sheetHtml = `
       ${sheetCloseButtonHtml()}
       <div class="bot-store-sheet-head">
         ${avatarHtml(f)}
@@ -588,6 +607,11 @@
         <button type="button" class="bot-store-btn ghost" data-act="back">返回</button>
         <button type="button" class="bot-store-btn primary" data-act="add">添加</button>
       </div>`;
+    if (window.miaReactSurface?.renderHtml) {
+      window.miaReactSurface.renderHtml(sheet, sheetHtml, `bot-store-sheet:detail:${f.key}:${sheetHtml}`);
+    } else {
+      sheet.innerHTML = sheetHtml;
+    }
     bindSheetCloseButtons(sheet);
     sheet.querySelector('[data-act="back"]').addEventListener("click", closeSheet);
     sheet.querySelector('[data-act="add"]').addEventListener("click", () => addPresetBot(f));
@@ -612,7 +636,7 @@
     sheet.classList.add("is-enrolling");
     sheet.classList.remove("is-stamped");
     sheet.dataset.botKey = plannedKey;
-    sheet.innerHTML = `
+    const sheetHtml = `
       ${sheetCloseButtonHtml()}
       <div class="bot-store-enroll-console" style="--badge-accent:${safeColor(f.c2, "#5dcaa5")};--engine-accent:${safeColor(meta.accent, "#5dcaa5")}">
         <div class="bot-store-enroll-bar">
@@ -649,6 +673,11 @@
         <button type="button" class="bot-store-btn ghost" data-act="detail">上一步</button>
         <button type="button" class="bot-store-btn primary" data-act="confirm">确认</button>
       </div>`;
+    if (window.miaReactSurface?.renderHtml) {
+      window.miaReactSurface.renderHtml(sheet, sheetHtml, `bot-store-sheet:enroll:${plannedKey}`);
+    } else {
+      sheet.innerHTML = sheetHtml;
+    }
     bindSheetCloseButtons(sheet);
     sheet.querySelector('[data-act="detail"]').addEventListener("click", () => openSheet(f));
     sheet.querySelector('[data-act="confirm"]').addEventListener("click", () => addBot(f, target, sheet.dataset.botKey || plannedKey));

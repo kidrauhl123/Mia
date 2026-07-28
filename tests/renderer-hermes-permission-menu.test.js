@@ -27,6 +27,10 @@ test("Hermes-only composer menu keeps session YOLO out of persisted bot controls
     path.join(projectRoot, "src/renderer/hermes/permission-menu.js"),
     "utf8"
   );
+  const reactMenuSource = fs.readFileSync(
+    path.join(projectRoot, "src/renderer/react/components/ComposerSelectMenu.tsx"),
+    "utf8"
+  );
   const html = fs.readFileSync(path.join(projectRoot, "src/renderer/index.html"), "utf8");
 
   assert.match(app, /engine\.toLowerCase\(\) === "hermes"/);
@@ -35,9 +39,10 @@ test("Hermes-only composer menu keeps session YOLO out of persisted bot controls
   assert.doesNotMatch(moduleSource, /saveBotRuntimeControl/);
   assert.match(moduleSource, /select\.dataset\.hermesPermissionMenu = "true"/);
   assert.match(moduleSource, /delete select\.dataset\.hermesPermissionMenu/);
-  assert.match(moduleSource, /YOLO（仅本会话）/);
-  assert.match(moduleSource, /允许完全访问，危险操作不再询问/);
-  assert.doesNotMatch(moduleSource, /当前会话 YOLO|只对当前 Hermes 会话生效/);
+  assert.match(moduleSource, /function getConfiguration\(select\)/);
+  assert.match(reactMenuSource, /YOLO（仅本会话）/);
+  assert.match(reactMenuSource, /允许完全访问，危险操作不再询问/);
+  assert.doesNotMatch(reactMenuSource, /当前会话 YOLO|只对当前 Hermes 会话生效/);
   assert.match(app, /YOLO（仅本会话）/);
   assert.match(html, /\.\/hermes\/permission-menu\.js/);
   assert.match(html, /\.\/styles\/hermes-permission-menu\.css/);

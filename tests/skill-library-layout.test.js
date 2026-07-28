@@ -36,8 +36,8 @@ test("app.js drops skills sidebar refs and collapses the shell column", () => {
   assert.doesNotMatch(src, /els\.skillsSidebar\?\.classList\.toggle/);
   assert.doesNotMatch(src, /skillNav:\s*document\.getElementById/);
   assert.doesNotMatch(src, /state\.skillLibraryMode\s*=\s*"plugins"/);
-  // 进入视图时把 activeView 写到 app-shell，供 CSS 折叠侧栏列
-  assert.match(src, /appShell\?\.setAttribute\("data-active-view"/);
+  // 进入视图时同步把 activeView 写到 app-shell，供 CSS 折叠侧栏列
+  assert.match(src, /els\.appShell\?\.setAttribute\("data-active-view", state\.activeView\)/);
 });
 
 test("skill styles moved to feature stylesheet and grid is full-width", () => {

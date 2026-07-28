@@ -21,6 +21,7 @@
     let inputStartedAt = 0;
     let baselineHeap = 0;
     let inputElement = null;
+    let longTaskObserver = null;
 
     function now() {
       const value = Number(performanceRef?.now?.());
@@ -120,12 +121,27 @@
       if (!enabled || interval) return;
       trackInput(input);
       collect(getGauges);
+      const PerformanceObserver = windowRef?.PerformanceObserver;
+      if (typeof PerformanceObserver === "function") {
+        try {
+          longTaskObserver = new PerformanceObserver((list) => {
+            for (const entry of list?.getEntries?.() || []) {
+              record("main.longTask", Number(entry?.duration) || 0);
+            }
+          });
+          longTaskObserver.observe({ type: "longtask", buffered: true });
+        } catch {
+          longTaskObserver = null;
+        }
+      }
       interval = windowRef?.setInterval?.(() => collect(getGauges), sampleIntervalMs) || 0;
     }
 
     function stop() {
       if (interval) windowRef?.clearInterval?.(interval);
       interval = 0;
+      longTaskObserver?.disconnect?.();
+      longTaskObserver = null;
       trackInput(null);
     }
 

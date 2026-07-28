@@ -14,7 +14,7 @@
   const { MemberKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../../shared/conversation-kinds.js");
 
   let state, els, mia;
-  let loadSkills, renderAttachmentThumb, renderSendButton, resizeChatInput, openImagePreview;
+  let loadSkills, renderSendButton, resizeChatInput, openImagePreview;
   let appendTransientChat, cryptoRandomId;
 
   // Module-local hover-close timer for the skill picker.
@@ -27,7 +27,6 @@
     els = deps.els;
     mia = deps.mia || (typeof window !== "undefined" ? window.mia : null);
     loadSkills = deps.loadSkills;
-    renderAttachmentThumb = deps.renderAttachmentThumb;
     renderSendButton = deps.renderSendButton;
     resizeChatInput = deps.resizeChatInput;
     openImagePreview = deps.openImagePreview;
@@ -371,48 +370,47 @@
   function renderSlashCommandMenu() {
     if (!state || !els || !els.slashCommandMenu) return;
     const commands = filteredSlashCommands();
-    els.slashCommandMenu.classList.toggle("hidden", !state.slashMenuOpen);
-    if (!state.slashMenuOpen) {
-      els.slashCommandMenu.innerHTML = "";
-      return;
-    }
-    if (!commands.length) {
-      els.slashCommandMenu.innerHTML = `<div class="slash-command-empty">没有匹配的命令</div>`;
-      return;
-    }
-    els.slashCommandMenu.innerHTML = commands.map((item, index) => `
-      <button type="button" class="slash-command-item${index === state.slashSelectedIndex ? " active" : ""}" data-command="${window.miaMarkdown.escapeHtml(item.command)}" data-slash-index="${index}">
-        <span class="slash-command-token">${window.miaMarkdown.escapeHtml(item.command)}</span>
-        <span class="slash-command-description">${window.miaMarkdown.escapeHtml(item.description)}</span>
-      </button>
-    `).join("");
-    els.slashCommandMenu.querySelectorAll("[data-command]").forEach((button) => {
-      button.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-        const command = commands.find((item) => item.command === button.dataset.command);
+    window.miaReactComposerMenus.publishSlash({
+      open: Boolean(state.slashMenuOpen),
+      selectedIndex: state.slashSelectedIndex,
+      items: commands.map((item) => ({
+        command: String(item.command || ""),
+        description: String(item.description || "")
+      })),
+      choose(commandName) {
+        const command = filteredSlashCommands().find((item) => item.command === commandName);
         if (command) sendSlashCommand(command);
-      });
-      // Hover follows keyboard so we never paint two highlighted rows.
-      button.addEventListener("mousemove", () => {
-        const idx = Number(button.dataset.slashIndex || 0);
-        if (idx === state.slashSelectedIndex) return;
-        state.slashSelectedIndex = idx;
+      },
+      highlight(index) {
+        if (index === state.slashSelectedIndex) return;
+        state.slashSelectedIndex = index;
         renderSlashCommandMenu();
-      });
+      }
     });
   }
 
   function renderComposerAddMenu() {
     if (!state || !els) return;
-    els.composerAddMenu?.classList.toggle("hidden", !state.composerAddMenuOpen);
     els.composerAdd?.classList.toggle("active", state.composerAddMenuOpen);
     const addLottie = els.composerAdd?.querySelector("[data-lottie]");
     if (addLottie) window.miaLottieIcons?.setOpen(addLottie, state.composerAddMenuOpen);
     if (!els.composerAddMenu) return;
-    els.composerAddMenu.innerHTML = `
-      <button type="button" data-composer-add="attachment">添加附件</button>
-      <button type="button" data-composer-add="skill">插件 / 技能</button>
-    `;
+    window.miaReactComposerContent.publishAddMenu({
+      open: Boolean(state.composerAddMenuOpen),
+      addAttachment() {
+        closeComposerAddMenu();
+        els.composerAttachmentInput?.click();
+      },
+      openSkills() {
+        openSkillPicker();
+      },
+      scheduleSkillClose() {
+        scheduleSkillPickerHoverClose();
+      },
+      shouldKeepSkillOpen(target) {
+        return targetIsSkillPickerZone(target);
+      }
+    });
   }
 
   function composerAttachmentGlyph(attachment = {}) {
@@ -430,40 +428,22 @@
       : null;
     composerCard?.classList?.toggle("has-attachments", attachments.length > 0);
     els.chatForm?.classList?.toggle("has-attachments", attachments.length > 0);
-    els.composerAttachments.classList.toggle("hidden", attachments.length === 0);
-    els.composerAttachments.innerHTML = attachments.map((attachment) => {
-      const kind = attachment.kind || window.miaFormat?.attachmentKind?.(attachment) || "file";
-      const image = kind === "image" && (attachment.dataUrl || attachment.thumbnailDataUrl || attachment.previewDataUrl);
-      const title = window.miaMarkdown.escapeHtml(attachment.path || attachment.name || "附件");
-      const removeButton = `
-        <button class="composer-attachment-remove" type="button" data-attachment-remove="${window.miaMarkdown.escapeHtml(attachment.id)}" title="移除附件" aria-label="移除附件">
-          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M6.75 6.75L17.25 17.25M17.25 6.75L6.75 17.25" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
-          </svg>
-        </button>
-      `;
-      if (!image) {
-        return `
-      <div class="composer-attachment file" title="${title}">
-        <span class="composer-attachment-kind" aria-hidden="true">${window.miaMarkdown.escapeHtml(composerAttachmentGlyph(attachment))}</span>
-        ${removeButton}
-      </div>
-    `;
-      }
-      return `
-      <div class="composer-attachment image" title="${title}">
-        <button class="composer-attachment-preview" type="button" data-attachment-preview="${window.miaMarkdown.escapeHtml(attachment.id)}" aria-label="预览附件">
-          ${renderAttachmentThumb(attachment, "composer-attachment-thumb")}
-        </button>
-        ${removeButton}
-      </div>
-    `;
-    }).join("");
-    els.composerAttachments.querySelectorAll("[data-attachment-preview]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const attachment = state.pendingAttachments.find((item) => item.id === button.dataset.attachmentPreview);
+    window.miaReactComposerContent.publishAttachments({
+      items: attachments.map((attachment) => {
+        const kind = attachment.kind || window.miaFormat?.attachmentKind?.(attachment) || "file";
+        const imageSrc = kind === "image"
+          ? String(attachment.dataUrl || attachment.thumbnailDataUrl || attachment.previewDataUrl || "").trim()
+          : "";
+        return {
+          glyph: composerAttachmentGlyph(attachment),
+          id: String(attachment.id || ""),
+          imageSrc: imageSrc.startsWith("data:image/") ? imageSrc : "",
+          kind: imageSrc.startsWith("data:image/") ? "image" : "file",
+          title: String(attachment.path || attachment.name || "附件")
+        };
+      }),
+      preview(id) {
+        const attachment = state.pendingAttachments.find((item) => item.id === id);
         const src = String(attachment?.dataUrl || attachment?.previewDataUrl || attachment?.thumbnailDataUrl || "").trim();
         if (!attachment || !src.startsWith("data:image/") || typeof openImagePreview !== "function") {
           els.chatInput?.focus();
@@ -474,15 +454,16 @@
             updateComposerAttachmentImage(attachment.id, result.dataUrl || "");
           }
         });
-      });
-    });
-    els.composerAttachments.querySelectorAll("[data-attachment-remove]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.pendingAttachments = state.pendingAttachments.filter((item) => item.id !== button.dataset.attachmentRemove);
+      },
+      remove(id) {
+        state.pendingAttachments = state.pendingAttachments.filter((item) => item.id !== id);
         renderComposerAttachments();
         renderSendButton();
         els.chatInput?.focus();
-      });
+      },
+      focus() {
+        els.chatInput?.focus();
+      }
     });
   }
 
@@ -525,12 +506,13 @@
       state.composerSkillSelected = false;
     }
     const skills = state.composerActiveSkills || [];
-    els.composerSkills.classList.toggle("hidden", skills.length === 0);
-    // Last chip is the Backspace target; "selected" highlights it before delete.
-    els.composerSkills.innerHTML = skills.map((skill, index) => {
-      const selected = state.composerSkillSelected && index === skills.length - 1;
-      return `<span class="composer-skill${selected ? " selected" : ""}" title="${window.miaMarkdown.escapeHtml(skill.name || skill.id)}">${window.miaMarkdown.escapeHtml(skill.name || skill.id)}</span>`;
-    }).join("");
+    window.miaReactComposerContent.publishSkills({
+      items: skills.map((skill, index) => ({
+        id: String(skill.id || skill.name || index),
+        name: String(skill.name || skill.id || ""),
+        selected: Boolean(state.composerSkillSelected && index === skills.length - 1)
+      }))
+    });
   }
 
   function composerDraftMap() {
@@ -754,22 +736,20 @@
           return hay.includes(needle);
         })
       : skills;
-    if (!filtered.length && !skills.length) {
-      els.skillPickerBody.innerHTML = `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`;
-      return;
-    }
-    els.skillPickerBody.innerHTML = `
-      <section class="skill-picker-skills">
-        <div class="skill-picker-list">
-          ${filtered.length ? filtered.map((skill) => `
-            <button class="skill-picker-item" type="button" data-skill-pick="${window.miaMarkdown.escapeHtml(skill.name)}">
-              <strong>${window.miaMarkdown.escapeHtml(window.miaSkillHelpers.skillDisplayName(skill))}</strong>
-              <small>${window.miaMarkdown.escapeHtml((window.miaSkillHelpers.skillSummaryZh(skill) || skill.description || "").slice(0, 108))}</small>
-            </button>
-          `).join("") : `<div class="skill-picker-empty">${state.skillsLoading ? "正在加载…" : "没有匹配的 Skill"}</div>`}
-        </div>
-      </section>
-    `;
+    window.miaReactComposerContent.publishSkillPicker({
+      emptyText: state.skillsLoading ? "正在加载…" : "没有匹配的 Skill",
+      items: filtered.map((skill, index) => ({
+        description: String((window.miaSkillHelpers.skillSummaryZh(skill) || skill.description || "").slice(0, 108)),
+        key: String(skill.id || skill.name || index),
+        name: String(skill.name || ""),
+        title: String(window.miaSkillHelpers.skillDisplayName(skill))
+      })),
+      select(name) {
+        insertSkillIntoComposer(name);
+        closeComposerAddMenu();
+        closeSkillPicker();
+      }
+    });
   }
 
   function insertSkillIntoComposer(name) {
@@ -1429,40 +1409,30 @@
 
   function renderMentionMenu() {
     if (!state || !els || !els.mentionMenu) return;
-    els.mentionMenu.classList.toggle("hidden", !state.mentionMenuOpen);
-    if (!state.mentionMenuOpen) {
-      els.mentionMenu.innerHTML = "";
-      return;
-    }
     const items = filteredMentionMembers();
-    if (!items.length) {
-      els.mentionMenu.innerHTML = `<div class="mention-menu-empty">没有匹配的成员</div>`;
-      return;
-    }
-    const escape = window.miaMarkdown.escapeHtml;
     const accent = window.miaMemberColor?.memberAccentColor || (() => "#5e5ce6");
-    els.mentionMenu.innerHTML = items.map(({ member, name }, index) => {
-      const ref = member.member_ref || "";
-      const kindLabel = member.member_kind === MemberKind.Bot ? "Bot" : "User";
-      const dot = `<span class="mention-menu-dot" style="background:${escape(accent(ref))}"></span>`;
-      return `<button type="button" class="mention-menu-item${index === state.mentionSelectedIndex ? " active" : ""}" data-mention-index="${index}">${dot}<span class="mention-menu-name">${escape(name)}</span><span class="mention-menu-kind">${escape(kindLabel)}</span></button>`;
-    }).join("");
-    els.mentionMenu.querySelectorAll("[data-mention-index]").forEach((button) => {
-      button.addEventListener("mousedown", (event) => {
-        event.preventDefault();
-        const idx = Number(button.dataset.mentionIndex || 0);
+    window.miaReactComposerMenus.publishMention({
+      open: Boolean(state.mentionMenuOpen),
+      selectedIndex: state.mentionSelectedIndex,
+      items: items.map(({ member, name }, index) => {
+        const ref = String(member.member_ref || "");
+        return {
+          color: accent(ref),
+          index,
+          key: ref || `${member.member_kind || "member"}:${name}:${index}`,
+          kind: member.member_kind === MemberKind.Bot ? "Bot" : "User",
+          name
+        };
+      }),
+      choose(index) {
         const list = filteredMentionMembers();
-        if (list[idx]) applyMentionPick(list[idx].member);
-      });
-      // Hover steers the keyboard selection so the bar follows the mouse
-      // instead of showing two highlighted rows at once (one keyboard,
-      // one mouse).
-      button.addEventListener("mousemove", () => {
-        const idx = Number(button.dataset.mentionIndex || 0);
-        if (idx === state.mentionSelectedIndex) return;
-        state.mentionSelectedIndex = idx;
+        if (list[index]) applyMentionPick(list[index].member);
+      },
+      highlight(index) {
+        if (index === state.mentionSelectedIndex) return;
+        state.mentionSelectedIndex = index;
         renderMentionMenu();
-      });
+      }
     });
   }
 

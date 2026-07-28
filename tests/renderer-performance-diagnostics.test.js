@@ -53,3 +53,37 @@ test("disabled diagnostics add no timing samples", () => {
   assert.equal(value, 9);
   assert.deepEqual(diagnostics.snapshot().timings, {});
 });
+
+test("enabled diagnostics sample and disconnect browser long-task observations", () => {
+  let observerCallback = null;
+  let observed = null;
+  let disconnected = false;
+  class PerformanceObserver {
+    constructor(callback) {
+      observerCallback = callback;
+    }
+    observe(options) {
+      observed = options;
+    }
+    disconnect() {
+      disconnected = true;
+    }
+  }
+  const diagnostics = createPerformanceDiagnostics({
+    enabled: true,
+    document: { hidden: false, querySelectorAll: () => [] },
+    window: {
+      PerformanceObserver,
+      setInterval: () => 9,
+      clearInterval: () => {}
+    }
+  });
+
+  diagnostics.start();
+  observerCallback({ getEntries: () => [{ duration: 57 }] });
+  diagnostics.stop();
+
+  assert.deepEqual(observed, { type: "longtask", buffered: true });
+  assert.equal(diagnostics.snapshot().timings["main.longTask"].latest, 57);
+  assert.equal(disconnected, true);
+});

@@ -276,9 +276,11 @@ test("skill picker selection creates the existing chip instead of slash text", (
 
 test("composer path paste uses a rich inline editor for image chips", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const composerInputSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerInput.tsx"), "utf8");
   const composerSource = fs.readFileSync(path.join(root, "src/renderer/chat/composer.js"), "utf8");
 
-  assert.match(html, /id="chatInput" class="composer-editor" contenteditable="true"/);
+  assert.match(html, /id="reactComposerInputRoot"[\s\S]*data-react-root="composer-input"/);
+  assert.match(composerInputSource, /id="chatInput"[\s\S]*className="composer-editor"[\s\S]*contentEditable/);
   assert.match(composerSource, /data-path-ref-token/);
   assert.match(composerSource, /contentEditable = "false"/);
   assert.match(composerSource, /openPathPasteRefPreview\(chip\.dataset\.pathRefToken/);
@@ -448,11 +450,13 @@ test("chat input accepts main-process path paste events only while focused", () 
 
 test("default file paste prevents browser inline image insertion and adds path-ref attachments", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const pasteStart = appSource.indexOf('els.chatInput?.addEventListener("paste"');
-  const pasteEnd = appSource.indexOf("});", pasteStart);
+  const composerInputSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerInput.tsx"), "utf8");
+  const pasteStart = appSource.indexOf("function handleComposerPaste(event)");
+  const pasteEnd = appSource.indexOf("\n}", pasteStart);
   const pasteHandler = appSource.slice(pasteStart, pasteEnd);
 
   assert.ok(pasteStart >= 0, "chat input paste handler should exist");
+  assert.match(composerInputSource, /onPaste=[\s\S]*bridge\.invoke\("composerPaste", event\.nativeEvent\)/);
   assert.match(pasteHandler, /if \(event\.clipboardData\?\.files\?\.length\) \{/);
   assert.match(pasteHandler, /event\.preventDefault\(\)/);
   assert.match(pasteHandler, /window\.miaComposer\.addComposerFiles\(event\.clipboardData\.files,\s*\{\s*pathRefs:\s*true/);

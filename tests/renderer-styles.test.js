@@ -384,7 +384,10 @@ test("conversation search uses a theme-aware field without focus highlight", () 
 });
 
 test("icon buttons use shared svg glyph sizing", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const html = [
+    fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8"),
+    fs.readFileSync(path.join(root, "src/renderer/react/components/ChatHeader.tsx"), "utf8")
+  ].join("\n");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const iconButtonSvgRule = cssRuleBody(baseCss, ".icon-button svg");

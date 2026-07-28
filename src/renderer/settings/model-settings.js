@@ -348,19 +348,27 @@
     const providers = runtime?.connectedProviders || [];
     const section = els.connectedProviderList.closest(".connected-providers");
     section?.classList.toggle("hidden", !providers.length);
-    els.connectedProviderList.innerHTML = "";
-    if (!providers.length) return;
-    for (const provider of providers) {
-      const row = document.createElement("div");
-      row.className = "connected-provider";
-      row.innerHTML = `
+    if (!providers.length) {
+      if (window.miaReactSurface?.clear) {
+        window.miaReactSurface.clear(els.connectedProviderList, "connected-providers:empty");
+      } else {
+        els.connectedProviderList.innerHTML = "";
+      }
+      return;
+    }
+    const html = providers.map((provider) => `
+      <div class="connected-provider">
         <span class="provider-logo-wrap"><img class="provider-logo" src="${escapeHtml(window.miaModelHelpers.modelIconSrc({ provider: provider.provider }))}" alt="" onerror="this.style.display='none'"></span>
         <span class="provider-main">
           <strong>${escapeHtml(provider.providerLabel || provider.provider)}</strong>
         </span>
         <span class="provider-check">✓</span>
-      `;
-      els.connectedProviderList.appendChild(row);
+      </div>
+    `).join("");
+    if (window.miaReactSurface?.renderHtml) {
+      window.miaReactSurface.renderHtml(els.connectedProviderList, html, `connected-providers:${html}`);
+    } else {
+      els.connectedProviderList.innerHTML = html;
     }
   }
 

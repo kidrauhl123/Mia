@@ -92,6 +92,14 @@ async function main(argv = process.argv.slice(2)) {
   console.log(`[mia-dev] user data: ${config.userDataDir}`);
   console.log(`[mia-dev] Core: http://127.0.0.1:${config.corePort}`);
 
+  const rendererBuild = childProcess.spawnSync(process.execPath, [path.join(root, "scripts", "build-renderer-react.js")], {
+    cwd: root,
+    env: config.env,
+    stdio: "inherit"
+  });
+  if (rendererBuild.error) throw rendererBuild.error;
+  if (rendererBuild.status !== 0) process.exit(rendererBuild.status || 1);
+
   const build = childProcess.spawnSync(npmCommand(), ["run", "core:dev"], {
     cwd: root,
     env: config.env,

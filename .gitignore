@@ -23,3 +23,6 @@ apps/mobile-rn/.expo/
 apps/mobile-rn/android/
 apps/mobile-rn/ios/
 apps/mobile-rn/dist/
+
+# Generated desktop React renderer bundle
+src/renderer/react-dist/

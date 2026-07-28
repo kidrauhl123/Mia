@@ -73,12 +73,14 @@ test("social bootstrap renders metadata before on-demand message hydration", () 
 test("desktop typing stays off the Electron main-process input hot path", () => {
   const main = read("src/main.js");
   const app = read("src/renderer/app.js");
+  const composerInput = read("src/renderer/react/components/ComposerInput.tsx");
   const messageHelpers = read("src/renderer/chat/message-helpers.js");
   const resize = functionSource(messageHelpers, "resizeChatInput");
 
   assert.doesNotMatch(main, /installPathPasteShortcut/);
   assert.match(app, /createComposerInputScheduler/);
-  assert.match(app, /chatInput\.addEventListener\("input", \(\) => \{\s*composerInputRefreshScheduler\.schedule\(\)/);
+  assert.match(composerInput, /onInput=[\s\S]*bridge\.invoke\("composerInput"/);
+  assert.match(app, /function handleComposerInput\(\) \{\s*composerInputRefreshScheduler\.schedule\(\)/);
   assert.match(resize, /chatInputMetrics/);
   assert.equal((resize.match(/input\.scrollHeight/g) || []).length, 1);
 });

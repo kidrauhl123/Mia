@@ -223,7 +223,11 @@
       </button>
     `).join("");
     if (host.__miaRenderKey !== renderKey) {
-      host.innerHTML = html;
+      if (__global.miaReactSurface?.renderHtml) {
+        __global.miaReactSurface.renderHtml(host, html, renderKey);
+      } else {
+        host.innerHTML = html;
+      }
       host.__miaRenderKey = renderKey;
       host.querySelectorAll("[data-mode]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -260,7 +264,11 @@
       try { window.miaLottieIcons?.init?.(els.tasksContent); } catch { /* decorative task animation is optional */ }
       return false;
     }
-    els.tasksContent.innerHTML = html;
+    if (__global.miaReactSurface?.renderHtml) {
+      __global.miaReactSurface.renderHtml(els.tasksContent, html, renderKey);
+    } else {
+      els.tasksContent.innerHTML = html;
+    }
     els.tasksContent.__miaRenderKey = renderKey;
     if (typeof bind === "function") bind();
     try { window.miaLottieIcons?.init?.(els.tasksContent); } catch { /* decorative task animation is optional */ }
@@ -271,7 +279,11 @@
     const chipRow = document.getElementById("taskChipRow");
     if (chipRow) {
       if (chipRow.__miaRenderKey !== "task-chip-row:hidden") {
-        chipRow.innerHTML = "";
+        if (__global.miaReactSurface?.clear) {
+          __global.miaReactSurface.clear(chipRow, "task-chip-row:hidden");
+        } else {
+          chipRow.innerHTML = "";
+        }
         chipRow.__miaRenderKey = "task-chip-row:hidden";
       }
       chipRow.hidden = true;
@@ -325,7 +337,11 @@
         </button>
       `).join("");
       if (chipRow.__miaRenderKey !== renderKey) {
-        chipRow.innerHTML = html;
+        if (__global.miaReactSurface?.renderHtml) {
+          __global.miaReactSurface.renderHtml(chipRow, html, renderKey);
+        } else {
+          chipRow.innerHTML = html;
+        }
         chipRow.__miaRenderKey = renderKey;
         chipRow.querySelectorAll("[data-history-filter]").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -462,7 +478,10 @@
       : null;
     if (!task) {
       const actions = document.getElementById("taskPreviewActions");
-      if (actions) actions.innerHTML = "";
+      if (actions) {
+        if (__global.miaReactSurface?.clear) __global.miaReactSurface.clear(actions, "task-preview-actions:empty");
+        else actions.innerHTML = "";
+      }
       hidePreviewDialog();
       return;
     }
@@ -497,7 +516,10 @@
   function closePreviewDialog() {
     state.selectedTaskId = "";
     const actions = document.getElementById("taskPreviewActions");
-    if (actions) actions.innerHTML = "";
+    if (actions) {
+      if (__global.miaReactSurface?.clear) __global.miaReactSurface.clear(actions, "task-preview-actions:closed");
+      else actions.innerHTML = "";
+    }
     hidePreviewDialog();
     renderTaskView();
   }
@@ -518,7 +540,7 @@
       const pauseAction = task.status === "paused" ? "resume" : "pause";
       const pauseLabel = task.status === "paused" ? "恢复任务" : "暂停任务";
       const closed = task.status === "done" || task.status === "failed";
-      actions.innerHTML = `
+      const actionsHtml = `
         <details class="task-more-menu">
           <summary class="icon-button" aria-label="更多操作" title="更多操作">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -533,15 +555,25 @@
           </div>
         </details>
       `;
+      if (__global.miaReactSurface?.renderHtml) {
+        __global.miaReactSurface.renderHtml(actions, actionsHtml, `task-preview-actions:${task.id}:${task.status}`);
+      } else {
+        actions.innerHTML = actionsHtml;
+      }
     }
 
-    body.innerHTML = `
+    const bodyHtml = `
       <div class="task-detail-card">
         ${runs.length
           ? runs.map((run) => taskOutputHtml(task, run, conversationId)).join("")
           : taskOutputHtml(task, null, conversationId)}
       </div>
     `;
+    if (__global.miaReactSurface?.renderHtml) {
+      __global.miaReactSurface.renderHtml(body, bodyHtml, `task-preview-body:${task.id}:${JSON.stringify(runs)}`);
+    } else {
+      body.innerHTML = bodyHtml;
+    }
     __global.miaAvatar.hydrateAvatarMedia?.(body);
     attachTaskDetailHandlers(task);
   }

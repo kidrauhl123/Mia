@@ -8,6 +8,13 @@ const engineContracts = require("../src/shared/engine-contracts");
 const root = path.join(__dirname, "..");
 const rawReadFileSync = fs.readFileSync.bind(fs);
 
+function rendererMarkupSource() {
+  return [
+    fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8"),
+    fs.readFileSync(path.join(root, "src/renderer/react/components/ChatHeader.tsx"), "utf8")
+  ].join("\n");
+}
+
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -309,6 +316,7 @@ test("cloud conversation send and render do not depend on activeKey being empty"
 
 test("desktop window controls use frameless Windows chrome off macOS", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const navigationSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Navigation.tsx"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const preloadSource = fs.readFileSync(path.join(root, "src/preload.js"), "utf8");
@@ -319,8 +327,8 @@ test("desktop window controls use frameless Windows chrome off macOS", () => {
   const skillsCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
-  assert.match(html, /id="windowControls"[\s\S]*data-action="minimize"[\s\S]*data-action="green"[\s\S]*data-action="close"[\s\S]*<aside class="nav-rail"/);
-  assert.match(html, /<div class="traffic-spacer" id="trafficSpacer" aria-hidden="true"><\/div>/);
+  assert.match(html, /id="windowControls"[\s\S]*data-action="minimize"[\s\S]*data-action="green"[\s\S]*data-action="close"[\s\S]*id="reactNavigationRoot" class="nav-rail"/);
+  assert.match(navigationSource, /className="traffic-spacer" id="trafficSpacer" aria-hidden="true"/);
   assert.match(html, /class="window-drag-strip"/);
   assert.match(mainSource, /process\.platform === "win32"[\s\S]*frame:\s*false[\s\S]*thickFrame:\s*true/);
   assert.match(titleBarSource, /const WINDOWS_TITLE_BAR_HEIGHT = 32;/);
@@ -428,6 +436,7 @@ test("desktop message notifications are wired through preload and main IPC", () 
 test("desktop shell uses optional middle pane by active view", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const sectionTabsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/SectionTabs.tsx"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -470,8 +479,9 @@ test("desktop shell uses optional middle pane by active view", () => {
   assert.doesNotMatch(html, /class="settings-dialog"/);
   assert.doesNotMatch(html, /id="closeSettings"/);
   assert.doesNotMatch(html, /settings-topbar/);
-  assert.match(html, /class="settings-tabs"[\s\S]*?class="settings-tabs-title">设置</);
-  assert.match(appSource, /els\.settingsView\?\.classList\.toggle\("hidden", state\.activeView !== "settings"\)/);
+  assert.match(html, /id="reactSettingsWorkspaceTabsRoot" class="settings-tabs"[\s\S]*data-react-root="settings-workspace-tabs"/);
+  assert.match(sectionTabsSource, /className="settings-tabs-title">设置</);
+  assert.match(routeSource, /\["settingsView", \(\{ activeView \}\) => activeView === "settings"\]/);
   assert.match(appSource, /state\.activeView = "settings";/);
   assert.doesNotMatch(appSource, /state\.settingsOpen/);
   assert.doesNotMatch(appSource, /syncSettingsDrawerVisibility/);
@@ -532,7 +542,7 @@ test("desktop shell uses optional middle pane by active view", () => {
 });
 
 test("single-pane rail pages do not render meaningless narrow back buttons", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const html = rendererMarkupSource();
 
   assert.match(html, /title="返回消息栏"/);
   assert.match(html, /title="返回联系人"/);
@@ -542,30 +552,31 @@ test("single-pane rail pages do not render meaningless narrow back buttons", () 
 
 test("sidebar-bottom navigation mode keeps the rail path and exposes four primary entries", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const navigationSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Navigation.tsx"), "utf8");
+  const sectionTabsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/SectionTabs.tsx"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
   const skillsCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const tasksCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
-  const sidebarBottomNav = html.match(/<nav id="sidebarBottomNav"[\s\S]*?<\/nav>/)?.[0] || "";
   const contactsSidebar = html.match(/<aside id="contactsSidebar"[\s\S]*?<aside id="exploreSidebar"/)?.[0] || "";
   const settingsSidebar = html.match(/<aside id="settingsSidebar"[\s\S]*?<div id="sidebarResizeHandle"/)?.[0] || "";
 
-  assert.match(html, /<aside class="nav-rail" aria-label="主导航">/, "old rail must stay available");
-  assert.match(html, /class="sidebar-bottom-nav"[\s\S]*aria-label="主导航"/);
-  assert.match(html, /data-primary-nav="chat"[\s\S]*aria-label="聊天"/);
-  assert.match(html, /data-primary-nav="explore"[\s\S]*aria-label="探索"/);
-  assert.match(html, /data-primary-nav="tasks"[\s\S]*aria-label="任务"/);
-  assert.match(html, /data-primary-nav="me"[\s\S]*aria-label="我"/);
-  assert.doesNotMatch(sidebarBottomNav, /aria-label="设置"/);
-  assert.doesNotMatch(sidebarBottomNav, /data-lottie=/);
-  assert.match(sidebarBottomNav, /data-sidebar-bottom-icon="chat"[\s\S]*data-sidebar-bottom-icon="explore"[\s\S]*data-sidebar-bottom-icon="tasks"/);
-  assert.match(sidebarBottomNav, /sidebar-bottom-icon-regular[\s\S]*sidebar-bottom-icon-fill/);
-  assert.match(sidebarBottomNav, /class="sidebar-bottom-label"[^>]*>聊天<\/span>[\s\S]*class="sidebar-bottom-label"[^>]*>探索<\/span>[\s\S]*class="sidebar-bottom-label"[^>]*>任务<\/span>/);
-  assert.doesNotMatch(sidebarBottomNav, /class="sidebar-bottom-label"[^>]*>我<\/span>/);
-  assert.match(contactsSidebar, /class="explore-sidebar-tabs contacts-explore-tabs"[\s\S]*data-explore-view="contacts"[\s\S]*data-explore-view="bot-store"[\s\S]*data-explore-view="skills"/);
-  assert.match(settingsSidebar, /class="settings-sidebar-tabs"[\s\S]*data-settings-tab="account"[\s\S]*data-settings-tab="appearance"[\s\S]*data-settings-tab="model"/);
+  assert.match(html, /id="reactNavigationRoot" class="nav-rail"[\s\S]*data-react-root="navigation"/);
+  assert.match(html, /id="sidebarBottomNav" class="sidebar-bottom-nav"[\s\S]*data-react-root="bottom-navigation"/);
+  assert.match(navigationSource, /label="聊天" navigation="chat"/);
+  assert.match(navigationSource, /label="探索" navigation="explore"/);
+  assert.match(navigationSource, /label="任务" navigation="tasks"/);
+  assert.match(navigationSource, /data-primary-nav="me"[\s\S]*aria-label="我"/);
+  assert.doesNotMatch(navigationSource, /data-primary-nav="settings"/);
+  assert.match(navigationSource, /data-sidebar-bottom-icon=\{navigation\}/);
+  assert.match(navigationSource, /sidebar-bottom-icon-regular[\s\S]*sidebar-bottom-icon-fill/);
+  assert.match(navigationSource, /className="sidebar-bottom-label"/);
+  assert.match(contactsSidebar, /id="reactContactsExploreTabsRoot"[\s\S]*data-react-root="contacts-explore-tabs"/);
+  assert.match(settingsSidebar, /id="reactSettingsSidebarTabsRoot"[\s\S]*data-react-root="settings-sidebar-tabs"/);
+  assert.match(sectionTabsSource, /\["contacts", "联系人"\][\s\S]*\["bot-store", "发现 AI 助手"\][\s\S]*\["skills", "能力库"\]/);
+  assert.match(sectionTabsSource, /\["account", "账号与同步"\][\s\S]*\["appearance", "外观"\][\s\S]*\["model", "模型"\]/);
   assert.doesNotMatch(html, /nav-layout-settings-row|nav-layout-choice-grid|data-nav-layout-choice|nav-layout-preview/);
   assert.doesNotMatch(html, /id="appearanceSidebarBottomNav"/);
   assert.doesNotMatch(html, /沿用现有发现、联系人和能力库内容|沿用现有任务卡片/);
@@ -577,18 +588,18 @@ test("sidebar-bottom navigation mode keeps the rail path and exposes four primar
   assert.match(appSource, /const layout = state\.navLayout === "sidebar-bottom" \? "sidebar-bottom" : "rail"/);
   assert.match(appSource, /const nativeControlsLayout = layout === "sidebar-bottom" \? "default" : "rail"/);
   assert.match(appSource, /window\.mia\?\.window\?\.setNativeControlsLayout\?\.\(nativeControlsLayout\)/);
-  assert.match(appSource, /setAttribute\("data-nav-layout",\s*layout\)/);
+  assert.match(appSource, /els\.appShell\?\.setAttribute\("data-nav-layout", layout\)/);
   assert.match(appSource, /localStorage\.setItem\("mia\.navLayout\.v1",\s*state\.navLayout\)/);
-  assert.match(appSource, /document\.querySelectorAll\("\[data-primary-nav\]"\)/);
   assert.match(
     appSource,
-    /document\.querySelectorAll\("\[data-view\]"\)\.forEach\(\(button\) => \{[\s\S]*?const nextView =[\s\S]*?if \(nextView === "chat"\) setPersonaSearchOpen\(false\);[\s\S]*?state\.activeView = nextView;/,
+    /function showRailView\(requestedView\)[\s\S]*?if \(nextView === "chat"\) setPersonaSearchOpen\(false\);[\s\S]*?state\.activeView = nextView;/,
     "clicking the chat rail entry should exit conversation search before showing messages"
   );
+  assert.match(appSource, /window\.miaReactBridge\?\.registerActions\?\.\(\{[\s\S]*?navigateView:\s*showRailView/);
   assert.match(appSource, /settingsSidebar:\s*document\.getElementById\("settingsSidebar"\)/);
   assert.match(appSource, /state\.activeView = state\.exploreSectionView \|\| "bot-store"/);
   assert.match(appSource, /state\.activeView = "settings";/);
-  assert.match(appSource, /els\.settingsSidebar\?\.classList\.toggle\("hidden",\s*state\.activeView !== "settings"\)/);
+  assert.match(appSource, /els\.settingsSidebar\?\.classList\.toggle\("hidden", state\.activeView !== "settings"\)/);
 
   assert.match(css, /--sidebar-bottom-nav-clearance:\s*84px;/);
   assert.match(css, /--sidebar-bottom-nav-bg:\s*color-mix\(in srgb,\s*var\(--surface\) 58%,\s*transparent\);/);
@@ -687,10 +698,10 @@ test("narrow desktop shell collapses the expanded rail into one content column",
 });
 
 test("narrow navigation and composer send use static svg icons", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const html = rendererMarkupSource();
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
-  assert.match(html, /class="narrow-back-icon"[\s\S]*?stroke-linecap="square"[\s\S]*?stroke-linejoin="miter"[\s\S]*?<path d="M15 18L9 12L15 6"/);
+  assert.match(html, /className="narrow-back-icon"[\s\S]*?strokeLinecap="square"[\s\S]*?strokeLinejoin="miter"[\s\S]*?<path d="M15 18L9 12L15 6"/);
   assert.match(html, /class="send-icon"[\s\S]*?<path d="M3\.8 20\.2L21 12L3\.8 3\.8L6\.95 10\.85L14\.1 12L6\.95 13\.15L3\.8 20\.2Z" fill="currentColor"/);
   assert.doesNotMatch(html, /send-lottie/);
   assert.doesNotMatch(html, /data-lottie="send"/);
@@ -717,15 +728,15 @@ test("chat composer floats on the chat floor instead of owning a bottom panel", 
 });
 
 test("chat header is a floating card layer rather than a layout topbar", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const html = rendererMarkupSource();
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const appStateSource = fs.readFileSync(path.join(root, "src/renderer/app-state.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const chatViewCompactRuleIndex = styleSource.indexOf("@container chat-view (max-width: 560px)");
   const narrowSessionRuleIndex = styleSource.indexOf("#chatView .session-trigger", styleSource.indexOf("@media (max-width: 720px)"));
 
-  assert.match(html, /<div class="group-title">[\s\S]*?<button class="narrow-back-button"[\s\S]*?data-narrow-back[\s\S]*?<\/button>[\s\S]*?<div id="activeConversationMenuButton"[\s\S]*?role="button"[\s\S]*?aria-controls="chatConversationMenu"[\s\S]*?<div id="activeChatAvatar"/);
-  assert.match(html, /<div id="chatConversationMenu" class="chat-conversation-menu hidden" role="listbox" aria-label="切换对话">[\s\S]*?<div id="chatConversationList" class="chat-conversation-list"><\/div>/);
+  assert.match(html, /<div className="group-title">[\s\S]*?<button[\s\S]*?className="narrow-back-button"[\s\S]*?data-narrow-back[\s\S]*?<\/button>[\s\S]*?<div[\s\S]*?id="activeConversationMenuButton"[\s\S]*?role="button"[\s\S]*?aria-controls="chatConversationMenu"[\s\S]*?<div id="activeChatAvatar"/);
+  assert.match(html, /id="chatConversationMenu"[\s\S]*?className="chat-conversation-menu hidden"[\s\S]*?role="listbox"[\s\S]*?aria-label="切换对话"[\s\S]*?<div id="chatConversationList" className="chat-conversation-list">[\s\S]*?<LegacySurface id="chatConversationList" \/>/);
   assert.match(appStateSource, /chatConversationMenuOpen:\s*false/);
   assert.match(appSource, /function renderChatConversationMenu\(rows = \[\], personas = \[\]\)/);
   assert.match(appSource, /let chatConversationMenuRenderSignature = "";/);
@@ -782,8 +793,8 @@ test("compact chat header does not clip the active conversation capsule", () => 
 });
 
 test("session history trigger uses a compact icon pill", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
-  const trigger = html.match(/<button id="sessionMenuButton"[\s\S]*?<\/button>/)?.[0] || "";
+  const html = rendererMarkupSource();
+  const trigger = html.match(/<button[\s\S]*?id="sessionMenuButton"[\s\S]*?<\/button>/)?.[0] || "";
 
   assert.match(trigger, /title="会话记录"/);
   assert.match(trigger, /aria-label="会话记录"/);
@@ -794,7 +805,7 @@ test("session history trigger uses a compact icon pill", () => {
 });
 
 test("session history create action is always beside the trigger and the menu is list-only", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const html = rendererMarkupSource();
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const triggerIndex = html.indexOf('id="sessionMenuButton"');
   const createIndex = html.indexOf('id="newSession"');
@@ -803,10 +814,10 @@ test("session history create action is always beside the trigger and the menu is
   assert.ok(triggerIndex > 0, "session trigger exists");
   assert.ok(createIndex > triggerIndex, "new session button follows the trigger");
   assert.ok(menuIndex > createIndex, "session menu follows the always-visible create button");
-  assert.match(html, /id="newSession" class="icon-button session-new-button"/);
+  assert.match(html, /id="newSession"[\s\S]*?className="icon-button session-new-button"/);
   assert.doesNotMatch(html, /session-menu-head/);
   assert.doesNotMatch(html, /session-menu-head-icon/);
-  assert.match(html, /<div id="sessionMenu" class="session-menu hidden">\s*<div id="sessionList" class="session-list"><\/div>\s*<\/div>/);
+  assert.match(html, /<div id="sessionMenu" className="session-menu hidden">\s*<div id="sessionList" className="session-list">\s*<LegacySurface id="sessionList" \/>\s*<\/div>\s*<\/div>/);
   assert.match(css, /\.session-menu-wrap\s*\{[\s\S]*?display:\s*inline-flex;[\s\S]*?align-items:\s*center;[\s\S]*?gap:\s*6px;/);
   assert.match(css, /\.session-new-button\s*\{[\s\S]*?width:\s*38px;[\s\S]*?height:\s*38px;[\s\S]*?border-radius:\s*19px;/);
   assert.match(css, /\.session-menu\s*\{[\s\S]*?grid-template-rows:\s*minmax\(0,\s*1fr\);[\s\S]*?gap:\s*0;/);
@@ -822,12 +833,12 @@ test("session history menu keeps long lists inside the rounded card", () => {
 });
 
 test("bot session history shows the shared aggregate unread and each session unread", () => {
-  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const html = rendererMarkupSource();
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const renderSessionMenuSource = extractFunctionSource(appSource, "renderCloudConversationSessionMenu");
 
-  assert.match(html, /id="sessionUnreadBadge" class="session-trigger-unread hidden"/);
+  assert.match(html, /id="sessionUnreadBadge" className="session-trigger-unread hidden"/);
   assert.match(renderSessionMenuSource, /getUnreadForBot\?\.\(sessionHistory\.botId\(activeConversation\)\)/);
   assert.match(renderSessionMenuSource, /getUnreadForConversation\?\.\(conversation\.id\)/);
   assert.match(renderSessionMenuSource, /class="session-row-unread"/);
@@ -1158,9 +1169,9 @@ test("logged-in active pane never falls back to local bot sessions", () => {
 
   assert.match(appSource, /if\s*\(cloudSignedIn\)\s*\{\s*state\.activeKey = "";/);
   assert.match(appSource, /const active = cloudSignedIn\s*\?\s*null\s*:/);
-  assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*\{[\s\S]*?els\.chat\.innerHTML = "";\s*return;\s*\}/);
+  assert.match(appSource, /if\s*\(state\.runtime\?\.cloud\?\.enabled\)\s*\{[\s\S]*?renderChatHtml\(\);\s*return;\s*\}/);
   // Cloud-only: signed-out users leave the main renderer for the standalone onboarding window.
-  assert.match(appSource, /requestSignedOutOnboardingWindow\(\);[\s\S]*?els\.chat\.innerHTML = "";/);
+  assert.match(appSource, /requestSignedOutOnboardingWindow\(\);[\s\S]*?renderChatHtml\(\);/);
   assert.doesNotMatch(appSource, /function renderCloudLoginGuide/);
 });
 
@@ -1203,40 +1214,27 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
 });
 
 test("chat rail icon keeps playback without the thicker forum animation asset", () => {
-  const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const navigationSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Navigation.tsx"), "utf8");
   const groupsIcon = JSON.parse(fs.readFileSync(path.join(root, "src/renderer/assets/lottie/groups.json"), "utf8"));
 
-  const chatButton = htmlSource.match(/<button class="rail-button active"[\s\S]*?data-view="chat"[\s\S]*?<\/button>/)?.[0] || "";
-  assert.match(chatButton, /data-lottie="chat"/);
-  assert.match(chatButton, /class="rail-button-label"[^>]*>消息<\/span>/);
-  assert.match(chatButton, /data-lottie-rest="60"/);
-  assert.match(chatButton, /data-lottie-play="70,130"/);
-  assert.doesNotMatch(chatButton, /data-lottie-trigger="static"/);
-  assert.doesNotMatch(chatButton, /data-lottie="forum"/);
+  assert.match(navigationSource, /icon="chat" label="消息" view="chat"/);
+  assert.match(navigationSource, /data-lottie=\{name\}/);
+  assert.match(navigationSource, /data-lottie-rest="60"/);
+  assert.match(navigationSource, /data-lottie-play="70,130"/);
+  assert.doesNotMatch(navigationSource, /data-lottie-trigger="static"/);
+  assert.doesNotMatch(navigationSource, /data-lottie="forum"/);
 
-  const contactsButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="contacts"[\s\S]*?<\/button>/)?.[0] || "";
-  assert.match(contactsButton, /data-lottie="groups"/);
-  assert.match(contactsButton, /class="rail-button-label"[^>]*>联系人<\/span>/);
-  assert.doesNotMatch(contactsButton, /data-lottie="contacts"/);
+  assert.match(navigationSource, /icon="groups"[\s\S]*?label="联系人"[\s\S]*?view="contacts"/);
+  assert.doesNotMatch(navigationSource, /icon="contacts"/);
   assert.equal(groupsIcon.nm, "system-regular-96-groups");
   assert.deepEqual(groupsIcon.markers?.map((marker) => marker.cm), ["in-groups", "default:hover-groups", "morph-group-single"]);
 
-  const skillsButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="skills"[\s\S]*?<\/button>/)?.[0] || "";
-  assert.match(skillsButton, /title="技能"/);
-  assert.match(skillsButton, /aria-label="技能"/);
-  assert.match(skillsButton, /class="rail-button-label"[^>]*>技能<\/span>/);
-
-  const tasksButton = htmlSource.match(/<button class="rail-button"[\s\S]*?data-view="tasks"[\s\S]*?<\/button>/)?.[0] || "";
-  assert.match(tasksButton, /class="rail-button-label"[^>]*>任务<\/span>/);
+  assert.match(navigationSource, /icon="extension" label="技能" view="skills"/);
+  assert.match(navigationSource, /icon="checklist" label="任务" view="tasks"/);
 
   for (const name of ["groups", "extension", "checklist", "settings"]) {
-    const pattern = new RegExp(`data-lottie="${name}"[^>]*data-lottie-rest="60"[^>]*data-lottie-play="70,130"`);
-    assert.match(htmlSource, pattern, `${name} rail icon should keep its existing playback attributes`);
-    assert.doesNotMatch(
-      htmlSource.match(new RegExp(`<span class="rail-lottie"[^>]*data-lottie="${name}"[^>]*>`))?.[0] || "",
-      /data-lottie-trigger="static"/,
-      `${name} rail icon must not be made static with the chat icon`
-    );
+    const pattern = new RegExp(`(?:icon|name)="${name}"`);
+    assert.match(navigationSource, pattern, `${name} rail icon should keep its existing playback attributes`);
   }
 });
 
@@ -1275,6 +1273,7 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
   const markdownSource = fs.readFileSync(path.join(root, "src/renderer/helpers/markdown-helpers.js"), "utf8");
   const sidebarSource = fs.readFileSync(path.join(root, "src/renderer/sidebar-card-renderer.js"), "utf8");
+  const conversationFoldersSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ConversationFolderTabs.tsx"), "utf8");
   const stylesSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const labelAsset = fs.readFileSync(path.join(root, "src/renderer/assets/lottie/label.json"), "utf8");
 
@@ -1330,7 +1329,7 @@ test("conversation tag editor is inline on the sidebar card and uses the label a
     /els\.personaSearch\.addEventListener\("focus",\s*\(\)\s*=>\s*\{[\s\S]*?setPersonaSearchOpen\(true\);/,
     "focusing the always-visible conversation search field should enter the existing search-results mode"
   );
-  assert.match(appSource, /data-sidebar-tag-filter/);
+  assert.match(conversationFoldersSource, /data-sidebar-tag-filter/);
   assert.doesNotMatch(appSource, /data-sidebar-tag-clear/);
   assert.match(sidebarSource, /spec\.searchResult/);
   assert.match(sidebarSource, /search-result/);
@@ -1373,63 +1372,45 @@ test("conversation tag filters render as persistent chat folder tabs", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const searchToolsSource = extractFunctionSource(appSource, "renderConversationSearchTools");
   const cardSignatureSource = extractFunctionSource(appSource, "sidebarCardRenderSignature");
-  const tagFilterClickStart = appSource.indexOf('els.personaTagFilters?.addEventListener("click"');
-  const tagFilterClickEnd = appSource.indexOf("els.contactSearch?.addEventListener", tagFilterClickStart);
-  const tagFilterClickSource = appSource.slice(tagFilterClickStart, tagFilterClickEnd);
+  const reactSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ConversationFolderTabs.tsx"), "utf8");
+  const storeSource = fs.readFileSync(path.join(root, "src/renderer/react/stores/conversation-folders.ts"), "utf8");
+  const mainSource = fs.readFileSync(path.join(root, "src/renderer/react/main.tsx"), "utf8");
 
   assert.match(html, /id="personaTagFilters"[^>]+aria-label="对话分组"/);
-  assert.match(appSource, /function sidebarAllConversationFilterHtml\(active\)/);
+  assert.match(html, /id="personaTagFilters"[^>]+data-react-root="conversation-folders"/);
+  assert.match(mainSource, /getElementById\("personaTagFilters"\), <ConversationFolderTabs \/>/);
   assert.match(appSource, /CONVERSATION_FOLDER_ORDER_KEY = "mia\.conversationFolderOrder\.v1"/);
-  assert.match(appSource, /function rememberConversationFolderMotion\(nextName\)/);
-  assert.match(appSource, /function updateSidebarTagIndicator\(\)/);
-  assert.match(appSource, /function syncSidebarTagFilterSelection\(activeName\)/);
   assert.match(appSource, /function orderedConversationFolderItems\(filters,\s*activeFilterName\)/);
   assert.match(appSource, /function conversationFolderItemStorageKey\(tag = \{\}\)/);
   assert.match(appSource, /function conversationFilterValue\(tag = \{\}\)/);
   assert.match(appSource, /function conversationFolderLabelForFilter\(filterValue\)/);
-  assert.match(appSource, /function beginConversationFolderDrag\(event\)/);
-  assert.match(appSource, /function saveConversationFolderDomOrder\(\)/);
-  assert.match(appSource, /function conversationFolderTrack\(strip = null\)/);
-  assert.match(appSource, /function setConversationFolderScrollLeft\(strip,\s*value\)/);
-  assert.match(appSource, /function ensureActiveConversationFolderVisible\(options = \{\}\)/);
-  assert.match(appSource, /function handleConversationFolderWheel\(event\)/);
   assert.match(appSource, /OTHER_DEVICE_CONVERSATION_FILTER/);
   assert.match(appSource, /conversationRunsOnOtherDevice\?\.\(row\?\.conversation\)/);
   assert.match(appSource, /function syncPersonaListActiveState\(specs\)/);
   assert.match(appSource, /function renderPersonaListIfChanged\(specs,\s*emptyText,\s*activeTagFilterName\)/);
   assert.doesNotMatch(cardSignatureSource, /active:\s*Boolean\(spec\?\.active\)/);
   assert.match(searchToolsSource, /const showFilters = cloudReady && \(filters\.length > 0 \|\| activeFilterName\);/);
-  assert.match(searchToolsSource, /dataset\.renderSignature !== signature/);
   assert.match(searchToolsSource, /const folderItems = orderedConversationFolderItems\(filters,\s*activeFilterName\);/);
-  assert.match(searchToolsSource, /sidebarAllConversationFilterHtml\(!activeFilterName\)/);
-  assert.match(searchToolsSource, /role="tablist" aria-label="对话分组"/);
-  assert.match(searchToolsSource, /folderItems\.map\(\(item\) => item\.type === "all" \? sidebarAllConversationFilterHtml\(!activeFilterName\) : sidebarTagFilterHtml\(item\.tag\)\)\.join\(""\)/);
-  assert.match(searchToolsSource, /sidebar-tag-filter-indicator/);
-  assert.match(searchToolsSource, /syncSidebarTagFilterSelection\(activeFilterName\);/);
+  assert.match(searchToolsSource, /window\.miaReactConversationFolders\.publish\(\{/);
+  assert.match(searchToolsSource, /conversationFolderMotion = \{ key: nextKey, direction:/);
+  assert.match(searchToolsSource, /writeLocalJson\(CONVERSATION_FOLDER_ORDER_KEY, next\)/);
   assert.match(appSource, /animatePersonaListFolderPage\(activeTagFilterName\);/);
   assert.match(appSource, /if \(personaListRenderSignature === signature\) \{[\s\S]*?syncPersonaListActiveState\(renderedSpecs\);[\s\S]*?return;/);
   assert.match(appSource, /renderPersonaListIfChanged\(sidebarSpecs,\s*emptyText,\s*activeTagFilterName\);/);
-  assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("pointerdown", beginConversationFolderDrag\);/);
-  assert.match(appSource, /els\.personaTagFilters\?\.addEventListener\("wheel", handleConversationFolderWheel, \{ passive: false \}\);/);
-  assert.match(appSource, /document\.addEventListener\("pointermove", moveConversationFolderDrag, \{ passive: false \}\);/);
-  assert.match(appSource, /const x = active\.offsetLeft - conversationFolderScrollLeft\(strip\);/);
-  assert.match(appSource, /const activeCenter = active\.offsetLeft \+ active\.offsetWidth \/ 2;/);
-  assert.match(appSource, /let nextLeft = activeCenter - strip\.clientWidth \/ 2;/);
-  assert.match(appSource, /track\.style\.setProperty\("--tag-scroll-x", `\$\{nextLeft\}px`\);/);
-  assert.match(appSource, /syncSidebarTagFilterSelection\(activeFilterName\);\s*ensureActiveConversationFolderVisible\(\);\s*scheduleSidebarTagIndicator\(\);/);
-  assert.match(appSource, /const primaryDelta = Math\.abs\(event\.deltaX\) > Math\.abs\(event\.deltaY\) \? event\.deltaX : event\.deltaY;/);
-  assert.match(appSource, /event\.preventDefault\(\);\s*event\.stopPropagation\(\);\s*setConversationFolderScrollLeft\(strip,\s*conversationFolderScrollLeft\(strip\) \+ primaryDelta \* unit\);/);
-  assert.match(searchToolsSource, /<div class="sidebar-tag-filter-track">[\s\S]*?<\/div>\s*<span class="sidebar-tag-filter-indicator" aria-hidden="true"><\/span>/);
-  assert.match(appSource, /const filterValue = String\(tag\?\.filterValue \|\| name\)\.trim\(\);/);
-  assert.match(appSource, /const folderKey = String\(tag\?\.storageKey \|\| conversationFolderStorageKey\(filterValue \|\| name\)\)\.trim\(\);/);
-  assert.match(appSource, /data-tag-name="\$\{window\.miaMarkdown\.escapeHtml\(filterValue\)\}"/);
-  assert.match(appSource, /data-folder-key="\$\{window\.miaMarkdown\.escapeHtml\(folderKey\)\}"/);
+  assert.match(reactSource, /const LONG_PRESS_MS = 260/);
+  assert.match(reactSource, /window\.addEventListener\("pointermove", onPointerMove/);
+  assert.match(reactSource, /onWheel=\{handleWheel\}/);
+  assert.match(reactSource, /data-sidebar-tag-filter/);
+  assert.match(reactSource, /data-folder-key=\{item\.key\}/);
+  assert.match(reactSource, /sidebar-tag-filter-indicator/);
+  assert.match(reactSource, /track\.style\.setProperty\("--tag-scroll-x"/);
+  assert.match(reactSource, /active\.offsetLeft \+ active\.offsetWidth \/ 2 - strip\.clientWidth \/ 2/);
+  assert.match(storeSource, /useSyncExternalStore/);
+  assert.match(storeSource, /flushSync\(\(\) => \{/);
   assert.match(appSource, /const activeTagFilterLabel = conversationFolderLabelForFilter\(activeTagFilterName\);/);
   assert.match(appSource, /activeTagFilterLabel \? `「\$\{activeTagFilterLabel\}」分组暂无对话`/);
-  assert.match(tagFilterClickSource, /const nextName = chip\.dataset\.tagName \|\| "";/);
-  assert.match(tagFilterClickSource, /if \(conversationFolderSuppressClick\) return;/);
-  assert.match(tagFilterClickSource, /if \(!rememberConversationFolderMotion\(nextName\)\) \{[\s\S]*?ensureActiveConversationFolderVisible\(\);[\s\S]*?return;[\s\S]*?\}/);
-  assert.doesNotMatch(tagFilterClickSource, /personaSearchOpen\s*=\s*true/);
+  assert.doesNotMatch(appSource, /personaTagFilters\?\.addEventListener/);
+  assert.doesNotMatch(appSource, /personaTagFilters\.innerHTML/);
 });
 
 test("other-device bot conversations are hidden by default and exposed as a last folder tab only when non-empty", () => {
@@ -2646,10 +2627,9 @@ test("active bot conversations prefer their saved runtime over a stale identity 
 test("composer runtime controls hide values Core did not observe", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const contactCardSource = fs.readFileSync(path.join(root, "src/renderer/social/contact-card.js"), "utf8");
+  const composerSelectSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerSelectMenu.tsx"), "utf8");
   const syncControls = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
   const setComposerSelectOptions = extractFunctionSource(appSource, "setComposerSelectOptions");
-  const composerSelectMenuContent = extractFunctionSource(appSource, "composerSelectMenuContent");
-  const openComposerSelectMenu = extractFunctionSource(appSource, "openComposerSelectMenu");
   const modelControlSummary = extractFunctionSource(appSource, "setComposerModelControlSummary");
   const contactControls = extractFunctionSource(contactCardSource, "runtimeControlsHtml");
 
@@ -2669,12 +2649,11 @@ test("composer runtime controls hide values Core did not observe", () => {
   assert.match(setComposerSelectOptions, /value:\s*String\(entry\.id \|\| entry\.value \|\| entry\.model \|\| ""\)/);
   assert.match(setComposerSelectOptions, /placeholder:\s*true/);
   assert.match(setComposerSelectOptions, /option\.dataset\.placeholder = "true"/);
-  assert.match(composerSelectMenuContent, /select === els\.quickModelSelect/);
-  assert.match(composerSelectMenuContent, /label: "模型"/);
-  assert.match(composerSelectMenuContent, /label: "推理强度"/);
-  assert.match(openComposerSelectMenu, /composerSelectMenuContent\(select\)/);
-  assert.match(openComposerSelectMenu, /composer-model-controls-menu/);
-  assert.match(openComposerSelectMenu, /menuitemradio/);
+  assert.match(composerSelectSource, /select\.id === "quickModelSelect"/);
+  assert.match(composerSelectSource, /label: "模型"/);
+  assert.match(composerSelectSource, /label: "推理强度"/);
+  assert.match(composerSelectSource, /composer-model-controls-menu/);
+  assert.match(composerSelectSource, /menuitemradio/);
   assert.match(modelControlSummary, /\[model, effort\]\.filter\(Boolean\)\.join\(" · "\)/);
   assert.match(appSource, /function activeBotRuntimeSendBlock\(\)/);
   assert.match(appSource, /options\?\.sendBlocked/);
@@ -2693,35 +2672,22 @@ test("composer runtime controls hide values Core did not observe", () => {
 
 test("composer model menu groups reasoning and shows the selected reasoning strength in the compact label", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
-  const menuSource = extractFunctionSource(appSource, "composerSelectMenuContent");
+  const menuSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerSelectMenu.tsx"), "utf8");
   const summarySource = extractFunctionSource(appSource, "setComposerModelControlSummary");
-  const modelSelect = { id: "quickModelSelect", title: "" };
-  const effortSelect = { id: "effortSelect", disabled: false };
   const quickModelLabel = { textContent: "" };
   const context = vm.createContext({
-    els: { quickModelSelect: modelSelect, quickModelLabel, effortSelect },
-    composerSelectOptions: (select) => select === modelSelect
-      ? [{ type: "option", value: "mia-auto", label: "Auto", selected: true, disabled: false, placeholder: false }]
-      : [{ type: "option", value: "medium", label: "中", selected: true, disabled: false, placeholder: false }],
+    els: { quickModelLabel },
     setText: (element, value) => { element.textContent = value; }
   });
   vm.runInContext(
-    `${menuSource}; ${summarySource}; this.menuContent = composerSelectMenuContent; this.setSummary = setComposerModelControlSummary;`,
+    `${summarySource}; this.setSummary = setComposerModelControlSummary;`,
     context
   );
 
-  const menu = context.menuContent(modelSelect);
-  assert.equal(menu.combinedModelControls, true);
-  assert.deepEqual(plain(menu.entries.map((entry) => ({
-    type: entry.type,
-    label: entry.label,
-    selectKey: entry.selectKey || ""
-  }))), [
-    { type: "group", label: "模型", selectKey: "" },
-    { type: "option", label: "Auto", selectKey: "quickModelSelect" },
-    { type: "group", label: "推理强度", selectKey: "" },
-    { type: "option", label: "中", selectKey: "effortSelect" }
-  ]);
+  assert.match(menuSource, /select\.id === "quickModelSelect"/);
+  assert.match(menuSource, /\{ label: "模型", select, entries: primary \}/);
+  assert.match(menuSource, /\{ label: "推理强度", select: effortSelect/);
+  assert.match(menuSource, /selectTargets\.set\(selectKey, section\.select\)/);
 
   context.setSummary("Auto", "中");
   assert.equal(quickModelLabel.textContent, "Auto · 中");
@@ -3330,6 +3296,7 @@ test("contact detail shows engine logo and bot device label", () => {
 
 test("profile and account surfaces expose uid fields", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const navigationSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Navigation.tsx"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const styleSource = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const remoteSettingsSource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-remote.js"), "utf8");
@@ -3337,7 +3304,7 @@ test("profile and account surfaces expose uid fields", () => {
 
   assert.match(html, /id="profileDialogTitle"/);
   assert.match(html, /id="profileDialog" class="profile-popover hidden"/);
-  assert.match(html, /id="userAvatar"[^>]+aria-expanded="false"/);
+  assert.match(navigationSource, /id="userAvatar"[\s\S]*?aria-expanded=\{open\}/);
   assert.match(html, /id="profileUidValue"/);
   assert.match(html, /id="profileNameText"/);
   assert.match(html, /id="profileStatusBadge"/);
@@ -3565,10 +3532,11 @@ test("bot edit dialog keeps memory out of the create/edit modal", () => {
 test("settings exposes only the new-conversation memory owner switch", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const htmlSource = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const sectionTabsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/SectionTabs.tsx"), "utf8");
   const memorySource = fs.readFileSync(path.join(root, "src/renderer/settings/settings-memory.js"), "utf8");
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
 
-  assert.match(htmlSource, /data-settings-tab="memory"/);
+  assert.match(sectionTabsSource, /\["memory", "记忆"\]/);
   assert.match(htmlSource, /data-settings-panel="memory"/);
   assert.match(htmlSource, /id="settingsMemoryEnabled"/);
   assert.match(htmlSource, /新对话使用 Mia 记忆/);
@@ -3827,13 +3795,13 @@ test("opening a bot conversation preserves existing cloud runtime kind", () => {
 });
 
 test("discover contacts capsule exposes pending friend request badge", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const tabsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/SectionTabs.tsx"), "utf8");
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
 
-  assert.match(appSource, /data-discover-unread="contacts"/);
-  assert.match(appSource, /function syncDiscoverModeUnread\(incomingCount\)/);
-  assert.match(appSource, /syncDiscoverModeUnread\(incomingCount\)/);
-  assert.match(appSource, /联系人，\$\{count\} 个新好友请求/);
+  assert.match(tabsSource, /data-discover-unread="contacts"/);
+  assert.match(tabsSource, /snapshot\.contactsUnread/);
+  assert.match(tabsSource, /unread > 99 \? "99\+" : unread/);
+  assert.match(tabsSource, /\\u8054\\u7cfb\\u4eba\\uff0c\$\{unread\}/);
   assert.match(botStoreCss, /\.discover-mode-unread\s*\{/);
   assert.match(botStoreCss, /\.discover-mode-unread\.hidden\s*\{/);
 });

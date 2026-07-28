@@ -252,7 +252,7 @@
     writeLocalJson(CONTACT_GROUP_COLLAPSED_KEY, [...collapsed]);
   }
 
-  function appendContactGroupHeader(group, options = {}) {
+  function buildContactGroupHeader(group, options = {}) {
     const key = String(group?.key || group || "").trim();
     const label = String(group?.label || contactGroupLabel(key)).trim();
     const count = Number(group?.bots?.length) || 0;
@@ -270,7 +270,7 @@
       toggleContactGroupCollapsed(key);
       renderContacts();
     });
-    els.contactList.appendChild(header);
+    return header;
   }
 
   function sortableConversationTime(value) {
@@ -934,10 +934,20 @@
     bots.forEach((bot) => loadRuntimeTargetOptions(bot));
     const pendingRequests = window.miaSocial?.pendingRequestCount?.() || 0;
     if (!bots.length && !pendingRequests) {
-      els.contactList.innerHTML = `<div class="contact-empty">还没有联系人</div>`;
+      const emptyListHtml = `<div class="contact-empty">还没有联系人</div>`;
+      if (window.miaReactSurface?.renderHtml) {
+        window.miaReactSurface.renderHtml(els.contactList, emptyListHtml, "contacts:empty");
+      } else {
+        els.contactList.innerHTML = emptyListHtml;
+      }
       els.contactDetail.__miaContactDetailHtmlKey = "";
       els.contactDetail.__miaContactDetailAvatarKey = "";
-      els.contactDetail.innerHTML = `<div class="contact-empty detail-empty">添加一个伙伴后会显示在这里</div>`;
+      const emptyDetailHtml = `<div class="contact-empty detail-empty">添加一个伙伴后会显示在这里</div>`;
+      if (window.miaReactSurface?.renderHtml) {
+        window.miaReactSurface.renderHtml(els.contactDetail, emptyDetailHtml, "contact-detail:empty");
+      } else {
+        els.contactDetail.innerHTML = emptyDetailHtml;
+      }
       return;
     }
     const onRequests = state.activeContactKey === FRIEND_REQUESTS_KEY;
@@ -958,13 +968,13 @@
     const contactGroups = contactGroupsForSidebar(visibleContacts);
     const listRenderKey = contactListRenderKey({ pendingRequests, filter, contactGroups, filterActive });
     if (els.contactList.__miaContactListRenderKey !== listRenderKey) {
-      els.contactList.innerHTML = "";
+      const contactNodes = [];
       if (pendingRequests && !filter) {
-        els.contactList.appendChild(buildFriendRequestRow(pendingRequests));
+        contactNodes.push(buildFriendRequestRow(pendingRequests));
       }
       for (const group of contactGroups) {
         const collapsed = isContactGroupCollapsed(group.key, { forceExpanded: filterActive });
-        appendContactGroupHeader(group, { collapsed });
+        contactNodes.push(buildContactGroupHeader(group, { collapsed }));
         if (collapsed) continue;
         for (const bot of group.bots) {
           const button = document.createElement("button");
@@ -991,13 +1001,23 @@
             avatar.color,
             avatar.text
           );
-          els.contactList.appendChild(button);
+          contactNodes.push(button);
         }
       }
-      initNameBadgeLotties(els.contactList);
       if (!visibleContacts.length && filter) {
-        els.contactList.innerHTML = `<div class="contact-empty">没有匹配的联系人</div>`;
+        const emptySearchHtml = `<div class="contact-empty">没有匹配的联系人</div>`;
+        if (window.miaReactSurface?.renderHtml) {
+          window.miaReactSurface.renderHtml(els.contactList, emptySearchHtml, `${listRenderKey}:empty`);
+        } else {
+          els.contactList.innerHTML = emptySearchHtml;
+        }
+      } else if (window.miaReactSurface?.renderNodes) {
+        window.miaReactSurface.renderNodes(els.contactList, contactNodes, listRenderKey);
+      } else {
+        els.contactList.innerHTML = "";
+        contactNodes.forEach((node) => els.contactList.appendChild(node));
       }
+      initNameBadgeLotties(els.contactList);
       els.contactList.__miaContactListRenderKey = listRenderKey;
     }
     if (state.activeContactKey === FRIEND_REQUESTS_KEY && pendingRequests) {
@@ -1117,7 +1137,11 @@
     `;
     const htmlChanged = els.contactDetail.__miaContactDetailHtmlKey !== html;
     if (htmlChanged) {
-      els.contactDetail.innerHTML = html;
+      if (window.miaReactSurface?.renderHtml) {
+        window.miaReactSurface.renderHtml(els.contactDetail, html, `contact-detail:${bot.key}:${html}`);
+      } else {
+        els.contactDetail.innerHTML = html;
+      }
       els.contactDetail.__miaContactDetailHtmlKey = html;
       initNameBadgeLotties(els.contactDetail);
       els.contactDetail.querySelector('[data-contact-action="message"]')?.addEventListener("click", () => openBotChat(bot.key));

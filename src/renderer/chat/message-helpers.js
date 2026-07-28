@@ -140,18 +140,17 @@
   function renderComposerReply() {
     if (!state || !els || !els.composerReply) return;
     const reply = state.replyDraft;
-    els.composerReply.classList.toggle("hidden", !reply);
-    if (!reply) {
-      els.composerReply.innerHTML = "";
-      return;
-    }
-    els.composerReply.innerHTML = `
-      <div>
-        <span>回复 ${window.miaMarkdown.escapeHtml(reply.author || "消息")}</span>
-        <p>${window.miaMarkdown.escapeHtml(reply.content || "")}</p>
-      </div>
-      <button type="button" data-clear-reply title="取消回复" aria-label="取消回复">×</button>
-    `;
+    window.miaReactComposerContent.publishReply({
+      author: String(reply?.author || ""),
+      content: String(reply?.content || ""),
+      messageId: String(reply?.messageId || ""),
+      visible: Boolean(reply),
+      clear() {
+        state.replyDraft = null;
+        renderComposerReply();
+        els.chatInput?.focus();
+      }
+    });
   }
 
   window.miaMessageHelpers = {
