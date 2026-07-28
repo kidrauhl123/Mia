@@ -1,0 +1,63 @@
+name: publish-release-assets-from-update-source
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing GitHub release tag"
+        required: true
+        type: string
+      version:
+        description: "Desktop version without v prefix, for example 0.1.58"
+        required: true
+        type: string
+      update_base_url:
+        description: "Public update directory containing SHA256SUMS"
+        required: true
+        default: "https://mia.gifgif.cn/updates"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and verify desktop assets from update source
+        shell: bash
+        env:
+          UPDATE_BASE_URL: ${{ inputs.update_base_url }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          base_url="${UPDATE_BASE_URL%/}"
+          mkdir -p dist/release-assets
+          cd dist/release-assets
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 1800 \
+            "$base_url/SHA256SUMS" -o SHA256SUMS
+          while IFS=' ' read -r sha file; do
+            file="${file# }"
+            test -n "$file"
+            case "$file" in
+              Mia-"$VERSION"-*) ;;
+              latest-mac.yml) ;;
+              *) echo "Unexpected update asset in SHA256SUMS: $file" >&2; exit 1 ;;
+            esac
+            curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
+              --connect-timeout 30 --max-time 1800 \
+              "$base_url/$file" -o "$file"
+          done < SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Upload verified desktop assets to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+          find dist/release-assets -maxdepth 1 -type f -print0 |
+            xargs -0 gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber
