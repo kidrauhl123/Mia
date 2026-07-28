@@ -2473,10 +2473,11 @@ test("active bot conversations prefer their saved runtime over a stale identity 
   assert.match(activeContext, /const conversation = social\?\.getConversationById\?\.\(conversationId\);/);
   assert.match(activeContext, /if \(!conversation\) return null;/);
   assert.match(activeContext, /const conversationRuntimeKind = sessionHistory\.runtimeKind\(conversation,\s*""\);/);
-  assert.match(activeContext, /const conversationAgentEngine = String\([\s\S]*conversationDecorations\.agentEngine/);
+  assert.match(activeContext, /const conversationAgentEngine = firstValidAgentEngine\([\s\S]*conversationDecorations\.agentEngine/);
   assert.match(activeContext, /const botRuntimeKind = sessionHistory\.runtimeKind\(bot,\s*""\);/);
-  assert.match(activeContext, /const botAgentEngine = String\(conversationAgentEngine \|\| bot\.agentEngine/);
-  assert.match(activeContext, /const knownLocalEngine = botAgentEngine === "hermes" \|\| botAgentEngine === "codex";/);
+  assert.match(activeContext, /const starterAgentEngine = starterAgentEngineForBot\(botKey\);/);
+  assert.match(activeContext, /const botAgentEngine = conversationAgentEngine[\s\S]*firstValidAgentEngine\(bot\.agentEngine,\s*bot\.agent_engine\)[\s\S]*starterAgentEngine;/);
+  assert.match(activeContext, /const knownLocalEngine = botAgentEngine === "hermes"[\s\S]*botAgentEngine === "codex"[\s\S]*Boolean\(starterAgentEngine\);/);
   assert.match(activeContext, /runtimeKind: conversationRuntimeKind \|\| \(knownLocalEngine \? "desktop-local" : botRuntimeKind \|\| "desktop-local"\)/);
   assert.doesNotMatch(activeContext, /const botRuntimeKind = String\(bot\?\.runtimeKind/);
 });
@@ -2657,7 +2658,7 @@ test("runtime control reads are deduplicated and keep a per-conversation load st
   assert.match(requestSource, /botRuntimeControlOptionsInFlight\.set\(key, task\);\s*return task;/);
   assert.match(syncSource, /const loadState = runtimeControlOptionsLoadStateForContext\(controlContext\);/);
   assert.match(syncSource, /runtimeControlOptionsStatusText\(loadState\)/);
-  assert.match(appSource, /if \(loadState\.status === "error"\) return "运行配置读取失败";/);
+  assert.match(appSource, /return detail \? `运行配置读取失败：\$\{detail\}` : "运行配置读取失败";/);
   assert.match(refreshRuntimeSource, /botRuntimeControlOptionsCache\.clear\(\);\s*botRuntimeControlOptionsLoadStates\.clear\(\);\s*runtimeRequestBackoff\.resetAll\(\);/);
 });
 

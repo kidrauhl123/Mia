@@ -92,6 +92,35 @@
     return EngineId.Hermes;
   }
 
+  function normalizeAgentEngineStrict(value) {
+    const id = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (id === "claude" || id === EngineId.ClaudeCode || id === "claude-code-agent") return EngineId.ClaudeCode;
+    if (id === EngineId.Codex || id === "openai-codex" || id === "codex-cli") return EngineId.Codex;
+    if (id === EngineId.Hermes || id === "hermes-cli") return EngineId.Hermes;
+    return "";
+  }
+
+  function firstValidAgentEngine(...values) {
+    for (const value of values) {
+      const engine = normalizeAgentEngineStrict(value);
+      if (engine) return engine;
+    }
+    return "";
+  }
+
+  function starterAgentEngineFromBotId(value) {
+    const botId = String(value || "").trim().toLowerCase();
+    const legacyEngine = normalizeAgentEngineStrict(botId);
+    if (legacyEngine) return legacyEngine;
+    if (!botId.startsWith("starter_")) return "";
+    if (botId.endsWith("_claude-code") || botId.endsWith("_claude_code") || botId.endsWith("_claude")) {
+      return EngineId.ClaudeCode;
+    }
+    if (botId.endsWith("_codex")) return EngineId.Codex;
+    if (botId.endsWith("_hermes")) return EngineId.Hermes;
+    return "";
+  }
+
   function adapterForEngine(value) {
     return CHAT_ENGINE_ADAPTERS[normalizeAgentEngine(value)] || CHAT_ENGINE_ADAPTERS[EngineId.Hermes];
   }
@@ -352,6 +381,9 @@
     MiaProviderId,
     CHAT_ENGINE_ADAPTERS,
     normalizeAgentEngine,
+    normalizeAgentEngineStrict,
+    firstValidAgentEngine,
+    starterAgentEngineFromBotId,
     adapterForEngine,
     engineLabel,
     isExternalEngine,

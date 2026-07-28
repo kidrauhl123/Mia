@@ -45,10 +45,20 @@ test("engine contract normalizes aliases and exposes shared labels", () => {
   assert.equal(nodeContract.normalizeAgentEngine("open-claw"), "hermes");
   assert.equal(nodeContract.normalizeAgentEngine("openclaw"), "hermes");
   assert.equal(nodeContract.normalizeAgentEngine("unknown"), "hermes");
+  assert.equal(nodeContract.normalizeAgentEngineStrict("claude_code"), "claude-code");
+  assert.equal(nodeContract.normalizeAgentEngineStrict("codex-cli"), "codex");
+  assert.equal(nodeContract.normalizeAgentEngineStrict("8255979"), "");
+  assert.equal(nodeContract.firstValidAgentEngine("8255979", "", "codex"), "codex");
+  assert.equal(nodeContract.starterAgentEngineFromBotId("starter_6682409_codex"), "codex");
+  assert.equal(nodeContract.starterAgentEngineFromBotId("starter_user_with_underscores_claude_code"), "claude-code");
+  assert.equal(nodeContract.starterAgentEngineFromBotId("codex"), "codex");
+  assert.equal(nodeContract.starterAgentEngineFromBotId("custom_codex"), "");
   assert.equal(nodeContract.engineLabel("openclaw"), "Hermes");
   assert.equal(nodeContract.engineLabel("claude-code"), "Claude Code");
   assert.deepEqual(plain(browserContract.EngineId), plain(nodeContract.EngineId));
   assert.equal(browserContract.normalizeAgentEngine("openai-codex"), "codex");
+  assert.equal(browserContract.normalizeAgentEngineStrict("not-an-engine"), "");
+  assert.equal(browserContract.starterAgentEngineFromBotId("starter_1_hermes"), "hermes");
 });
 
 test("session history derives starter bot identity from canonical bot conversation ids", () => {

@@ -172,6 +172,39 @@
     return "";
   }
 
+  function normalizeAgentEngineStrict(value = "") {
+    const shared = global.miaEngineContracts?.normalizeAgentEngineStrict?.(value);
+    if (shared) return shared;
+    const normalized = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+    if (normalized === "claude" || normalized === "claude-code") return "claude-code";
+    if (normalized === "codex" || normalized === "openai-codex") return "codex";
+    if (normalized === "hermes") return "hermes";
+    return "";
+  }
+
+  function firstValidAgentEngine(...values) {
+    const shared = global.miaEngineContracts?.firstValidAgentEngine;
+    if (typeof shared === "function") return shared(...values);
+    for (const value of values) {
+      const engine = normalizeAgentEngineStrict(value);
+      if (engine) return engine;
+    }
+    return "";
+  }
+
+  function starterAgentEngineFromBotId(botId = "") {
+    const shared = global.miaEngineContracts?.starterAgentEngineFromBotId?.(botId);
+    if (shared) return shared;
+    const id = String(botId || "").trim().toLowerCase();
+    const legacyEngine = normalizeAgentEngineStrict(id);
+    if (legacyEngine) return legacyEngine;
+    if (!id.startsWith("starter_")) return "";
+    if (id.endsWith("_claude-code") || id.endsWith("_claude_code") || id.endsWith("_claude")) return "claude-code";
+    if (id.endsWith("_codex")) return "codex";
+    if (id.endsWith("_hermes")) return "hermes";
+    return "";
+  }
+
   // Lazy shared-dep accessor (mirrors unreadShared / sendPipelineShared) so the
   // module still loads in test VMs where neither the global nor require exists.
   function conversationKinds() {
@@ -3406,22 +3439,28 @@
     const bot = botRecordForConversation(conversation);
     const decorations = conversation?.decorations || {};
     const metadata = conversation?.metadata || {};
-    const candidate = firstText(
-      bot?.agentEngine,
-      bot?.agent_engine,
+    const explicitEngine = firstValidAgentEngine(
       decorations.agentEngine,
       decorations.agent_engine,
+      conversation?.agentEngine,
+      conversation?.agent_engine,
+      bot?.agentEngine,
+      bot?.agent_engine,
       decorations.starterEngineId,
       decorations.starter_engine_id,
       metadata.starterEngineId,
-      metadata.starter_engine_id,
-      sessionHistoryShared().botId(conversation)
+      metadata.starter_engine_id
     );
-    const normalized = candidate.toLowerCase().replace(/_/g, "-");
-    if (normalized.includes("claude")) return "claude-code";
-    if (normalized.includes("hermes")) return "hermes";
-    if (normalized.includes("codex")) return "codex";
-    return candidate;
+    if (explicitEngine) return explicitEngine;
+    const botId = sessionHistoryShared().botId(conversation);
+    const starterEngine = starterAgentEngineFromBotId(botId);
+    if (starterEngine) return starterEngine;
+    if (bot && runtimeKindForBotConversation(conversation) === "desktop-local") {
+      return normalizeAgentEngineStrict(
+        global.miaBotDirectory?.normalizeAgentEngine?.("", "desktop-local")
+      );
+    }
+    return "";
   }
 
   function botPostContextForConversation(conversation = {}, conversationId = "") {

@@ -194,6 +194,10 @@ test("desktop-local Cloud bot sends prefer the Cloud runtime binding before Core
 
   assert.match(desktopRuntimeConfig, /getBotRuntimeCompat\(botId,\s*"desktop-local"\)/);
   assert.doesNotMatch(desktopRuntimeConfig, /getCoreBotRuntime\(botId,\s*"desktop-local"\)/);
+  assert.match(desktopRuntimeConfig, /firstValidAgentEngine/);
+  assert.match(desktopRuntimeConfig, /starterAgentEngineFromBotId\(botId\)/);
+  assert.match(desktopRuntimeConfig, /没有有效的本地运行引擎/);
+  assert.doesNotMatch(desktopRuntimeConfig, /input\.engine,\s*botId|botId,\s*"codex"/);
   assert.match(
     desktopRuntimeConfig,
     /mergeRuntimeModelEntries\(\s*requestModelEntries,\s*runtimeModelEntriesFromInput\(runtimeConfig\)/,

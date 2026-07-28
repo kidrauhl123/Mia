@@ -145,6 +145,26 @@ test("session-history derives title and new-session payload consistently", () =>
   });
 });
 
+test("session-history persists a resolved engine into new bot sessions", () => {
+  const payload = sessionHistory.createBotSessionPayload({
+    id: "botc_old",
+    type: "bot",
+    decorations: {
+      botId: "bot_codex",
+      runtimeKind: "desktop-local",
+      agentEngine: "codex"
+    }
+  }, "sess_new", { title: "新对话" });
+
+  assert.deepEqual(payload, {
+    botId: "bot_codex",
+    title: "新对话",
+    runtimeKind: "desktop-local",
+    agentEngine: "codex",
+    sessionId: "sess_new"
+  });
+});
+
 test("session-history resolves runtime kind from explicit root or runtime config before desktop-local fallback", () => {
   assert.equal(sessionHistory.runtimeKind({
     id: "botc_root",

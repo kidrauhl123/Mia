@@ -232,10 +232,19 @@
   }
 
   function createBotSessionPayload(conversation, sessionId, options = {}) {
+    const agentEngine = String(
+      options.agentEngine
+      || conversation?.decorations?.agentEngine
+      || conversation?.decorations?.agent_engine
+      || conversation?.agentEngine
+      || conversation?.agent_engine
+      || ""
+    ).trim();
     return {
       botId: botId(conversation),
       title: options.title || "新对话",
       runtimeKind: runtimeKind(conversation, options.runtimeKindFallback || "desktop-local"),
+      ...(agentEngine ? { agentEngine } : {}),
       sessionId
     };
   }

@@ -2851,7 +2851,16 @@ test("sendInActiveConversation preserves desktop Codex starter ownership when ca
     }
   };
   s.moduleState.activeConversationId = "botc_starter_6682409_codex";
-  s.moduleState.conversations = [{ id: "botc_starter_6682409_codex", type: "bot", name: "codex" }];
+  s.moduleState.conversations = [{
+    id: "botc_starter_6682409_codex",
+    type: "bot",
+    name: "codex",
+    decorations: {
+      botId: "starter_6682409_codex",
+      runtimeKind: "desktop-local",
+      agentEngine: "6682409"
+    }
+  }];
   s.moduleState.messageCache.set("botc_starter_6682409_codex", { messages: [], maxSeq: 0 });
 
   await s.sendInActiveConversation("hello codex", {

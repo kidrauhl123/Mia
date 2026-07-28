@@ -3756,6 +3756,39 @@ function runtimeKindForBotConversation(conversation) {
   return sessionHistory.runtimeKind(conversation, "desktop-local");
 }
 
+function strictAgentEngine(value = "") {
+  const shared = globalThis.miaEngineContracts?.normalizeAgentEngineStrict?.(value);
+  if (shared) return shared;
+  const normalized = String(value || "").trim().toLowerCase().replace(/_/g, "-");
+  if (normalized === "claude" || normalized === "claude-code") return "claude-code";
+  if (normalized === "codex" || normalized === "openai-codex") return "codex";
+  if (normalized === "hermes") return "hermes";
+  return "";
+}
+
+function firstValidAgentEngine(...values) {
+  const shared = globalThis.miaEngineContracts?.firstValidAgentEngine;
+  if (typeof shared === "function") return shared(...values);
+  for (const value of values) {
+    const engine = strictAgentEngine(value);
+    if (engine) return engine;
+  }
+  return "";
+}
+
+function starterAgentEngineForBot(botKey = "") {
+  const shared = globalThis.miaEngineContracts?.starterAgentEngineFromBotId?.(botKey);
+  if (shared) return shared;
+  const id = String(botKey || "").trim().toLowerCase();
+  const legacyEngine = strictAgentEngine(id);
+  if (legacyEngine) return legacyEngine;
+  if (!id.startsWith("starter_")) return "";
+  if (id.endsWith("_claude-code") || id.endsWith("_claude_code") || id.endsWith("_claude")) return "claude-code";
+  if (id.endsWith("_codex")) return "codex";
+  if (id.endsWith("_hermes")) return "hermes";
+  return "";
+}
+
 function activeConversationBotContext() {
   const social = window.miaSocial;
   const conversationId = social?.getActiveConversationId?.();
@@ -3773,27 +3806,25 @@ function activeConversationBotContext() {
   const conversationRuntimeKind = sessionHistory.runtimeKind(conversation, "");
   const conversationDecorations = conversation.decorations || {};
   const conversationRuntimeConfig = conversation.runtimeConfig || conversation.runtime_config || {};
-  const conversationAgentEngine = String(
-    conversationDecorations.agentEngine
-    || conversationDecorations.agent_engine
-    || conversationRuntimeConfig.agentEngine
-    || conversationRuntimeConfig.agent_engine
-    || conversation.agentEngine
-    || conversation.agent_engine
-    || ""
-  )
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, "-");
+  const conversationAgentEngine = firstValidAgentEngine(
+    conversationDecorations.agentEngine,
+    conversationDecorations.agent_engine,
+    conversationRuntimeConfig.agentEngine,
+    conversationRuntimeConfig.agent_engine,
+    conversation.agentEngine,
+    conversation.agent_engine
+  );
   const bot = allOwnedBotsForIdentity().find((item) => String(item?.key || item?.id || "") === botKey) || {};
   const botRuntimeKind = sessionHistory.runtimeKind(bot, "");
-  const botAgentEngine = String(conversationAgentEngine || bot.agentEngine || bot.agent_engine || "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, "-");
+  const starterAgentEngine = starterAgentEngineForBot(botKey);
+  const botAgentEngine = conversationAgentEngine
+    || firstValidAgentEngine(bot.agentEngine, bot.agent_engine)
+    || starterAgentEngine;
   // Mia Cloud is the hosted Claude Code runtime. A cloud identity row without
   // a runtime binding must not turn a Hermes or Codex chat into a cloud one.
-  const knownLocalEngine = botAgentEngine === "hermes" || botAgentEngine === "codex";
+  const knownLocalEngine = botAgentEngine === "hermes"
+    || botAgentEngine === "codex"
+    || Boolean(starterAgentEngine);
   return {
     conversation,
     conversationId,
@@ -4117,7 +4148,13 @@ function setRuntimeControlOptionsLoadState(context, status, error = "") {
 }
 
 function runtimeControlOptionsStatusText(loadState = {}) {
-  if (loadState.status === "error") return "运行配置读取失败";
+  if (loadState.status === "error") {
+    const detail = String(loadState.error || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
+    return detail ? `运行配置读取失败：${detail}` : "运行配置读取失败";
+  }
   return "运行配置读取中...";
 }
 
@@ -4357,7 +4394,10 @@ function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()
       runtimeRequestBackoff.fail(backoffKey);
       setRuntimeControlOptionsLoadState(context, "error", error?.message || error);
       setRuntimeControlDisabled(true);
-      setModelSwitchStatusText("运行配置读取失败");
+      setModelSwitchStatusText(runtimeControlOptionsStatusText({
+        status: "error",
+        error: error?.message || error
+      }));
       console.warn("[renderer] bot runtime control options failed:", error?.message || error);
       return null;
     })
@@ -4736,10 +4776,12 @@ async function createNewSessionForActive() {
 }
 
 async function createNewCloudSessionForActive(conversation) {
-  const runtimeKindFallback = activeConversationBotContext()?.runtimeKind || runtimeKindForBotConversation(conversation);
+  const activeContext = activeConversationBotContext();
+  const runtimeKindFallback = activeContext?.runtimeKind || runtimeKindForBotConversation(conversation);
   const payload = sessionHistory.createBotSessionPayload(conversation, cryptoRandomId(), {
     title: "新对话",
-    runtimeKindFallback
+    runtimeKindFallback,
+    agentEngine: activeContext?.agentEngine || ""
   });
   const botId = payload.botId;
   const ownerUserId = String(state.runtime?.cloud?.user?.id || state.runtime?.cloud?.user?.userId || "").trim();
@@ -4756,7 +4798,12 @@ async function createNewCloudSessionForActive(conversation) {
     id: `botc_${payload.sessionId}`,
     type: "bot",
     name: payload.title,
-    decorations: { botId, sessionId: payload.sessionId, runtimeKind: payload.runtimeKind },
+    decorations: {
+      botId,
+      sessionId: payload.sessionId,
+      runtimeKind: payload.runtimeKind,
+      ...(payload.agentEngine ? { agentEngine: payload.agentEngine } : {})
+    },
     created_at: now,
     updated_at: now
   };
@@ -4776,7 +4823,8 @@ async function createNewCloudSessionForActive(conversation) {
   window.mia.social.ensureBotSessionConversation(payload.sessionId, {
     botId,
     title: payload.title,
-    runtimeKind: payload.runtimeKind
+    runtimeKind: payload.runtimeKind,
+    ...(payload.agentEngine ? { agentEngine: payload.agentEngine } : {})
   }).then((response) => {
     if (response?.ok) {
       const createdConversation = response.data?.conversation || response.conversation;

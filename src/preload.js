@@ -5,6 +5,10 @@ const {
   mergeTaskProjections,
   taskSourceFor
 } = require("./shared/task-projection");
+const {
+  firstValidAgentEngine,
+  starterAgentEngineFromBotId
+} = require("./shared/engine-contracts");
 const { createMiaCoreDirectTransport } = require("./preload/mia-core-direct-transport.js");
 
 const miaCoreStartupState = ipcRenderer.sendSync(IpcChannel.MiaCoreStartupState) || {};
@@ -69,6 +73,14 @@ function normalizeCoreConversation(conversation = {}) {
   const decorations = conversation.decorations && typeof conversation.decorations === "object" ? conversation.decorations : {};
   const botId = firstText(conversation.botId, conversation.bot_id, decorations.botId, decorations.bot_id);
   const type = coreConversationType(conversation);
+  const agentEngine = firstValidAgentEngine(
+    decorations.agentEngine,
+    decorations.agent_engine,
+    conversation.agentEngine,
+    conversation.agent_engine,
+    metadata.starterEngineId,
+    metadata.starter_engine_id
+  ) || starterAgentEngineFromBotId(botId);
   return {
     ...conversation,
     id,
@@ -82,6 +94,7 @@ function normalizeCoreConversation(conversation = {}) {
           botId,
           sessionId: firstText(decorations.sessionId, decorations.session_id, metadata.sessionId, metadata.session_id, id),
           runtimeKind: firstText(decorations.runtimeKind, decorations.runtime_kind, metadata.runtimeKind, metadata.runtime_kind, "desktop-local"),
+          ...(agentEngine ? { agentEngine } : {}),
           ...(metadata.starterEngineId || metadata.starter_engine_id
             ? { starterEngineId: metadata.starterEngineId || metadata.starter_engine_id }
             : {})
@@ -736,9 +749,29 @@ async function desktopLocalRuntimeConfig(input = {}) {
   if (mergedModelEntries.length) {
     runtimeConfig.modelEntries = mergedModelEntries;
   }
-  if (!runtimeConfig.agentEngine) {
-    runtimeConfig.agentEngine = firstText(input.agentEngine, input.agent_engine, input.engine, botId, "codex");
+  const bindingAgentEngine = firstValidAgentEngine(
+    bindingFields.agentEngine,
+    config.agentEngine,
+    config.agent_engine,
+    binding?.agentEngine,
+    binding?.agent_engine
+  );
+  const requestedAgentEngine = firstValidAgentEngine(
+    overrides.agentEngine,
+    input.agentEngine,
+    input.agent_engine,
+    input.engine
+  );
+  const agentEngine = bindingAgentEngine
+    || requestedAgentEngine
+    || starterAgentEngineFromBotId(botId);
+  if (!agentEngine) {
+    const botLabel = firstText(input.botName, input.bot_name, input.name, botId, "当前 Bot");
+    throw new Error(`Bot「${botLabel}」没有有效的本地运行引擎，请在联系人设置中选择 Hermes、Codex 或 Claude Code。`);
   }
+  delete runtimeConfig.agent_engine;
+  delete runtimeConfig.engine;
+  runtimeConfig.agentEngine = agentEngine;
   return runtimeConfig;
 }
 
