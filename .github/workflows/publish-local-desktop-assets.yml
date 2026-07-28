@@ -2,6 +2,11 @@ name: publish-local-desktop-assets
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Desktop version without v prefix, for example 0.1.58"
+        required: true
+        type: string
 
 permissions:
   actions: write
@@ -13,15 +18,17 @@ jobs:
     steps:
       - name: Verify local desktop assets
         shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           cd /Users/zuiyou/github/mia
           for file in \
-            release/Mia-0.1.49-Apple-Silicon.dmg \
-            release/Mia-0.1.49-Intel.dmg \
-            release/Mia-0.1.49-arm64-mac.zip \
-            release/Mia-0.1.49-arm64-mac.zip.blockmap \
-            release/Mia-0.1.49-mac.zip \
-            release/Mia-0.1.49-mac.zip.blockmap \
+            dist/mia-updates/Mia-${VERSION}-Apple-Silicon.dmg \
+            dist/mia-updates/Mia-${VERSION}-Intel.dmg \
+            dist/mia-updates/Mia-${VERSION}-arm64-mac.zip \
+            dist/mia-updates/Mia-${VERSION}-arm64-mac.zip.blockmap \
+            dist/mia-updates/Mia-${VERSION}-mac.zip \
+            dist/mia-updates/Mia-${VERSION}-mac.zip.blockmap \
             dist/mia-updates/latest-mac.yml \
             dist/mia-updates/SHA256SUMS; do
             test -s "$file"
@@ -30,14 +37,14 @@ jobs:
       - name: Upload desktop assets for release relay
         uses: actions/upload-artifact@v4
         with:
-          name: Mia-desktop-assets-v0.1.49
+          name: Mia-desktop-assets-v${{ inputs.version }}
           path: |
-            /Users/zuiyou/github/mia/release/Mia-0.1.49-Apple-Silicon.dmg
-            /Users/zuiyou/github/mia/release/Mia-0.1.49-Intel.dmg
-            /Users/zuiyou/github/mia/release/Mia-0.1.49-arm64-mac.zip
-            /Users/zuiyou/github/mia/release/Mia-0.1.49-arm64-mac.zip.blockmap
-            /Users/zuiyou/github/mia/release/Mia-0.1.49-mac.zip
-            /Users/zuiyou/github/mia/release/Mia-0.1.49-mac.zip.blockmap
+            /Users/zuiyou/github/mia/dist/mia-updates/Mia-${{ inputs.version }}-Apple-Silicon.dmg
+            /Users/zuiyou/github/mia/dist/mia-updates/Mia-${{ inputs.version }}-Intel.dmg
+            /Users/zuiyou/github/mia/dist/mia-updates/Mia-${{ inputs.version }}-arm64-mac.zip
+            /Users/zuiyou/github/mia/dist/mia-updates/Mia-${{ inputs.version }}-arm64-mac.zip.blockmap
+            /Users/zuiyou/github/mia/dist/mia-updates/Mia-${{ inputs.version }}-mac.zip
+            /Users/zuiyou/github/mia/dist/mia-updates/Mia-${{ inputs.version }}-mac.zip.blockmap
             /Users/zuiyou/github/mia/dist/mia-updates/latest-mac.yml
             /Users/zuiyou/github/mia/dist/mia-updates/SHA256SUMS
           if-no-files-found: error
