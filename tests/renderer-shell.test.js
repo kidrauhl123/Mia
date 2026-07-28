@@ -1108,6 +1108,15 @@ test("custom select menu opens away from the viewport edge", () => {
   assert.match(menuSource, /menu\.style\.maxHeight = `\$\{Math\.min\(320,/);
   assert.match(menuSource, /menu\.style\.bottom = openBelow \? "" :/);
   assert.match(menuSource, /menu\.dataset\.placement = openBelow \? "below" : "above"/);
+  const composerSelectSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerSelectMenu.tsx"), "utf8");
+
+  assert.match(composerSelectSource, /const viewportPadding = 8;/);
+  assert.match(composerSelectSource, /const triggerGap = 6;/);
+  assert.match(composerSelectSource, /const left = Math\.max\(viewportPadding, Math\.min\(window\.innerWidth - width - viewportPadding, rect\.left\)\);/);
+  assert.match(composerSelectSource, /const openBelow = spaceBelow >= usefulHeight \|\| spaceBelow >= spaceAbove;/);
+  assert.match(composerSelectSource, /menu\.style\.maxHeight = `\$\{Math\.min\(320, Math\.max\(0, availableHeight\)\)\}px`;/);
+  assert.match(composerSelectSource, /menu\.style\.bottom = openBelow \? "" : `\$\{window\.innerHeight - rect\.top \+ triggerGap\}px`;/);
+  assert.match(composerSelectSource, /menu\.dataset\.placement = openBelow \? "below" : "above";/);
 });
 
 test("main renderer does not initialize the removed onboarding wizard", () => {

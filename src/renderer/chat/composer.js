@@ -369,8 +369,10 @@
 
   function renderSlashCommandMenu() {
     if (!state || !els || !els.slashCommandMenu) return;
+    const publishSlash = window.miaReactComposerMenus?.publishSlash;
+    if (typeof publishSlash !== "function") return;
     const commands = filteredSlashCommands();
-    window.miaReactComposerMenus.publishSlash({
+    publishSlash({
       open: Boolean(state.slashMenuOpen),
       selectedIndex: state.slashSelectedIndex,
       items: commands.map((item) => ({
@@ -1409,9 +1411,11 @@
 
   function renderMentionMenu() {
     if (!state || !els || !els.mentionMenu) return;
+    const publishMention = window.miaReactComposerMenus?.publishMention;
+    if (typeof publishMention !== "function") return;
     const items = filteredMentionMembers();
     const accent = window.miaMemberColor?.memberAccentColor || (() => "#5e5ce6");
-    window.miaReactComposerMenus.publishMention({
+    publishMention({
       open: Boolean(state.mentionMenuOpen),
       selectedIndex: state.mentionSelectedIndex,
       items: items.map(({ member, name }, index) => {

@@ -180,8 +180,10 @@ test("React owns the chat header, composer interaction, feature routes, and dial
   assert.match(main, /portal\("slashCommandMenu", <SlashCommandMenu \/>/);
   assert.match(main, /portal\("mentionMenu", <MentionMenu \/>/);
   assert.match(main, /portal\("agentPermissionBanner", <PermissionBanner \/>/);
-  assert.match(composer, /miaReactComposerMenus\.publishSlash/);
-  assert.match(composer, /miaReactComposerMenus\.publishMention/);
+  assert.match(composer, /const publishSlash = window\.miaReactComposerMenus\?\.publishSlash;/);
+  assert.match(composer, /const publishMention = window\.miaReactComposerMenus\?\.publishMention;/);
+  assert.match(composer, /if \(typeof publishSlash !== "function"\) return;/);
+  assert.match(composer, /if \(typeof publishMention !== "function"\) return;/);
   assert.match(composer, /miaReactComposerContent\.publishAttachments/);
   assert.doesNotMatch(composer, /renderComposerSurface/);
   assert.match(composerContent, /function ComposerAttachments/);

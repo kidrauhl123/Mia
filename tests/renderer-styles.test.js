@@ -389,6 +389,7 @@ test("icon buttons use shared svg glyph sizing", () => {
     fs.readFileSync(path.join(root, "src/renderer/react/components/ChatHeader.tsx"), "utf8")
   ].join("\n");
   const socialSource = fs.readFileSync(path.join(root, "src/renderer/social/social.js"), "utf8");
+  const dialogsSource = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
   const iconButtonSvgRule = cssRuleBody(baseCss, ".icon-button svg");
 
@@ -401,14 +402,7 @@ test("icon buttons use shared svg glyph sizing", () => {
     "closeTaskPreview",
     "appearanceAccentReset",
     "appearanceWorkspaceBackgroundReset",
-    "appearanceUserBubbleReset",
-    "closeProfileDialog",
-    "closeBotDialog",
-    "closePetGenerateDialog",
-    "cancelAvatarCrop",
-    "groupCreateClose",
-    "groupInfoClose",
-    "closeTaskCreate"
+    "appearanceUserBubbleReset"
   ]) {
     assert.match(
       html,
@@ -416,6 +410,15 @@ test("icon buttons use shared svg glyph sizing", () => {
       `${id} should render an svg icon instead of a text glyph`
     );
   }
+  const dialogIconButtons = dialogsSource.match(
+    /className="icon-button"[\s\S]{0,320}?<svg viewBox="0 0 24 24"/g
+  ) || [];
+  assert.ok(dialogIconButtons.length >= 8, "React dialogs should keep their close controls as SVG icon buttons");
+  assert.doesNotMatch(
+    dialogsSource,
+    /className="icon-button"[\s\S]{0,220}?>\s*(?:＋|×|↺|ℹ︎)\s*<\/button>/,
+    "React dialog icon buttons should not use font-rendered symbols"
+  );
 
   assert.doesNotMatch(
     html,
@@ -428,9 +431,9 @@ test("icon buttons use shared svg glyph sizing", () => {
     "dynamic icon-only buttons should not use font-rendered symbols"
   );
   assert.match(
-    socialSource,
+    dialogsSource,
     /className\s*=\s*"icon-button"[\s\S]{0,300}?<svg viewBox="0 0 24 24"/,
-    "dynamic icon-only buttons should render svg icons"
+    "React dialog icon-only buttons should render svg icons"
   );
   assert.match(iconButtonSvgRule, /width:\s*18px;/);
   assert.match(iconButtonSvgRule, /height:\s*18px;/);
@@ -940,8 +943,9 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
-  const skillLibrary = fs.readFileSync(path.join(root, "src/renderer/skills/skill-library.js"), "utf8");
-  const taskPanel = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+  const botStoreView = fs.readFileSync(path.join(root, "src/renderer/react/components/BotStore.tsx"), "utf8");
+  const skillView = fs.readFileSync(path.join(root, "src/renderer/react/components/Skills.tsx"), "utf8");
+  const taskView = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
 
   assert.match(baseCss, /--floating-control-bg:\s*color-mix\(in srgb,\s*var\(--surface\)\s*86%,\s*transparent\);/);
   assert.match(baseCss, /--floating-control-shadow:\s*0 1px 2px rgba\(16,\s*20,\s*39,\s*0\.06\),\s*0 10px 28px rgba\(16,\s*20,\s*39,\s*0\.08\);/);
@@ -1009,8 +1013,8 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
     "bot store category rail should hide the scrollbar while remaining scrollable"
   );
   assert.match(
-    fs.readFileSync(path.join(root, "src/renderer/bot/bot-store.js"), "utf8"),
-    /function scrollCategoryButtonIntoView\(button,\s*behavior = "smooth"\)[\s\S]*button\.scrollIntoView\(\{[\s\S]*inline:\s*"center"[\s\S]*\}\);[\s\S]*const pillX = Number\.isFinite\(a\.offsetLeft\)[\s\S]*const pillW = Number\.isFinite\(a\.offsetWidth\)/,
+    botStoreView,
+    /active\.scrollIntoView\(\{ block: "nearest", inline: "center", behavior: "auto" \}\);[\s\S]*root\.style\.setProperty\("--pill-x",[\s\S]*root\.style\.setProperty\("--pill-w",/,
     "bot store category rail should center selected edge items and position the pill in scroll coordinates"
   );
 
@@ -1023,13 +1027,13 @@ test("topbar mode toggles animate a shared selected capsule indicator", () => {
     "topbar toggle capsule animation should respect reduced-motion preferences"
   );
   assert.match(
-    skillLibrary,
-    /syncModeToggleIndicator\(els\.skillModeToggle\)/,
+    skillView,
+    /function syncPill\(host: HTMLElement \| null, scrollActive = false\)[\s\S]*useLayoutEffect\(\(\) => syncPill\(document\.getElementById\("skillModeToggle"\)\), \[modeTabs\]\);/,
     "skill mode toggle should sync the selected capsule after render"
   );
   assert.match(
-    taskPanel,
-    /syncModeToggleIndicator\(host\)/,
+    taskView,
+    /function syncPill\(host: HTMLElement \| null\)[\s\S]*useLayoutEffect\(\(\) => syncPill\(document\.getElementById\("taskModeToggle"\)\), \[modeTabs\]\);/,
     "task mode toggle should sync the selected capsule after render"
   );
 });
@@ -1191,9 +1195,9 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
   const botStoreCss = fs.readFileSync(path.join(root, "src/renderer/styles/bot-store.css"), "utf8");
   const skillCss = fs.readFileSync(path.join(root, "src/renderer/styles/skills.css"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
-  const botStoreJs = fs.readFileSync(path.join(root, "src/renderer/bot/bot-store.js"), "utf8");
-  const skillJs = fs.readFileSync(path.join(root, "src/renderer/skills/skill-library.js"), "utf8");
-  const taskJs = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+  const botStoreView = fs.readFileSync(path.join(root, "src/renderer/react/components/BotStore.tsx"), "utf8");
+  const skillView = fs.readFileSync(path.join(root, "src/renderer/react/components/Skills.tsx"), "utf8");
+  const taskView = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
 
   assert.match(
     html,
@@ -1288,16 +1292,13 @@ test("discover, skill, and task cards start from the fixed left edge", () => {
     );
   }
 
-  assert.match(botStoreJs, /bot-store-card-cover/);
-  assert.match(botStoreJs, /bot-store-card-category/);
-  assert.match(botStoreJs, /bot-store-card-description/);
-  assert.match(botStoreJs, /miaMasonryGrid\?\.capture\(els\.botStoreGrid,\s*pageTurnDirection\)/);
-  assert.match(skillJs, /miaMasonryGrid\?\.capture\(els\.skillCardGrid,\s*pageTurnDirection\)/);
-  assert.match(taskJs, /miaMasonryGrid\?\.capture\(els\.tasksContent,\s*pageTurnDirection\)/);
-  assert.match(botStoreJs, /miaMasonryGrid\?\.layout\(grid,\s*"\.bot-store-card",\s*\{\s*animate:\s*pageTurnDirection\s*\}\)/);
-  assert.match(skillJs, /miaMasonryGrid\?\.layout\(els\.skillCardGrid,\s*"\.skill-card",\s*\{\s*animate:\s*direction\s*\}\)/);
-  assert.match(taskJs, /miaMasonryGrid\?\.layout\(els\.tasksContent,\s*"\.task-card",\s*\{\s*animate:\s*direction\s*\}\)/);
-  assert.doesNotMatch(botStoreJs, /animation-delay/);
+  assert.match(botStoreView, /bot-store-card-cover/);
+  assert.match(botStoreView, /bot-store-card-category/);
+  assert.match(botStoreView, /bot-store-card-description/);
+  assert.match(botStoreView, /window\.miaMasonryGrid\?\.layout\(root, "\.bot-store-card", \{ animate: pageDirection \}\)/);
+  assert.match(skillView, /window\.miaMasonryGrid\?\.layout\(host, "\.skill-card", \{ animate: pageDirection \}\)/);
+  assert.match(taskView, /window\.miaMasonryGrid\?\.layout\(host, "\.task-card", \{ animate: pageDirection \}\)/);
+  assert.doesNotMatch(botStoreView, /animation-delay/);
 });
 
 test("contacts detail narrow header keeps back control separate from the mode capsule", () => {
@@ -1414,17 +1415,17 @@ test("floating capsule controls keep hover geometry stable", () => {
 test("task preview dialog uses a compact result-first chat layout", () => {
   const rendererHtml = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const taskCss = fs.readFileSync(path.join(root, "src/renderer/styles/tasks.css"), "utf8");
-  const taskPanel = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+  const taskView = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
 
   assert.doesNotMatch(rendererHtml, /id="taskPreviewMeta"/);
-  assert.doesNotMatch(taskPanel, /taskPreviewMeta/);
-  assert.match(taskPanel, /task-detail-card/);
-  assert.match(taskPanel, /task-output-row message assistant/);
-  assert.match(taskPanel, /avatar task-output-avatar/);
-  assert.match(taskPanel, /bubble task-output-bubble/);
-  assert.match(taskPanel, /task-open-chat icon-button/);
-  assert.doesNotMatch(taskPanel, /task-instruction-disclosure|task-history-disclosure|historyRowHtml/);
-  assert.doesNotMatch(taskPanel, /task-detail-sidebar|renderRunDetail|data-action="run-now"|运行一次/);
+  assert.doesNotMatch(taskView, /taskPreviewMeta/);
+  assert.match(taskView, /task-detail-card/);
+  assert.match(taskView, /task-output-row message assistant/);
+  assert.match(taskView, /avatar task-output-avatar/);
+  assert.match(taskView, /bubble task-output-bubble/);
+  assert.match(taskView, /task-open-chat icon-button/);
+  assert.doesNotMatch(taskView, /task-instruction-disclosure|task-history-disclosure|historyRowHtml/);
+  assert.doesNotMatch(taskView, /task-detail-sidebar|renderRunDetail|data-action="run-now"|运行一次/);
 
   assert.match(taskCss, /\.task-preview-card\s*\{[^}]*width:\s*min\(560px,\s*calc\(100vw - 32px\)\);[^}]*height:\s*auto;/);
   assert.match(taskCss, /\.task-output-row\.message\s*\{[^}]*align-items:\s*flex-end;/);

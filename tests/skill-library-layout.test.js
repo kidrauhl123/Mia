@@ -7,16 +7,17 @@ const root = path.join(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
 test("skill-library renders a single unified skill grid without icon cards", () => {
-  const src = read("src/renderer/skills/skill-library.js");
+  const src = read("src/renderer/react/components/Skills.tsx");
+  const controller = read("src/renderer/skills/skill-library.js");
   // 卡片只保留标题、描述、来源和动作按钮；数据驱动分类，本机详情复用共享弹窗
-  assert.match(src, /renderUnifiedSkillCard/);
+  assert.match(src, /const SkillCard = memo\(function SkillCard/);
   assert.doesNotMatch(src, /skill-card-icon/);
-  assert.match(src, /data-skill-select=/);
-  assert.match(src, /openLocalSkillModal/);
+  assert.match(src, /onClick=\{card\.open\}/);
+  assert.match(controller, /openLocalSkillModal/);
   // 不再有 plugins/connectors/extensions 的渲染与目录导航
-  assert.doesNotMatch(src, /renderPluginCard|renderConnectorCard|renderExtensionDetail|renderExtensionNavRow|renderDirectorySectionRow|directorySectionRows/);
-  assert.doesNotMatch(src, /data-directory-section|data-extension-select|data-extension-install|data-skill-plugin/);
-  assert.doesNotMatch(src, /state\.directorySection|state\.skillLibraryMode|state\.selectedExtensionId|state\.skillPluginFilter|state\.skillStatusFilter/);
+  assert.doesNotMatch(controller, /renderPluginCard|renderConnectorCard|renderExtensionDetail|renderExtensionNavRow|renderDirectorySectionRow|directorySectionRows/);
+  assert.doesNotMatch(controller, /data-directory-section|data-extension-select|data-extension-install|data-skill-plugin/);
+  assert.doesNotMatch(controller, /state\.directorySection|state\.skillLibraryMode|state\.selectedExtensionId|state\.skillPluginFilter|state\.skillStatusFilter/);
 });
 
 test("skills view has no DIRECTORY sidebar and search lives in the workspace", () => {
