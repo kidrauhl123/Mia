@@ -584,7 +584,6 @@
     let fence = null;
     const listTypeForLine = (line) => {
       if (/^\s*[-*]\s+(.+)$/.test(line || "")) return "ul";
-      if (/^\s*\d+[.)]\s+(.+)$/.test(line || "")) return "ol";
       return "";
     };
     const nextNonBlankListType = (fromIndex) => {
@@ -669,16 +668,6 @@
           list = { type: "ul", items: [] };
         }
         list.items.push(unordered[1]);
-        continue;
-      }
-      const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
-      if (ordered) {
-        flushParagraph();
-        if (!list || list.type !== "ol") {
-          flushList();
-          list = { type: "ol", items: [] };
-        }
-        list.items.push(ordered[1]);
         continue;
       }
       if (line.indexOf("|") !== -1 && isTableDelimiterRow(lines[i + 1])) {
