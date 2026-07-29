@@ -7,6 +7,11 @@
 ; This macro is consumed by electron-builder's CHECK_APP_RUNNING hook for both
 ; interactive installs and silent electron-updater installs.
 
+; Used by both customInit and customCheckAppRunning. NSIS requires custom
+; variables to be declared before they can be passed to instructions such as
+; StrCpy.
+Var PowerShellPath
+
 ; electron-builder runs the *old* uninstaller during an update. Its atomic
 ; removal routine stages the old files beneath $PLUGINSDIR. When TEMP is on a
 ; different drive, Windows turns that operation into a copy. Endpoint scanners
