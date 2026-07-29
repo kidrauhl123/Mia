@@ -9,8 +9,12 @@
 
 ; Used by both customInit and customCheckAppRunning. NSIS requires custom
 ; variables to be declared before they can be passed to instructions such as
-; StrCpy.
+; StrCpy. electron-builder includes this file in both the shared header and
+; install section, so the declaration itself must be emitted only once.
+!ifndef MIA_POWERSHELL_PATH_VAR_DECLARED
+!define MIA_POWERSHELL_PATH_VAR_DECLARED
 Var PowerShellPath
+!endif
 
 ; electron-builder runs the *old* uninstaller during an update. Its atomic
 ; removal routine stages the old files beneath $PLUGINSDIR. When TEMP is on a

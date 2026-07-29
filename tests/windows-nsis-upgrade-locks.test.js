@@ -13,7 +13,7 @@ test("Windows NSIS upgrades use same-volume staging and release Mia Core before 
   const source = fs.readFileSync(includePath, "utf8");
 
   assert.equal(packageJson.build.nsis.include, "build/installer.nsh");
-  assert.match(source, /^Var PowerShellPath$/m);
+  assert.match(source, /!ifndef MIA_POWERSHELL_PATH_VAR_DECLARED\n!define MIA_POWERSHELL_PATH_VAR_DECLARED\nVar PowerShellPath\n!endif/);
   assert.match(source, /!macro customUnInit/);
   assert.match(source, /!macro customInit[\s\S]{0,400}?!insertmacro prepareLegacyUninstallerTemp/);
   assert.match(source, /\$\{GetOptions\} \$R0 "--updated" \$R1/);
