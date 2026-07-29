@@ -9,6 +9,10 @@ const {
   firstValidAgentEngine,
   starterAgentEngineFromBotId
 } = require("./shared/engine-contracts");
+const {
+  collapseConversationMessages,
+  logicalMessageId
+} = require("./shared/conversation-message-identity");
 const { createMiaCoreDirectTransport } = require("./preload/mia-core-direct-transport.js");
 
 const miaCoreStartupState = ipcRenderer.sendSync(IpcChannel.MiaCoreStartupState) || {};
@@ -146,7 +150,7 @@ function normalizeCoreMessage(message = {}, fallback = {}) {
   const role = firstText(message.role, fallback.role);
   const senderKind = role === "assistant" ? "bot" : (role === "system" ? "system" : "user");
   const normalizedSenderKind = firstText(message.sender_kind, message.senderKind, fallback.senderKind, senderKind);
-  return {
+  const normalized = {
     ...message,
     id: firstText(message.id, fallback.id),
     conversation_id: firstText(message.conversation_id, message.conversationId, fallback.conversationId),
@@ -159,6 +163,15 @@ function normalizeCoreMessage(message = {}, fallback = {}) {
     created_at: coreMessageCreatedAt(message, fallback),
     content_json: message.content_json || JSON.stringify(content || {})
   };
+  normalized.logical_message_id = firstText(
+    message.logical_message_id,
+    message.logicalMessageId,
+    content.logical_message_id,
+    content.logicalMessageId,
+    fallback.logicalMessageId,
+    logicalMessageId(normalized)
+  );
+  return normalized;
 }
 
 function selectedSkillIdsFromCoreBody(input = {}) {
@@ -779,6 +792,14 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
   const input = body && typeof body === "object" ? body : {};
   const bodyMd = String(input.bodyMd || input.body_md || input.body || input.text || input.message || "");
   const runId = firstText(input.turnId, input.turn_id, input.clientTraceId, input.client_trace_id, `local_${Date.now()}`);
+  const logicalMessageIdValue = firstText(
+    input.logicalMessageId,
+    input.logical_message_id,
+    input.clientOpId,
+    input.client_op_id,
+    input.clientTraceId,
+    input.client_trace_id
+  );
   const botId = firstText(input.botId, input.bot_id, input.botKey, input.bot_key);
   if (!botId) {
     const error = "Desktop-local bot send is missing botId; refusing legacy social owner.";
@@ -797,6 +818,7 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
   const response = await miaCorePost("/api/cloud/bridge/run-async", {
     runId,
     conversationId,
+    logicalMessageId: logicalMessageIdValue || null,
     text: bodyMd,
     attachments: Array.isArray(input.attachments) ? input.attachments : [],
     selectedSkillIds: selectedSkillIdsFromCoreBody(input),
@@ -843,7 +865,8 @@ async function postLocalDesktopBotMessage(conversationId, body = {}) {
     senderRef: miaCoreStartupState.userId || "",
     bodyMd,
     status: response?.ok === false ? "error" : "accepted",
-    turnId: response?.turnId || response?.turn_id || runId
+    turnId: response?.turnId || response?.turn_id || runId,
+    logicalMessageId: logicalMessageIdValue
   });
   const data = {
     ...(response || {}),
@@ -933,29 +956,7 @@ function rewriteLocalBotMessageConversation(message = {}, conversationId = "", l
 }
 
 function mergeConversationMessageLists(...lists) {
-  const byId = new Map();
-  const fingerprintToId = new Map();
-  for (const list of lists) {
-    for (const message of Array.isArray(list) ? list : []) {
-      const id = firstText(message?.id);
-      if (!id) continue;
-      const fingerprint = [
-        firstText(message?.turn_id, message?.turnId) || firstText(message?.created_at, message?.createdAt),
-        firstText(message?.sender_kind, message?.senderKind),
-        firstText(message?.body_md, message?.bodyMd, message?.body)
-      ].join("\u0000");
-      const existingId = fingerprintToId.get(fingerprint);
-      const targetId = existingId || id;
-      byId.set(targetId, { ...(byId.get(targetId) || {}), ...message, id: targetId });
-      if (fingerprint && !existingId) fingerprintToId.set(fingerprint, targetId);
-    }
-  }
-  return [...byId.values()].sort((a, b) => {
-    const aSeq = Number(a?.seq || 0);
-    const bSeq = Number(b?.seq || 0);
-    if (aSeq !== bSeq) return aSeq - bSeq;
-    return String(a?.created_at || a?.createdAt || "").localeCompare(String(b?.created_at || b?.createdAt || ""));
-  });
+  return collapseConversationMessages(lists.flatMap((list) => (Array.isArray(list) ? list : [])));
 }
 
 async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {

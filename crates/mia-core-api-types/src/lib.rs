@@ -1605,6 +1605,10 @@ pub struct CloudBridgeRunRequest {
     #[serde(default)]
     pub conversation_id: String,
     #[serde(default)]
+    pub origin_message_id: Option<String>,
+    #[serde(default)]
+    pub logical_message_id: Option<String>,
+    #[serde(default)]
     pub text: String,
     #[serde(default)]
     pub attachments: Value,

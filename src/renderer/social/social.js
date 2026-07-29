@@ -228,6 +228,12 @@
     throw new Error("miaSendPipeline is not loaded");
   }
 
+  function conversationMessageIdentityShared() {
+    if (global.miaConversationMessageIdentity) return global.miaConversationMessageIdentity;
+    if (typeof require !== "undefined") return require("../../shared/conversation-message-identity");
+    throw new Error("miaConversationMessageIdentity is not loaded");
+  }
+
   function sessionHistoryShared() {
     if (global.miaSessionHistory) return global.miaSessionHistory;
     if (typeof require !== "undefined") return require("../../shared/session-history");
@@ -4225,21 +4231,32 @@
     if (type === "conversation.message_appended") {
       const { conversationId, message } = payload || {};
       if (!conversationId || !message) return;
-      // Core realtime delivery no longer traverses Electron Main. Persist
-      // durable message frames as an asynchronous side effect; rendering and
-      // typing responsiveness never wait for this IPC.
-      Promise.resolve(
-        window.mia?.social?.cacheConversationMessages?.(conversationId, [message])
-      ).catch(() => {});
+      const persistAppendedMessage = () => {
+        // Core realtime delivery no longer traverses Electron Main. Persist
+        // only after in-memory reconciliation has selected the canonical row.
+        // The SQLite boundary applies the same logical-identity rule again.
+        Promise.resolve(
+          window.mia?.social?.cacheConversationMessages?.(conversationId, [message])
+        ).catch(() => {});
+      };
       let cachedMessage = messageWithFallbackRunTrace(conversationId, message);
       if (!moduleState.messageCache.has(conversationId)) {
         moduleState.messageCache.set(conversationId, { messages: [], maxSeq: 0 });
         enforceMessageCachePolicy(conversationId);
       }
       const entry = moduleState.messageCache.get(conversationId);
-      if (_reconcileEchoedConversationMessage(conversationId, cachedMessage)) return;
-      if (_reconcilePersistedCancelledRun(conversationId, cachedMessage)) return;
-      if (_reconcileCloudBridgeBotMirror(conversationId, cachedMessage)) return;
+      if (_reconcileEchoedConversationMessage(conversationId, cachedMessage)) {
+        persistAppendedMessage();
+        return;
+      }
+      if (_reconcilePersistedCancelledRun(conversationId, cachedMessage)) {
+        persistAppendedMessage();
+        return;
+      }
+      if (_reconcileCloudBridgeBotMirror(conversationId, cachedMessage)) {
+        persistAppendedMessage();
+        return;
+      }
       const activeRunAtAppend = moduleState.cloudAgentRunsByConversation.get(conversationId);
       if (
         cachedMessage.sender_kind === conversationKinds().SenderKind.Bot
@@ -4262,6 +4279,7 @@
       }
       if (cachedMessage.seq > entry.maxSeq) entry.maxSeq = cachedMessage.seq;
       enforceMessageCachePolicy(conversationId, entry);
+      persistAppendedMessage();
       const { SenderKind } = conversationKinds();
       const isBotMessage = cachedMessage.sender_kind === SenderKind.Bot;
       const isTerminalBotMessage = isBotMessage && !assistantMessageIsProcessing(cachedMessage);
@@ -6214,7 +6232,8 @@
       if (seq > entry.maxSeq) entry.maxSeq = seq;
     }
     if (changed) {
-      entry.messages = [...byId.values()].sort((a, b) => (Number(a.seq) || 0) - (Number(b.seq) || 0));
+      entry.messages = conversationMessageIdentityShared()
+        .collapseConversationMessages([...byId.values()]);
     }
     enforceMessageCachePolicy(conversationId, entry);
     if (mergedBotReplyCompletesActiveRun(conversationId, incoming)) {

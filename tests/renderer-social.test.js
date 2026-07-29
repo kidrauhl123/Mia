@@ -41,6 +41,7 @@ function loadSocial(options = {}) {
     miaBotCommands: require("../src/renderer/bot/bot-commands.js"),
     miaSelfIdentity: require("../packages/shared/self-identity.js"),
     miaSendPipeline: require("../src/shared/send-pipeline.js"),
+    miaConversationMessageIdentity: require("../src/shared/conversation-message-identity.js"),
     miaConversationTags: require("../src/shared/conversation-tags.js"),
     miaResourceCache: require("../src/renderer/resource-cache.js"),
     miaReactDialogs: {

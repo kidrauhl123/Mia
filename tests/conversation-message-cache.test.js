@@ -238,6 +238,132 @@ test("cache persists across reopen (cold-start render survives restart)", () => 
   }
 });
 
+test("logical identity keeps cloud and Core mirrors as one durable cache row", () => {
+  const { dir, dbPath } = tempCache();
+  const cache = openConversationMessageCache(dbPath);
+  try {
+    cache.upsertMessages("botc_1", [{
+      id: "msg_core_reply",
+      seq: 2,
+      sender_kind: "bot",
+      sender_ref: "bot_1",
+      body_md: "done",
+      turn_id: "turn_1",
+      trace: { reasoning: "checked" },
+      _localCoreConversationId: "cloud_bridge_botc_1",
+      created_at: "2026-07-29T12:00:01.000Z"
+    }]);
+    cache.upsertMessages("botc_1", [{
+      id: "m_cloud_reply",
+      seq: 2,
+      sender_kind: "bot",
+      sender_ref: "bot_1",
+      body_md: "done",
+      turn_id: "turn_1",
+      created_at: "2026-07-29T12:00:01.000Z"
+    }]);
+
+    const rows = cache.getRecentMessages("botc_1", 50);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, "m_cloud_reply");
+    assert.deepEqual(rows[0].trace, { reasoning: "checked" });
+  } finally {
+    cache.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("opening a legacy cache migrates existing cloud/Core duplicates exactly once", () => {
+  const { dir, dbPath } = tempCache();
+  const oldDb = new DatabaseSync(dbPath);
+  try {
+    oldDb.exec(`
+      CREATE TABLE messages (
+        conversation_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        sender_kind TEXT,
+        sender_ref TEXT,
+        body_md TEXT,
+        created_at TEXT,
+        payload TEXT NOT NULL,
+        PRIMARY KEY (conversation_id, id)
+      );
+    `);
+    const insert = oldDb.prepare(`
+      INSERT INTO messages (
+        conversation_id, id, seq, sender_kind, sender_ref, body_md, created_at, payload
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const rows = [
+      msg(1, {
+        id: "m_cloud_user",
+        body_md: "hi",
+        created_at: "2026-07-29T12:00:00.000Z"
+      }),
+      msg(1, {
+        id: "msg_core_user",
+        body_md: "hi",
+        _localCoreConversationId: "cloud_bridge_botc_1",
+        created_at: "2026-07-29T12:00:00.221Z"
+      }),
+      msg(2, {
+        id: "m_cloud_reply",
+        sender_kind: "bot",
+        body_md: "hello",
+        turn_id: "turn_1",
+        created_at: "2026-07-29T12:00:01.000Z"
+      }),
+      msg(2, {
+        id: "msg_core_reply",
+        sender_kind: "bot",
+        body_md: "hello",
+        turn_id: "turn_1",
+        trace: { reasoning: "kept" },
+        _localCoreConversationId: "cloud_bridge_botc_1",
+        created_at: "2026-07-29T12:00:01.000Z"
+      })
+    ];
+    for (const row of rows) {
+      insert.run(
+        "botc_1",
+        row.id,
+        row.seq,
+        row.sender_kind,
+        row.sender_ref,
+        row.body_md,
+        row.created_at,
+        JSON.stringify(row)
+      );
+    }
+  } finally {
+    oldDb.close();
+  }
+
+  let cache = openConversationMessageCache(dbPath);
+  try {
+    const rows = cache.getRecentMessages("botc_1", 50);
+    assert.deepEqual(rows.map((row) => row.id), ["m_cloud_user", "m_cloud_reply"]);
+    assert.deepEqual(rows[1].trace, { reasoning: "kept" });
+  } finally {
+    cache.close();
+  }
+
+  cache = openConversationMessageCache(dbPath);
+  cache.close();
+  const migratedDb = new DatabaseSync(dbPath);
+  try {
+    const columns = migratedDb.prepare("PRAGMA table_info(messages)").all().map((row) => row.name);
+    const indexes = migratedDb.prepare("PRAGMA index_list(messages)").all().map((row) => row.name);
+    assert.ok(columns.includes("logical_id"));
+    assert.ok(indexes.includes("idx_messages_conversation_logical_id"));
+    assert.equal(migratedDb.prepare("SELECT COUNT(*) AS count FROM messages").get().count, 2);
+  } finally {
+    migratedDb.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("social bootstrap cache persists conversations, friends, bots, and members per user", () => {
   const { dir, dbPath } = tempCache();
   let cache = openConversationMessageCache(dbPath);
@@ -339,11 +465,14 @@ test("old social bootstrap cache without bots_json is rebuilt destructively", ()
 
 test("two handles on the same cache file interleave writes without SQLITE_BUSY", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cache-dual-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const dbPath = path.join(dir, "conversation-cache.db");
   const owner = openConversationMessageCache(dbPath);
   const mirror = openConversationMessageCache(dbPath);
-  t.after(() => { owner.close?.(); mirror.close?.(); });
+  t.after(() => {
+    owner.close?.();
+    mirror.close?.();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 
   for (let i = 0; i < 25; i += 1) {
     owner.upsertMessages("c_1", [{ id: `m_${i}`, seq: i + 1, sender_kind: "bot", body_md: `回复 ${i}` }]);

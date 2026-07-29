@@ -80,6 +80,45 @@ async fn hermes_turn_plan_falls_back_to_native_memory_without_changing_conversat
     );
 }
 
+#[tokio::test]
+async fn cloud_origin_user_message_keeps_one_identity_inside_core() {
+    let db = init_database_memory().await.unwrap();
+    let service =
+        ConversationService::new(db.pool().clone()).with_core_base_url("http://127.0.0.1:27861");
+    let created = service
+        .create_conversation(CreateConversationRequest {
+            kind: "cloud-bridge".to_string(),
+            title: "Cloud bridge".to_string(),
+            bot_id: None,
+            metadata: json!({}),
+        })
+        .await
+        .unwrap();
+
+    let accepted = service
+        .start_user_turn_with_identity(
+            &created.conversation.id,
+            SendConversationMessageRequest {
+                body: "hello from cloud".to_string(),
+                attachments: json!([]),
+                selected_skill_ids: vec![],
+            },
+            Some("m_cloud_user_1".to_string()),
+            Some("m_cloud_user_1".to_string()),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(accepted.response.message_id, "m_cloud_user_1");
+    let messages = service
+        .list_conversation_messages(&created.conversation.id, 0, 10)
+        .await
+        .unwrap()
+        .messages;
+    assert_eq!(messages[0].id, "m_cloud_user_1");
+    assert_eq!(messages[0].content["logicalMessageId"], "m_cloud_user_1");
+}
+
 #[test]
 fn current_skill_service_lists_and_reads_enabled_bot_skills_from_core_paths() {
     let temp = tempfile::tempdir().unwrap();

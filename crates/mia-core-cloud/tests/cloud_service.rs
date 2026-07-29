@@ -1136,6 +1136,8 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].run_id, "cloud_evt_8_botc_1_bot_codex_m_user");
     assert_eq!(runs[0].conversation_id, "botc_1");
+    assert_eq!(runs[0].origin_message_id.as_deref(), Some("m_user"));
+    assert_eq!(runs[0].logical_message_id.as_deref(), Some("m_user"));
     assert_eq!(runs[0].bot_id, "bot_codex");
     assert_eq!(runs[0].bot_name, "Codex");
     assert_eq!(runs[0].text, "hi");

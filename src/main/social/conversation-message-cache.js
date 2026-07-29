@@ -17,12 +17,106 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { DatabaseSync } = require("node:sqlite");
+const {
+  collapseConversationMessages,
+  isLegacyBridgeDuplicate,
+  logicalMessageId,
+  mergeLogicalMessages
+} = require("../../shared/conversation-message-identity");
 
 const DEFAULT_RECENT_LIMIT = 50;
 const DEFAULT_PRUNE_KEEP = 300;
 
 function hasColumn(db, tableName, columnName) {
   return db.prepare(`PRAGMA table_info(${tableName})`).all().some((row) => row.name === columnName);
+}
+
+function hasIndex(db, tableName, indexName) {
+  return db.prepare(`PRAGMA index_list(${tableName})`).all().some((row) => row.name === indexName);
+}
+
+function persistedMessage(message) {
+  const { translation, ...persisted } = message;
+  return persisted;
+}
+
+function parseMessageRow(row) {
+  try {
+    const payload = JSON.parse(row.payload);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+    return {
+      ...payload,
+      id: String(payload.id || row.id || ""),
+      seq: Number.isFinite(Number(payload.seq)) ? Number(payload.seq) : Number(row.seq),
+      conversation_id: String(payload.conversation_id || row.conversation_id || "")
+    };
+  } catch {
+    return null;
+  }
+}
+
+function repairLogicalMessageIdentity(db) {
+  const rows = db.prepare(`
+    SELECT conversation_id, id, seq, payload
+    FROM messages
+    ORDER BY conversation_id, seq, id
+  `).all();
+  if (!rows.length) return;
+
+  const grouped = new Map();
+  for (const row of rows) {
+    const message = parseMessageRow(row);
+    if (!message) continue;
+    if (!grouped.has(row.conversation_id)) grouped.set(row.conversation_id, []);
+    grouped.get(row.conversation_id).push({ row, message });
+  }
+
+  const deleteStmt = db.prepare("DELETE FROM messages WHERE conversation_id = ? AND id = ?");
+  const repairStmt = db.prepare(`
+    INSERT INTO messages (
+      conversation_id, id, logical_id, seq, sender_kind, sender_ref, body_md, created_at, payload
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (conversation_id, id) DO UPDATE SET
+      logical_id = excluded.logical_id,
+      seq = excluded.seq,
+      sender_kind = excluded.sender_kind,
+      sender_ref = excluded.sender_ref,
+      body_md = excluded.body_md,
+      created_at = excluded.created_at,
+      payload = excluded.payload
+  `);
+
+  db.exec("BEGIN");
+  try {
+    for (const [conversationId, entries] of grouped) {
+      const collapsed = collapseConversationMessages(entries.map((entry) => entry.message));
+      const survivorIds = new Set(collapsed.map((message) => String(message.id || "")));
+      for (const { row } of entries) {
+        if (!survivorIds.has(String(row.id || ""))) {
+          deleteStmt.run(conversationId, row.id);
+        }
+      }
+      for (const message of collapsed) {
+        const stored = persistedMessage(message);
+        repairStmt.run(
+          conversationId,
+          String(message.id),
+          logicalMessageId(message) || null,
+          Number(message.seq) || 0,
+          message.sender_kind != null ? String(message.sender_kind) : null,
+          message.sender_ref != null ? String(message.sender_ref) : null,
+          message.body_md != null ? String(message.body_md) : null,
+          message.created_at != null ? String(message.created_at) : null,
+          JSON.stringify(stored)
+        );
+      }
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 function migrate(db) {
@@ -40,6 +134,18 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_seq
       ON messages (conversation_id, seq);
+  `);
+
+  const needsLogicalIdentityMigration = !hasColumn(db, "messages", "logical_id")
+    || !hasIndex(db, "messages", "idx_messages_conversation_logical_id");
+  if (!hasColumn(db, "messages", "logical_id")) {
+    db.exec("ALTER TABLE messages ADD COLUMN logical_id TEXT");
+  }
+  if (needsLogicalIdentityMigration) repairLogicalMessageIdentity(db);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_logical_id
+      ON messages (conversation_id, logical_id)
+      WHERE logical_id IS NOT NULL AND logical_id <> '';
   `);
 
   if (!hasColumn(db, "social_bootstrap", "bots_json")) {
@@ -76,9 +182,10 @@ function openConversationMessageCache(dbPath) {
   migrate(db);
 
   const insertStmt = db.prepare(`
-    INSERT INTO messages (conversation_id, id, seq, sender_kind, sender_ref, body_md, created_at, payload)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO messages (conversation_id, id, logical_id, seq, sender_kind, sender_ref, body_md, created_at, payload)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (conversation_id, id) DO UPDATE SET
+      logical_id = excluded.logical_id,
       seq = excluded.seq,
       sender_kind = excluded.sender_kind,
       sender_ref = excluded.sender_ref,
@@ -91,6 +198,17 @@ function openConversationMessageCache(dbPath) {
     WHERE conversation_id = ?
     ORDER BY seq DESC
     LIMIT ?
+  `);
+  const logicalMessageStmt = db.prepare(`
+    SELECT conversation_id, id, seq, payload FROM messages
+    WHERE conversation_id = ? AND logical_id = ?
+    LIMIT 1
+  `);
+  const legacyCandidateStmt = db.prepare(`
+    SELECT conversation_id, id, seq, payload FROM messages
+    WHERE conversation_id = ? AND sender_kind = ?
+    ORDER BY seq DESC
+    LIMIT 16
   `);
   const maxSeqStmt = db.prepare(`
     SELECT MAX(seq) AS maxSeq FROM messages WHERE conversation_id = ?
@@ -138,17 +256,57 @@ function openConversationMessageCache(dbPath) {
     const convId = String(conversationId || "");
     if (!convId || !Array.isArray(messages) || messages.length === 0) return 0;
     let written = 0;
-    db.exec("BEGIN");
+    const incoming = collapseConversationMessages(messages);
+    // Serialize identity lookup + replacement across the daemon/window handles.
+    // A deferred transaction lets both processes observe "no canonical row"
+    // before either writes, which would turn the unique index into an error
+    // instead of a convergence boundary.
+    db.exec("BEGIN IMMEDIATE");
     try {
-      for (const msg of messages) {
+      for (const rawMessage of incoming) {
+        let msg = rawMessage;
         if (!msg || typeof msg !== "object") continue;
-        const seq = Number(msg.seq);
-        const id = String(msg.id || "");
+        let seq = Number(msg.seq);
+        let id = String(msg.id || "");
         if (!id || !Number.isFinite(seq)) continue;
-        const { translation, ...persisted } = msg; // drop client-only transient state
+
+        const duplicateIds = new Set();
+        const logicalId = logicalMessageId(msg);
+        const exactRow = logicalId ? logicalMessageStmt.get(convId, logicalId) : null;
+        const exactMessage = exactRow ? parseMessageRow(exactRow) : null;
+        if (exactMessage) {
+          duplicateIds.add(String(exactRow.id));
+          msg = mergeLogicalMessages(exactMessage, msg);
+        }
+        const sender = msg.sender_kind != null ? String(msg.sender_kind) : "";
+        const mayBeLegacyUserMirror = !exactMessage
+          && sender === "user"
+          && /^(?:m_|msg_)/.test(String(msg.id || ""));
+        if (mayBeLegacyUserMirror) {
+          // This is only a compatibility bridge for a pre-identity Core row
+          // meeting its delayed cloud twin. Normal traffic converges by
+          // logical_id, so inspect only the recent tail instead of searching
+          // message bodies across the whole conversation.
+          for (const candidateRow of legacyCandidateStmt.all(convId, sender)) {
+            if (String(candidateRow.id) === String(msg.id)) continue;
+            const candidate = parseMessageRow(candidateRow);
+            if (!candidate || !isLegacyBridgeDuplicate(candidate, msg)) continue;
+            duplicateIds.add(String(candidateRow.id));
+            msg = mergeLogicalMessages(candidate, msg);
+          }
+        }
+
+        id = String(msg.id || "");
+        seq = Number(msg.seq);
+        if (!id || !Number.isFinite(seq)) continue;
+        for (const duplicateId of duplicateIds) {
+          if (duplicateId !== id) deleteMessageStmt.run(convId, duplicateId);
+        }
+        const persisted = persistedMessage(msg);
         insertStmt.run(
           convId,
           id,
+          logicalMessageId(msg) || null,
           seq,
           msg.sender_kind != null ? String(msg.sender_kind) : null,
           msg.sender_ref != null ? String(msg.sender_ref) : null,
@@ -171,14 +329,14 @@ function openConversationMessageCache(dbPath) {
     const convId = String(conversationId || "");
     if (!convId) return [];
     const cap = Math.max(1, Math.min(Number(limit) || DEFAULT_RECENT_LIMIT, 1000));
-    const rows = recentStmt.all(convId, cap);
+    const rows = recentStmt.all(convId, Math.min(cap * 2, 2000));
     const out = [];
     for (const row of rows) {
       try {
         out.push(JSON.parse(row.payload));
       } catch { /* skip a corrupt row rather than fail the whole load */ }
     }
-    return out.reverse();
+    return collapseConversationMessages(out.reverse()).slice(-cap);
   }
 
   function getMaxSeq(conversationId) {

@@ -1638,6 +1638,17 @@ impl ConversationService {
         conversation_id: &str,
         request: SendConversationMessageRequest,
     ) -> Result<AcceptedConversationTurn, sqlx::Error> {
+        self.start_user_turn_with_identity(conversation_id, request, None, None)
+            .await
+    }
+
+    pub async fn start_user_turn_with_identity(
+        &self,
+        conversation_id: &str,
+        request: SendConversationMessageRequest,
+        origin_message_id: Option<String>,
+        logical_message_id: Option<String>,
+    ) -> Result<AcceptedConversationTurn, sqlx::Error> {
         let conversation = self.get_conversation(conversation_id).await?.conversation;
         let next_seq: i64 = sqlx::query_scalar(
             "SELECT COALESCE(MAX(seq), 0) + 1 FROM messages WHERE conversation_id = ?",
@@ -1645,12 +1656,16 @@ impl ConversationService {
         .bind(conversation_id)
         .fetch_one(&self.pool)
         .await?;
-        let message_id = format!("msg_{}", Uuid::now_v7().simple());
+        let message_id = valid_external_message_id(origin_message_id.as_deref())
+            .unwrap_or_else(|| format!("msg_{}", Uuid::now_v7().simple()));
         let now = now_ms();
-        let content = json!({
+        let mut content = json!({
             "attachments": request.attachments,
             "selectedSkillIds": request.selected_skill_ids,
         });
+        if let Some(logical_message_id) = clean_logical_message_id(logical_message_id.as_deref()) {
+            content["logicalMessageId"] = json!(logical_message_id);
+        }
         insert_message(
             &self.pool,
             InsertMessage {
@@ -2926,6 +2941,24 @@ fn now_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn valid_external_message_id(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.len() < 3 || value.len() > 200 || !value.starts_with("m_") {
+        return None;
+    }
+    value
+        .chars()
+        .all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | ':' | '.')
+        })
+        .then(|| value.to_string())
+}
+
+fn clean_logical_message_id(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    (!value.is_empty() && value.len() <= 300).then(|| value.to_string())
 }
 
 #[cfg(test)]

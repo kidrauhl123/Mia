@@ -348,13 +348,15 @@ pub async fn start_cloud_bridge_run(
             ))
         })?;
     let turn = match conversation
-        .start_user_turn(
+        .start_user_turn_with_identity(
             &conversation_row.id,
             SendConversationMessageRequest {
                 body: prepared.text.clone(),
                 attachments: prepared.attachments.clone(),
                 selected_skill_ids: prepared.selected_skill_ids.clone(),
             },
+            prepared.origin_message_id.clone(),
+            prepared.logical_message_id.clone(),
         )
         .await
     {

@@ -594,6 +594,10 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
     let bot_id = value_string(message, "botId")
         .ok_or_else(|| CloudError::InvalidInput("botId is required".into()))?;
     let triggering = message.get("triggeringMessage").unwrap_or(&Value::Null);
+    let origin_message_id = value_string(triggering, "id");
+    let logical_message_id = value_string(triggering, "logicalMessageId")
+        .or_else(|| value_string(triggering, "logical_message_id"))
+        .or_else(|| origin_message_id.clone());
     let text = value_string(triggering, "body_md")
         .or_else(|| value_string(triggering, "bodyMd"))
         .or_else(|| value_string(triggering, "text"))
@@ -610,6 +614,8 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
     Ok(CloudBridgeRunRequest {
         run_id,
         conversation_id,
+        origin_message_id,
+        logical_message_id,
         text,
         attachments,
         selected_skill_ids,

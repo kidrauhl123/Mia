@@ -15,6 +15,7 @@ const SHARED_MODULES = [
   { file: "src/shared/cloud-events.js", global: "miaCloudEvents" },
   { file: "packages/shared/unread.js", global: "miaUnread" },
   { file: "src/shared/conversation-kinds.js", global: "miaConversationKinds" },
+  { file: "src/shared/conversation-message-identity.js", global: "miaConversationMessageIdentity" },
   { file: "packages/shared/send-pipeline.js", global: "miaSendPipeline" },
   { file: "packages/shared/cloud-client.js", global: "miaCloudClient" },
   { file: "packages/shared/group-tiles.js", global: "miaGroupTiles" },

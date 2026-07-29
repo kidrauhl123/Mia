@@ -521,6 +521,8 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
     let bridge_run = CloudBridgeRunRequest {
         run_id: "run_1".into(),
         conversation_id: "cloud_conv_1".into(),
+        origin_message_id: Some("m_user_1".into()),
+        logical_message_id: Some("m_user_1".into()),
         text: "hello from cloud".into(),
         attachments: json!([]),
         selected_skill_ids: vec!["mia:flashcards".into()],

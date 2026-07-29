@@ -34,6 +34,8 @@ pub struct PreparedCloudBridgeRun {
     pub run_id: String,
     pub cloud_conversation_id: String,
     pub local_conversation_id: String,
+    pub origin_message_id: Option<String>,
+    pub logical_message_id: Option<String>,
     pub title: String,
     pub text: String,
     pub attachments: Value,
@@ -519,6 +521,12 @@ impl CloudService {
             format!("run_{}", (self.now_ms)().max(0))
         });
         let cloud_conversation_id = clean_or_default(&request.conversation_id, || run_id.clone());
+        let origin_message_id = request.origin_message_id.as_deref().and_then(clean_text);
+        let logical_message_id = request
+            .logical_message_id
+            .as_deref()
+            .and_then(clean_text)
+            .or_else(|| origin_message_id.clone());
         let local_conversation_id = format!(
             "cloud_bridge_{}",
             safe_identifier(&cloud_conversation_id, "conversation")
@@ -548,6 +556,8 @@ impl CloudService {
             run_id: run_id.clone(),
             cloud_conversation_id: cloud_conversation_id.clone(),
             local_conversation_id,
+            origin_message_id: origin_message_id.clone(),
+            logical_message_id: logical_message_id.clone(),
             title: title.clone(),
             text,
             attachments,
@@ -560,6 +570,8 @@ impl CloudService {
                     "conversationId": cloud_conversation_id,
                     "botId": bot_id,
                     "botName": title,
+                    "originMessageId": origin_message_id,
+                    "logicalMessageId": logical_message_id,
                 }
             }),
         })
