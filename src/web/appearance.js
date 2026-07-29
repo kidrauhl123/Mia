@@ -49,6 +49,36 @@
     return `${(n >> 16) & 0xff} ${(n >> 8) & 0xff} ${n & 0xff}`;
   }
 
+  function hexToRgb(hex) {
+    const m = /^#?([a-fA-F0-9]{6})$/.exec(String(hex || "").trim());
+    if (!m) return null;
+    const n = parseInt(m[1], 16);
+    return {
+      r: (n >> 16) & 0xff,
+      g: (n >> 8) & 0xff,
+      b: n & 0xff
+    };
+  }
+
+  function relativeLuminance(rgb) {
+    if (!rgb) return 1;
+    const channel = (value) => {
+      const normalized = value / 255;
+      return normalized <= 0.04045
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * channel(rgb.r) + 0.7152 * channel(rgb.g) + 0.0722 * channel(rgb.b);
+  }
+
+  // Keep the web bubble legible for both the default pale green and custom
+  // dark colors. This uses the same luminance threshold as desktop.
+  function userBubbleTextColor(hex) {
+    return relativeLuminance(hexToRgb(hex)) > 0.56
+      ? "rgba(0, 0, 0, 0.90)"
+      : "#ffffff";
+  }
+
   function applyToDom(next) {
     const root = document.documentElement;
     root.dataset.theme = next.theme === "dark" ? "dark" : "light";
@@ -60,9 +90,11 @@
       const rgb = hexToRgbTriplet(next.accentColor);
       if (rgb) root.style.setProperty("--accent-rgb", rgb);
     }
-    if (next.userBubbleColor) {
-      root.style.setProperty("--user-bubble-color", next.userBubbleColor);
-    }
+    const userBubbleColor = /^#[0-9a-fA-F]{6}$/.test(String(next.userBubbleColor || ""))
+      ? String(next.userBubbleColor).toLowerCase()
+      : DEFAULT_USER_BUBBLE;
+    root.style.setProperty("--user-bubble-color", userBubbleColor);
+    root.style.setProperty("--user-bubble-text", userBubbleTextColor(userBubbleColor));
     if (/^#[0-9a-fA-F]{6}$/.test(String(next.workspaceBackgroundColor || ""))) {
       root.style.setProperty("--workspace-floor", String(next.workspaceBackgroundColor).toLowerCase());
     } else {

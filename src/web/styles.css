@@ -16,6 +16,8 @@
   --faint: rgba(0, 0, 0, 0.36);
   --accent-rgb: 49 138 211;
   --accent: #318ad3;
+  --user-bubble-color: #eeffde;
+  --user-bubble-text: rgba(0, 0, 0, 0.90);
   --list-active: rgb(var(--accent-rgb) / 0.16);
   --shadow: 0 14px 34px rgba(20, 24, 40, 0.08);
   --sidebar-width: 286px;
@@ -40,7 +42,7 @@
 }
 .chat .message.user .bubble {
   background: var(--user-bubble-color, var(--accent));
-  color: #fff;
+  color: var(--user-bubble-text, var(--text));
 }
 
 /* Toggle widget tuned to desktop's settings-switch proportions. */
@@ -1901,8 +1903,8 @@ p {
 }
 
 .message.user .bubble {
-  background: #2f68d8;
-  color: #fff;
+  background: var(--user-bubble-color, #2f68d8);
+  color: var(--user-bubble-text, #fff);
 }
 
 .command-result.session-list {
