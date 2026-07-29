@@ -772,7 +772,8 @@ function createCloudAgentDispatcher(deps = {}) {
         triggerMessageId: message.id,
         status: "complete"
       });
-      cloudAgentRunsStore.markComplete(run.id);
+      const completedRun = cloudAgentRunsStore.markComplete(run.id);
+      broadcastRunLifecycle(completedRun, "run.completed");
       if (!reply._alreadyExisted) {
         for (const member of socialStore.listConversationMembers(conversationId)) {
           if (member.member_kind === MemberKind.User) {
@@ -787,7 +788,8 @@ function createCloudAgentDispatcher(deps = {}) {
         if (!runIsCancelled(currentRun)) markRunCancelledIfNeeded();
         return null;
       }
-      cloudAgentRunsStore.markError(run.id, error);
+      const failedRun = cloudAgentRunsStore.markError(run.id, error);
+      broadcastRunLifecycle(failedRun, "run.failed");
       return appendRunErrorReply({ ownerId, bot, conversationId, triggerMessageId: message.id, error });
     }
   }

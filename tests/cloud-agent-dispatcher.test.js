@@ -114,6 +114,7 @@ function makeDispatcher(ctx, overrides = {}) {
 test("cloud-claude-code DM runs the bot and appends a reply", async () => {
   const ctx = setup();
   const hermesCalls = [];
+  const transientEvents = [];
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
@@ -129,6 +130,9 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
           args.onRunCreated?.("abc123");
           return { runId: "hr_dm", content: "hi", events: [] };
         }
+      },
+      broadcastTransientEvent(userId, payload) {
+        transientEvents.push({ userId, payload });
       }
     });
     ctx.messagesStore.appendMessage({
@@ -161,6 +165,10 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
     assert.equal(hermesCalls[0].workerModel, "mia-auto");
     assert.equal(hermesCalls[0].modelProvider, "mia");
     assert.equal(hermesCalls[0].permissionMode, "bypassPermissions");
+    assert.equal(
+      transientEvents.filter((entry) => entry.payload.event?.type === "run.completed").length,
+      1
+    );
     assert.equal(hermesCalls[0].transient, true);
     assert.equal(Object.prototype.hasOwnProperty.call(hermesCalls[0], "seedMessages"), false);
     assert.match(hermesCalls[0].input, /用户消息：\nhello/);
@@ -1207,6 +1215,7 @@ test("cloud-claude-code does not use the legacy LOAD_SKILL prompt fallback", asy
 test("cloud-claude-code DM surfaces run failures as visible bot messages", async () => {
   const ctx = setup();
   const broadcasts = [];
+  const transientEvents = [];
   try {
     const dispatcher = makeDispatcher(ctx, {
       hermesImClient: {
@@ -1216,6 +1225,9 @@ test("cloud-claude-code DM surfaces run failures as visible bot messages", async
       },
       broadcastPersistedEvent(userId, event) {
         broadcasts.push({ userId, event });
+      },
+      broadcastTransientEvent(userId, payload) {
+        transientEvents.push({ userId, payload });
       }
     });
     const message = ctx.messagesStore.appendMessage({
@@ -1237,6 +1249,10 @@ test("cloud-claude-code DM surfaces run failures as visible bot messages", async
       .get();
     assert.equal(run.status, "error");
     assert.match(run.error_json, /402/);
+    assert.equal(
+      transientEvents.filter((entry) => entry.payload.event?.type === "run.failed").length,
+      1
+    );
     assert.equal(broadcasts.some((entry) => entry.event.type === "conversation.message_appended" && entry.event.message.id === reply.id), true);
   } finally {
     ctx.cleanup();

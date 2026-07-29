@@ -2662,6 +2662,22 @@ test("runtime control reads are deduplicated and keep a per-conversation load st
   assert.match(refreshRuntimeSource, /botRuntimeControlOptionsCache\.clear\(\);\s*botRuntimeControlOptionsLoadStates\.clear\(\);\s*runtimeRequestBackoff\.resetAll\(\);/);
 });
 
+test("cloud Agent conversations do not read local runtime controls", () => {
+  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const cloudControlsSource = extractFunctionSource(appSource, "usesCloudAgentRuntimeControls");
+  const optionsSource = extractFunctionSource(appSource, "runtimeControlOptionsForContext");
+  const requestSource = extractFunctionSource(appSource, "requestRuntimeControlOptions");
+  const syncSource = extractFunctionSource(appSource, "syncConversationBotRuntimeControls");
+
+  assert.match(cloudControlsSource, /cloud-claude-code/);
+  assert.match(optionsSource, /if \(usesCloudAgentRuntimeControls\(context\)\) return null;/);
+  assert.match(requestSource, /if \(usesCloudAgentRuntimeControls\(context\)\) return Promise\.resolve\(null\);/);
+  assert.match(syncSource, /if \(usesCloudAgentRuntimeControls\(controlContext\)\) \{/);
+  assert.match(syncSource, /setComposerRuntimeControlVisible\(els\.quickModelSelect, false\)/);
+  assert.match(syncSource, /setComposerRuntimeControlVisible\(els\.permissionMode, false\)/);
+  assert.match(syncSource, /setModelSwitchStatusText\("Mia Cloud"\)/);
+});
+
 test("Hermes runtime control reads use the lazy Gateway session without waiting for agent warmup", () => {
   const gatewaySource = fs.readFileSync(
     path.join(root, "crates/mia-core-runtime/src/hermes_gateway.rs"),
