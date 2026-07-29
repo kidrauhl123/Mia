@@ -4066,7 +4066,17 @@ function runtimeControlArray(value) {
 }
 
 function usesManagedCloudAgentPermissions(context = activeBotRuntimeControlContext()) {
-  return String(context?.runtimeKind || "").trim() === "cloud-claude-code";
+  return usesCloudAgentRuntimeControls(context);
+}
+
+function usesCloudAgentRuntimeControls(context = activeBotRuntimeControlContext()) {
+  const runtimeKind = String(context?.runtimeKind || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+  return runtimeKind === "cloud-claude-code"
+    || runtimeKind === "mia-cloud"
+    || runtimeKind === "miacloud";
 }
 
 function runtimeControlOptionValue(entry = {}) {
@@ -4123,6 +4133,7 @@ function activeBotRuntimeSendConfig() {
 }
 
 function runtimeControlOptionsForContext(context = activeBotRuntimeControlContext()) {
+  if (usesCloudAgentRuntimeControls(context)) return null;
   const key = runtimeControlOptionsCacheKey(context);
   return key
     ? (window.miaResourceCache?.touchMapValue?.(botRuntimeControlOptionsCache, key)
@@ -4353,6 +4364,7 @@ function runtimeControlRequestWithTimeout(pending, timeoutMs = RUNTIME_CONTROL_R
 }
 
 function requestRuntimeControlOptions(context = activeBotRuntimeControlContext()) {
+  if (usesCloudAgentRuntimeControls(context)) return Promise.resolve(null);
   const key = runtimeControlOptionsCacheKey(context);
   const backoffKey = runtimeControlOptionsBackoffKey(context);
   if (!key) return Promise.resolve(null);
@@ -4450,6 +4462,20 @@ function syncConversationBotRuntimeControls() {
     return false;
   }
   const controlContext = activeBotRuntimeControlContext();
+  if (usesCloudAgentRuntimeControls(controlContext)) {
+    setRuntimeControlDisabled(true);
+    clearComposerRuntimeControl(els.quickModelSelect, els.quickModelLabel);
+    clearComposerRuntimeControl(els.effortSelect, els.effortLabel);
+    clearComposerRuntimeControl(els.permissionMode, els.permissionLabel);
+    window.miaHermesPermissionMenu?.clear?.(els.permissionMode);
+    setComposerRuntimeControlVisible(els.quickModelSelect, false);
+    setComposerRuntimeControlVisible(els.effortSelect, false);
+    setComposerRuntimeControlVisible(els.permissionMode, false);
+    setComposerModelAvatar({}, "", { hidden: true });
+    setComposerModelControlSummary("", "");
+    setModelSwitchStatusText("Mia Cloud");
+    return true;
+  }
   const options = runtimeControlOptionsForContext(controlContext);
   if (!options) {
     els.modelSwitchStatus?.classList.add("runtime-feedback");
@@ -4573,7 +4599,7 @@ function setRuntimeControlDisabled(disabled) {
 
 async function saveActiveBotRuntimeControl(field, value, pendingText, successText, errorPrefix, modelEntries = []) {
   const context = activeBotRuntimeControlContext();
-  if (!context) return false;
+  if (!context || usesCloudAgentRuntimeControls(context)) return false;
   setModelSwitchStatusText(pendingText);
   setRuntimeControlDisabled(true);
   try {
