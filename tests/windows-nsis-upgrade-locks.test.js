@@ -13,9 +13,12 @@ test("Windows NSIS upgrades use same-volume staging and release Mia Core before 
   const source = fs.readFileSync(includePath, "utf8");
 
   assert.equal(packageJson.build.nsis.include, "build/installer.nsh");
-  assert.match(source, /!ifndef MIA_POWERSHELL_PATH_VAR_DECLARED\n!define MIA_POWERSHELL_PATH_VAR_DECLARED\nVar PowerShellPath\n!endif/);
+  assert.doesNotMatch(source, /\nVar(?: \/GLOBAL)? PowerShellPath\n/);
   assert.match(source, /!macro customUnInit/);
   assert.match(source, /!macro customInit[\s\S]{0,400}?!insertmacro prepareLegacyUninstallerTemp/);
+  const customInit = source.match(/!macro customInit[\s\S]*?!macroend/)?.[0];
+  assert.ok(customInit, "customInit must be defined");
+  assert.doesNotMatch(customInit, /\$PowerShellPath/);
   assert.match(source, /\$\{GetOptions\} \$R0 "--updated" \$R1/);
   assert.match(source, /StrCpy \$R9 "\$INSTDIR\.__mia_update_tmp"/);
   assert.match(source, /Kernel32::SetEnvironmentVariable\(t "TEMP", t "\$R9"\)/);
@@ -33,6 +36,8 @@ test("Windows NSIS upgrades use same-volume staging and release Mia Core before 
   assert.match(source, /taskkill \/T \/F \/IM "mia-core\.exe"/);
   assert.match(source, /Sleep 800/);
   assert.match(source, /!macro persistManagedResources removeSource/);
+  assert.match(source, /StrCpy \$R5 "\$SYSDIR\\WindowsPowerShell\\v1\.0\\powershell\.exe"/);
+  assert.match(source, /nsExec::ExecToLog `"\$R5" -NoProfile/);
   assert.match(source, /persist-managed-resources\.ps1/);
   assert.match(source, /ReadEnvStr \$R8 "MIA_HOME"/);
   assert.match(source, /\$APPDATA\\\$\{PRODUCT_NAME\}\\runtime\\engine-home/);

@@ -7,15 +7,6 @@
 ; This macro is consumed by electron-builder's CHECK_APP_RUNNING hook for both
 ; interactive installs and silent electron-updater installs.
 
-; Used by both customInit and customCheckAppRunning. NSIS requires custom
-; variables to be declared before they can be passed to instructions such as
-; StrCpy. electron-builder includes this file in both the shared header and
-; install section, so the declaration itself must be emitted only once.
-!ifndef MIA_POWERSHELL_PATH_VAR_DECLARED
-!define MIA_POWERSHELL_PATH_VAR_DECLARED
-Var PowerShellPath
-!endif
-
 ; electron-builder runs the *old* uninstaller during an update. Its atomic
 ; removal routine stages the old files beneath $PLUGINSDIR. When TEMP is on a
 ; different drive, Windows turns that operation into a copy. Endpoint scanners
@@ -63,7 +54,8 @@ Var PowerShellPath
   StrCpy $R8 "$R8\managed-resources"
   ${If} ${FileExists} "$R7\*.*"
     DetailPrint "Persisting versioned Mia agent runtimes outside the application directory."
-    nsExec::ExecToLog `"$PowerShellPath" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\mia-persist-managed-resources.ps1" -Source "$R7" -Destination "$R8" ${removeSource}`
+    StrCpy $R5 "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
+    nsExec::ExecToLog `"$R5" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\mia-persist-managed-resources.ps1" -Source "$R7" -Destination "$R8" ${removeSource}`
     Pop $R6
     ${If} $R6 != 0
       DetailPrint "Unable to persist Mia agent runtimes (exit code $R6)."
@@ -75,7 +67,6 @@ Var PowerShellPath
 !macro customInit
   InitPluginsDir
   File /oname=$PLUGINSDIR\mia-persist-managed-resources.ps1 "${BUILD_RESOURCES_DIR}\persist-managed-resources.ps1"
-  StrCpy $PowerShellPath "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
   !insertmacro prepareLegacyUninstallerTemp
   !insertmacro persistManagedResources "-RemoveSourceOnSuccess"
 !macroend
@@ -100,9 +91,9 @@ Var PowerShellPath
 
 !macro customCheckAppRunning
   ; Prefer an executable-path scoped sweep so an unrelated Mia/Core installation
-  ; is not touched. Double dollar signs preserve PowerShell variables through
+  ; is not touched. CHECK_APP_RUNNING initializes $PowerShellPath before it
+  ; invokes this hook. Double dollar signs preserve PowerShell variables through
   ; NSIS preprocessing.
-  StrCpy $PowerShellPath "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
   nsExec::Exec `"$PowerShellPath" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "& { param([string]$$root); $$root = [IO.Path]::GetFullPath($$root).TrimEnd('\') + '\'; Get-CimInstance -ClassName Win32_Process | Where-Object { $$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$root, [System.StringComparison]::OrdinalIgnoreCase) } | ForEach-Object { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 600 }" "$INSTDIR"`
   Pop $0
 
