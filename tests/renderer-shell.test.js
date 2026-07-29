@@ -246,7 +246,8 @@ test("settings exposes optional update choices through the preload bridge", () =
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateDownload,\s*\(\)\s*=>\s*autoUpdateService\.downloadUpdate\(\)\)/);
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.UpdateDefer,\s*\(\)\s*=>\s*autoUpdateService\.deferUpdate\(\)\)/);
   assert.match(mainSource, /sendUpdateEvent:\s*\(payload\) => broadcastRendererEvent\(IpcChannel\.UpdateEvent, payload\)/);
-  assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await launchdService\.cleanupLegacyNodeCore\(\);?\s*await stopDaemonService\(\);?\s*\}/);
+  assert.match(mainSource, /prepareForUpdateInstall:\s*async\s*\([^)]*\)\s*=>\s*\{\s*await stopDaemonService\(\);?\s*\}/);
+  assert.match(mainSource, /async function stopDaemonService\(\)\s*\{[\s\S]*?await launchdService\.cleanupLegacyNodeCore\(\);/);
 });
 
 test("runtime refresh re-renders the daemon status card from observed daemon state", () => {
