@@ -144,6 +144,31 @@ function managedResourceManifestPaths(resourcesPath, platform, arch) {
   };
 }
 
+function findManagedResourceDirectories(rootPath) {
+  if (!rootPath || !fs.existsSync(rootPath)) return [];
+  const found = [];
+  const pending = [rootPath];
+  while (pending.length) {
+    const current = pending.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(current, entry.name);
+      if (entry.name === "managed-resources") {
+        found.push(candidate);
+      } else {
+        pending.push(candidate);
+      }
+    }
+  }
+  return found;
+}
+
 function collectRequiredPaths(appPath, { platform = process.platform, arch = "" } = {}) {
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch) || defaultTargetArch();
@@ -233,6 +258,7 @@ async function verifyPackagedMiaCore({
   rootDir = root,
   appPath = "",
   arch = "",
+  managedResources = "required",
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
   hostArch = os.arch(),
@@ -250,12 +276,16 @@ async function verifyPackagedMiaCore({
   }
 
   const paths = collectRequiredPaths(resolvedAppPath, { platform: targetPlatform, arch: targetArch });
+  const managedResourcesMode = ["required", "forbidden", "optional"].includes(managedResources)
+    ? managedResources
+    : "required";
   const required = [
     paths.resourcesPath,
     paths.corePath,
     paths.packageJsonPath,
-    paths.managedResourcesPath,
-    ...paths.requiredManagedResourcePaths
+    ...(managedResourcesMode === "required"
+      ? [paths.managedResourcesPath, ...paths.requiredManagedResourcePaths]
+      : [])
   ].filter(Boolean);
   const missing = required.filter((candidate) => !fs.existsSync(candidate));
   if (missing.length) {
@@ -267,6 +297,18 @@ async function verifyPackagedMiaCore({
       error: missingCore
         ? `Packaged Mia Core is incomplete: missing bundled Rust Core binary at ${paths.corePath}`
         : `Packaged Mia application is incomplete: missing bundled managed ACP resources or other required files: ${missing.join(", ")}`
+    };
+  }
+
+  const embeddedManagedResources = managedResourcesMode === "forbidden"
+    ? findManagedResourceDirectories(path.join(paths.resourcesPath, "bundled-mia-core"))
+    : [];
+  if (embeddedManagedResources.length) {
+    return {
+      ok: false,
+      appPath: resolvedAppPath,
+      corePath: paths.corePath,
+      error: `Lightweight update package must not embed managed ACP resources: remove ${embeddedManagedResources.join(", ")}`
     };
   }
 
@@ -360,6 +402,7 @@ async function main(argv = process.argv.slice(2)) {
   let appPath = "";
   let arch = "";
   let platform = "";
+  let managedResources = "required";
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--app") {
@@ -375,10 +418,23 @@ async function main(argv = process.argv.slice(2)) {
     if (value === "--platform") {
       platform = argv[index + 1] || "";
       index += 1;
+      continue;
+    }
+    if (value === "--managed-resources") {
+      managedResources = argv[index + 1] || "required";
+      index += 1;
     }
   }
 
-  const result = await verifyPackagedMiaCore({ appPath, arch, platform: platform || process.platform });
+  if (!["required", "forbidden", "optional"].includes(managedResources)) {
+    throw new Error(`Invalid --managed-resources mode: ${managedResources}`);
+  }
+  const result = await verifyPackagedMiaCore({
+    appPath,
+    arch,
+    managedResources,
+    platform: platform || process.platform
+  });
   if (!result.ok) {
     const detail = [result.error, result.stderr, result.stdout].filter(Boolean).join("\n").trim();
     process.stderr.write(`packaged Mia Core verification failed: ${detail}\n`);
@@ -394,6 +450,7 @@ async function main(argv = process.argv.slice(2)) {
 module.exports = {
   canRunTargetArch,
   collectRequiredPaths,
+  findManagedResourceDirectories,
   managedResourceManifestPaths,
   normalizeArch,
   normalizePlatform,

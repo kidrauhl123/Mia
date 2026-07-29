@@ -294,6 +294,7 @@ test("cached updates still wait for explicit approval before installing", async 
 test("approved update waits for install preparation before quitting to install", async () => {
   const scheduled = [];
   const prepareCalls = [];
+  const quitStateCalls = [];
   let finishPrepare;
   const preparePromise = new Promise((resolve) => {
     finishPrepare = resolve;
@@ -306,6 +307,9 @@ test("approved update waits for install preparation before quitting to install",
     prepareForUpdateInstall: async (info) => {
       prepareCalls.push(info.version);
       await preparePromise;
+    },
+    beginUpdateInstallQuit: (info) => {
+      quitStateCalls.push(`begin:${info.version}`);
     },
     forceInstallDelayMs: 1,
     setTimeoutFn: (fn, ms) => {
@@ -326,7 +330,41 @@ test("approved update waits for install preparation before quitting to install",
 
   finishPrepare();
   await installPromise;
+  assert.deepEqual(quitStateCalls, ["begin:0.1.12"]);
   assert.equal(updater.quitCalled, true);
+});
+
+test("a synchronous installer launch failure rolls back update quit state", async () => {
+  const events = [];
+  const scheduled = [];
+  const quitStateCalls = [];
+  const updater = new FakeUpdater(() => Promise.resolve({
+    updateInfo: { version: "0.1.12" },
+    downloadPromise: Promise.resolve(),
+  }));
+  updater.quitAndInstall = () => {
+    throw new Error("installer spawn failed");
+  };
+  const service = createService(updater, {
+    beginUpdateInstallQuit: () => quitStateCalls.push("begin"),
+    cancelUpdateInstallQuit: () => quitStateCalls.push("cancel"),
+    sendUpdateEvent: (payload) => events.push(payload),
+    forceInstallDelayMs: 1,
+    setTimeoutFn: (fn, ms) => {
+      scheduled.push({ fn, ms });
+      return scheduled.length;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-available", { version: "0.1.12" });
+  service.downloadUpdate();
+  updater.emit("update-downloaded", { version: "0.1.12" });
+  scheduled[0].fn();
+
+  assert.deepEqual(quitStateCalls, ["begin", "cancel"]);
+  assert.equal(events.at(-1).status, "error");
+  assert.equal(events.at(-1).error.message, "installer spawn failed");
 });
 
 test("approved update reports preparation failures without quitting to install", async () => {

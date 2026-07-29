@@ -40,8 +40,35 @@
   !endif
 !macroend
 
+; Full installers keep the fixed ACP fallbacks for offline first install, but
+; the installed copy lives in Mia's user-data runtime. In-app update installers
+; can therefore omit the unchanged 700 MB resource tree. During the first
+; upgrade from a historical build, customInit persists the old bundled copy
+; before electron-builder invokes the old uninstaller.
+!macro persistManagedResources removeSource
+  StrCpy $R7 "$INSTDIR\resources\bundled-mia-core\win32-x64\managed-resources"
+  ReadEnvStr $R8 "MIA_HOME"
+  ${If} $R8 == ""
+    StrCpy $R8 "$APPDATA\${PRODUCT_NAME}\runtime\engine-home"
+  ${EndIf}
+  StrCpy $R8 "$R8\managed-resources"
+  ${If} ${FileExists} "$R7\*.*"
+    DetailPrint "Persisting versioned Mia agent runtimes outside the application directory."
+    nsExec::ExecToLog `"$PowerShellPath" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\mia-persist-managed-resources.ps1" -Source "$R7" -Destination "$R8" ${removeSource}`
+    Pop $R6
+    ${If} $R6 != 0
+      DetailPrint "Unable to persist Mia agent runtimes (exit code $R6)."
+      Abort "Mia could not preserve its local agent runtimes. The existing installation was left unchanged."
+    ${EndIf}
+  ${EndIf}
+!macroend
+
 !macro customInit
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\mia-persist-managed-resources.ps1 "${BUILD_RESOURCES_DIR}\persist-managed-resources.ps1"
+  StrCpy $PowerShellPath "$SYSDIR\WindowsPowerShell\v1.0\powershell.exe"
   !insertmacro prepareLegacyUninstallerTemp
+  !insertmacro persistManagedResources "-RemoveSourceOnSuccess"
 !macroend
 
 ; New uninstallers repeat the protection while handling --updated directly.
@@ -77,4 +104,10 @@
   nsExec::Exec `"$SYSDIR\cmd.exe" /C taskkill /T /F /IM "mia-core.exe" /FI "USERNAME eq %USERNAME%" >NUL 2>&1`
   Pop $0
   Sleep 800
+!macroend
+
+; A fresh/full installer extracts the fallback runtimes once, persists them,
+; verifies their entrypoints, then removes the duplicate under $INSTDIR.
+!macro customInstall
+  !insertmacro persistManagedResources "-RemoveSourceOnSuccess"
 !macroend

@@ -390,6 +390,52 @@ test("desktop update publisher injects versioned release notes into mac feed", (
   assert.match(readScript("scripts/publish-win-update.js"), /attachDesktopReleaseNotes/);
 });
 
+test("Windows publisher keeps the full installer separate from the lightweight update feed", () => {
+  const pkg = JSON.parse(readScript("package.json"));
+  const version = pkg.version;
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-win-update-publish-"));
+  const releaseDir = path.join(tempDir, "release");
+  const stageDir = path.join(tempDir, "stage");
+  const updateName = `Mia-${version}-Update.exe`;
+  const setupName = `Mia-${version}-Setup.exe`;
+  fs.mkdirSync(releaseDir, { recursive: true });
+  fs.writeFileSync(path.join(releaseDir, "latest.yml"), yaml.dump({
+    version,
+    files: [{ url: updateName, sha512: "abc", size: 6 }],
+    path: updateName,
+    sha512: "abc",
+    releaseDate: "2026-07-28T00:00:00.000Z",
+  }));
+  fs.writeFileSync(path.join(releaseDir, updateName), "update");
+  fs.writeFileSync(path.join(releaseDir, `${updateName}.blockmap`), "blockmap");
+  fs.writeFileSync(path.join(releaseDir, setupName), "full setup");
+
+  try {
+    childProcess.execFileSync(process.execPath, [path.join(root, "scripts", "publish-win-update.js")], {
+      cwd: root,
+      env: {
+        ...process.env,
+        MIA_RELEASE_DIR: releaseDir,
+        MIA_UPDATE_STAGING_DIR: stageDir,
+      },
+      stdio: "pipe",
+    });
+
+    const stagedFeed = yaml.load(fs.readFileSync(path.join(stageDir, "latest.yml"), "utf8"));
+    assert.equal(stagedFeed.files[0].url, updateName);
+    assert.equal(stagedFeed.path, updateName);
+    assert.deepEqual(fs.readdirSync(stageDir).sort(), [
+      "SHA256SUMS-WINDOWS",
+      setupName,
+      updateName,
+      `${updateName}.blockmap`,
+      "latest.yml",
+    ].sort());
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("desktop update publisher merges same-version mac architecture feeds", () => {
   const pkg = JSON.parse(readScript("package.json"));
   const version = pkg.version;

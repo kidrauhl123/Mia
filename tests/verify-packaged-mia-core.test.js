@@ -17,7 +17,12 @@ const MANAGED_ACP_RESOURCES = [
   ["codex-acp", "1.1.4"]
 ];
 
-function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", platform = "darwin", includeLegacyNode = false } = {}) {
+function makeFakePackagedApp(rootDir, coreSource, {
+  arch = "arm64",
+  platform = "darwin",
+  includeLegacyNode = false,
+  includeManagedResources = true
+} = {}) {
   const appPath = platform === "win32"
     ? path.join(rootDir, "release", "win-unpacked")
     : path.join(rootDir, "release", arch === "arm64" ? "mac-arm64" : "mac", "Mia.app");
@@ -48,10 +53,12 @@ function makeFakePackagedApp(rootDir, coreSource, { arch = "arm64", platform = "
   if (includeLegacyNode) {
     fs.writeFileSync(path.join(resourcesPath, LEGACY_NODE_RESOURCE), "legacy node core must not be used");
   }
-  for (const [toolId, version] of MANAGED_ACP_RESOURCES) {
-    const manifestDir = path.join(managedResourcesDir, "acp", toolId, version, `${platform}-${arch}`);
-    fs.mkdirSync(manifestDir, { recursive: true });
-    fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ toolId, version }));
+  if (includeManagedResources) {
+    for (const [toolId, version] of MANAGED_ACP_RESOURCES) {
+      const manifestDir = path.join(managedResourcesDir, "acp", toolId, version, `${platform}-${arch}`);
+      fs.mkdirSync(manifestDir, { recursive: true });
+      fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ toolId, version }));
+    }
   }
 
   return appPath;
@@ -113,6 +120,8 @@ test("collectRequiredPaths resolves the Windows Rust Core executable", () => {
 
 test("verifyPackagedMiaCore launches the packaged Rust Core and waits for /health", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-rust-core-ok-"));
+  const platform = process.platform;
+  const arch = process.arch;
   try {
     const appPath = makeFakePackagedApp(tempDir, `
 const http = require("node:http");
@@ -139,14 +148,14 @@ server.listen(port, host, () => {
 });
 process.on("SIGTERM", () => server.close(() => process.exit(0)));
 process.on("SIGINT", () => server.close(() => process.exit(0)));
-`, { arch: "x64", platform: "darwin", includeLegacyNode: true });
+`, { arch, platform, includeLegacyNode: true });
 
     const result = await verifyPackagedMiaCore({
       appPath,
-      arch: "x64",
-      platform: "darwin",
-      hostArch: "x64",
-      hostPlatform: "darwin",
+      arch,
+      platform,
+      hostArch: arch,
+      hostPlatform: platform,
       timeoutMs: 10000
     });
     assert.equal(result.ok, true, result.error || result.stderr || "expected packaged Core verification to pass");
@@ -204,6 +213,51 @@ test("verifyPackagedMiaCore rejects a package without bundled ACP manifests", as
     assert.equal(result.ok, false);
     assert.match(result.error || "", /bundled managed ACP resources/);
     assert.match(result.error || "", /claude-agent-acp/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("verifyPackagedMiaCore accepts a Core-only Windows update package", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-only-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
+      arch: "x64",
+      platform: "win32",
+      includeManagedResources: false
+    });
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "x64",
+      platform: "win32",
+      managedResources: "forbidden",
+      hostPlatform: "darwin"
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.skippedRuntimeProbe, true);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("verifyPackagedMiaCore rejects managed resources in a lightweight update package", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-only-extra-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
+      arch: "x64",
+      platform: "win32"
+    });
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "x64",
+      platform: "win32",
+      managedResources: "forbidden",
+      hostPlatform: "darwin"
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /must not embed managed ACP resources/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

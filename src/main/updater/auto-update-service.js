@@ -97,6 +97,8 @@ function createAutoUpdateService(deps = {}) {
     installRetryDelayMs = 4000,
     installQuitFallbackDelayMs = 9000,
     prepareForUpdateInstall = null,
+    beginUpdateInstallQuit = null,
+    cancelUpdateInstallQuit = null,
     quitApp = null,
     setTimeoutFn = setTimeout,
     setIntervalFn = setInterval,
@@ -183,8 +185,14 @@ function createAutoUpdateService(deps = {}) {
     // windows; keeping setClosable(false) can leave the UI stuck at 100%.
     setWindowInteractionLocked(false);
     try {
+      beginUpdateInstallQuit?.(info);
       resolveUpdater().quitAndInstall(true, true);
     } catch (error) {
+      try {
+        cancelUpdateInstallQuit?.(info);
+      } catch (cancelError) {
+        logger.warn?.(`${TAG} update quit state rollback failed`, cancelError);
+      }
       installScheduled = false;
       logger.warn?.(`${TAG} quitAndInstall failed (${reason})`, error);
       emitUpdate("error", info, { error: serializeError(error) });

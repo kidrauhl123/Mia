@@ -2757,8 +2757,13 @@ const autoUpdateService = createAutoUpdateService({
   getMainWindows: () => BrowserWindow.getAllWindows(),
   sendUpdateEvent: (payload) => broadcastRendererEvent(IpcChannel.UpdateEvent, payload),
   prepareForUpdateInstall: async () => {
-    await launchdService.cleanupLegacyNodeCore();
     await stopDaemonService();
+  },
+  beginUpdateInstallQuit: () => {
+    explicitMiaQuitInProgress = true;
+  },
+  cancelUpdateInstallQuit: () => {
+    explicitMiaQuitInProgress = false;
   },
   quitApp: () => app.quit(),
 });

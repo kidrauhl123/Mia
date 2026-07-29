@@ -70,8 +70,18 @@ test("update install path removes legacy Node daemon before quitting", () => {
   const main = fs.readFileSync(path.join(SRC_ROOT, "main.js"), "utf8");
   assert.match(
     main,
-    /prepareForUpdateInstall:\s*async\s*\(\)\s*=>\s*\{[\s\S]{0,260}?await launchdService\.cleanupLegacyNodeCore\(\);[\s\S]{0,260}?await stopDaemonService\(\);/,
-    "update install preparation must remove legacy Node daemon before stopping Core"
+    /prepareForUpdateInstall:\s*async\s*\(\)\s*=>\s*\{[\s\S]{0,160}?await stopDaemonService\(\);/,
+    "update install preparation must stop Core through the canonical shutdown path"
+  );
+  assert.doesNotMatch(
+    main,
+    /prepareForUpdateInstall:\s*async\s*\(\)\s*=>\s*\{[\s\S]{0,160}?cleanupLegacyNodeCore/,
+    "update install preparation must not duplicate stopDaemonService legacy cleanup"
+  );
+  assert.match(
+    main,
+    /beginUpdateInstallQuit:\s*\(\)\s*=>\s*\{\s*explicitMiaQuitInProgress = true;/,
+    "electron-updater quit must bypass the normal full-quit interceptor after Core is already stopped"
   );
 });
 

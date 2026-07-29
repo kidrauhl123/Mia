@@ -120,8 +120,17 @@ jobs:
             Get-ChildItem dist/mia-updates -File |
               ForEach-Object { $_.FullName }
           )
-          if ($assets.Count -ne 4) {
-            throw "expected four Windows release assets, found $($assets.Count): $($assets -join ', ')"
+          $version = node -p "require('./package.json').version"
+          $required = @(
+            "latest.yml",
+            "SHA256SUMS-WINDOWS",
+            "Mia-$version-Setup.exe",
+            "Mia-$version-Update.exe",
+            "Mia-$version-Update.exe.blockmap"
+          )
+          $missing = @($required | Where-Object { -not (Test-Path "dist/mia-updates/$_") })
+          if ($missing.Count -ne 0) {
+            throw "missing Windows release assets: $($missing -join ', ')"
           }
           gh release upload $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --clobber @assets
           if ($LASTEXITCODE -ne 0) { throw "failed to upload Windows release assets" }

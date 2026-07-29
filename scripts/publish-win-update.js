@@ -1,6 +1,7 @@
 // Stage or deploy the Windows in-app update feed to Mia's generic HTTPS update
 // source. electron-updater reads latest.yml from https://mia.gifgif.cn/updates/
-// and downloads the NSIS setup .exe plus blockmap from the same origin.
+// and downloads the lightweight NSIS update .exe plus blockmap from the same
+// origin. The full Setup.exe is staged separately for first-time downloads.
 //
 // Run AFTER `npm run dist:win`. By default this writes dist/mia-updates/ only.
 // Set MIA_UPDATE_DEPLOY=1 to rsync that directory to the VPS update root.
@@ -29,12 +30,6 @@ const remoteDir = String(process.env.MIA_UPDATE_REMOTE_DIR || "/var/www/mia-upda
 const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
 const shouldSyncWebDownloads = process.env.MIA_UPDATE_SYNC_WEB_DOWNLOADS !== "0";
 
-const feedFiles = [
-  "latest.yml",
-  `${productName}-${version}-Setup.exe`,
-  `${productName}-${version}-Setup.exe.blockmap`,
-];
-
 function resolveOrThrow(name) {
   const file = path.join(releaseDir, name);
   if (!fs.existsSync(file)) {
@@ -54,7 +49,6 @@ function copyArtifact(source) {
 }
 
 const feedPath = resolveOrThrow("latest.yml");
-const feedPaths = [feedPath, ...feedFiles.slice(1).map(resolveOrThrow)];
 const feed = yaml.load(fs.readFileSync(feedPath, "utf8"));
 if (feed?.version !== version) {
   throw new Error(
@@ -65,6 +59,26 @@ if (feed?.version !== version) {
 if (pkg.build?.publish?.provider !== "generic" || !pkg.build?.publish?.url) {
   throw new Error("package.json build.publish must be the generic provider before publishing Mia updates.");
 }
+const feedArtifactNames = [...new Set((feed?.files || [])
+  .map((entry) => String(entry?.url || "").trim())
+  .filter(Boolean))];
+if (!feedArtifactNames.length) {
+  throw new Error("latest.yml does not reference a Windows update artifact.");
+}
+for (const name of feedArtifactNames) {
+  if (name !== path.basename(name) || name.includes("\\") || !name.toLowerCase().endsWith(".exe")) {
+    throw new Error(`latest.yml contains an invalid Windows update artifact: ${name}`);
+  }
+}
+const fullInstallerName = `${productName}-${version}-Setup.exe`;
+const feedPaths = [...new Set([
+  feedPath,
+  ...feedArtifactNames.flatMap((name) => [
+    resolveOrThrow(name),
+    resolveOrThrow(`${name}.blockmap`),
+  ]),
+  resolveOrThrow(fullInstallerName),
+])];
 const withNotes = attachDesktopReleaseNotes(feed, root, version);
 fs.writeFileSync(feedPath, yaml.dump(withNotes.feed, { lineWidth: -1 }));
 
@@ -98,7 +112,7 @@ if (shouldDeploy) {
       remoteDir,
       cwd: root,
       artifacts: [{
-        fileName: `${productName}-${version}-Setup.exe`,
+        fileName: fullInstallerName,
         aliases: ["mia-windows-latest.exe", "mia-windows-x64-latest.exe"],
       }],
     });

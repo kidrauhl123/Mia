@@ -67,10 +67,13 @@ test("Windows engine backups use native PowerShell zip paths instead of Git tar 
 
 test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   const pkg = packageJson();
+  const desktopPrepareSource = fs.readFileSync(path.join(root, "scripts/prepare-desktop-package.js"), "utf8");
   const source = fs.readFileSync(path.join(root, "scripts/prepare-mia-core-rs.js"), "utf8");
   const extraResources = pkg.build.extraResources || [];
 
-  assert.equal(pkg.build.beforePack, "./scripts/prepare-mia-core-rs.js");
+  assert.equal(pkg.build.beforePack, "./scripts/prepare-desktop-package.js");
+  assert.match(desktopPrepareSource, /buildRendererReact/);
+  assert.match(desktopPrepareSource, /prepareMiaCoreRs/);
   assert.ok(extraResources.some((entry) => entry.from === "resources/bundled-mia-core" && entry.to === "bundled-mia-core"));
   assert.equal(extraResources.some((entry) => entry.from === "resources/managed-resources"), false);
   assert.ok(extraResources.some((entry) => entry.from === "skills" && entry.to === "skills"));
@@ -206,6 +209,12 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(winBuilder, /clean-release\.js/);
   assert.match(winBuilder, /electron-builder/);
   assert.match(winBuilder, /"--win", "nsis", "--publish", "never"/);
+  assert.match(winBuilder, /Update\.\\\$\{ext\}/);
+  assert.match(winBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"0"/);
+  assert.match(winBuilder, /verifyPackage\("required"\)/);
+  assert.match(winBuilder, /verifyPackage\("forbidden"\)/);
+  assert.match(winBuilder, /bundleStash = path\.join\(root,/);
+  assert.doesNotMatch(winBuilder, /bundleStash = path\.join\(bundleRoot,/);
   assert.match(winBuilder, /verify-packaged-mia-core\.js/);
   assert.match(winBuilder, /"--platform",\s+"win32"/);
   assert.match(winBuilder, /"--tidy"/);
@@ -320,6 +329,8 @@ test("tidy release script keeps current distributables and removes intermediate 
     "Mia-0.1.1-Intel.dmg",
     "Mia-0.1.1-Setup.exe",
     "Mia-0.1.1-Setup.exe.blockmap",
+    "Mia-0.1.1-Update.exe",
+    "Mia-0.1.1-Update.exe.blockmap",
     "Mia-0.1.0-arm64-mac.zip",
     "Mia-0.1.0-Intel.dmg",
     "Mia-0.1.0-Setup.exe",
@@ -342,6 +353,8 @@ test("tidy release script keeps current distributables and removes intermediate 
     "Mia-0.1.1-Intel.dmg",
     "Mia-0.1.1-Setup.exe",
     "Mia-0.1.1-Setup.exe.blockmap",
+    "Mia-0.1.1-Update.exe",
+    "Mia-0.1.1-Update.exe.blockmap",
     "Mia-0.1.1-arm64-mac.zip",
     "Mia-0.1.1-arm64-mac.zip.blockmap",
     "latest-mac.yml",
