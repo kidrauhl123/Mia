@@ -2720,6 +2720,7 @@
         installed: false,
         lastScrollTop: Number(chatEl.scrollTop) || 0,
         lastTouchY: null,
+        userScrollEpoch: 0,
         userMovedAwayFromBottom: false
       };
       _chatScrollIntents.set(chatEl, intent);
@@ -2727,6 +2728,7 @@
     if (intent.installed || typeof chatEl.addEventListener !== "function") return intent;
     intent.installed = true;
     const pauseBottomFollow = () => {
+      intent.userScrollEpoch = (Number(intent.userScrollEpoch) || 0) + 1;
       intent.userMovedAwayFromBottom = true;
       stopChatBottomStickSession(chatEl);
     };
@@ -2934,10 +2936,21 @@
 
   function stickChatToBottomAfterPermissionLayout(chatEl, shouldStick) {
     if (!chatEl || !shouldStick) return;
+    const intent = installChatScrollIntentTracker(chatEl);
+    const scheduledConversationId = moduleState.activeConversationId;
+    const scheduledUserScrollEpoch = Number(intent?.userScrollEpoch) || 0;
     const schedule = typeof global.requestAnimationFrame === "function"
       ? global.requestAnimationFrame.bind(global)
       : (fn) => setTimeout(fn, 16);
     schedule(() => {
+      const currentIntent = installChatScrollIntentTracker(chatEl);
+      if (
+        scheduledConversationId !== moduleState.activeConversationId
+        || currentIntent?.userMovedAwayFromBottom
+        || (Number(currentIntent?.userScrollEpoch) || 0) !== scheduledUserScrollEpoch
+      ) {
+        return;
+      }
       scrollChatToBottom(chatEl);
     });
   }

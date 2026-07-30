@@ -247,6 +247,26 @@ test("renderConversationChat pauses streaming bottom follow as soon as an upward
   assert.equal(c.scrollTop, 1000, "stream growth must not win the race against an upward wheel gesture");
 });
 
+test("queued permission-layout bottom follow expires after an upward wheel gesture", () => {
+  const frames = [];
+  const { social, setChat } = loadSocial({
+    requestAnimationFrame: (fn) => {
+      frames.push(fn);
+      return frames.length;
+    }
+  });
+  const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
+  setChat(c);
+  social.renderConversationChat(c);
+
+  dispatchMockEvent(c, "wheel", { deltaY: -120 });
+  c.scrollTop = 590;
+  dispatchMockScroll(c);
+  while (frames.length) frames.shift()?.();
+
+  assert.equal(c.scrollTop, 590, "a stale layout callback must not reset user scroll intent");
+});
+
 test("renderConversationChat detects an upward DOM scroll before its delayed scroll event", () => {
   const { social } = loadSocial();
   const c = scrollEl({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 });
