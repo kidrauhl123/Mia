@@ -4030,7 +4030,9 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
             services.database.pool().clone(),
             RuntimeBuilder::new(config.workspace_dir.to_string_lossy()).with_engine_command(
                 "hermes",
-                delayed_output_command("started\n", "finished\n", 2),
+                // Keep the runtime materially slower than the accepted response while
+                // allowing normal parallel test scheduling overhead on CI.
+                delayed_output_command("started\n", "finished\n", 3),
             ),
         );
         let app = create_router(&services);
@@ -4052,7 +4054,7 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
         let mut events = services.realtime.subscribe();
 
         let response = timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(2),
             app.oneshot(
                 Request::builder()
                     .method("POST")
