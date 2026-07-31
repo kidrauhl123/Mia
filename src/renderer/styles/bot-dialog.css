@@ -1,0 +1,50 @@
+.bot-dialog-loading {
+  min-height: 84px;
+  place-items: center;
+  color: var(--muted);
+}
+
+.bot-runtime-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--field);
+}
+
+.bot-runtime-setup > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bot-runtime-setup strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bot-runtime-setup p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.bot-runtime-setup .secondary {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 520px) {
+  .bot-runtime-setup {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bot-runtime-setup .secondary {
+    width: 100%;
+  }
+}

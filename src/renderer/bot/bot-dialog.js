@@ -7,6 +7,7 @@
   let renderView;
   let render;
   let saveBotDialog;
+  let openModelSettings;
   let botDraft = null;
   let profileDraft = null;
   let returnDialog = null;
@@ -23,6 +24,7 @@
     renderView = deps.renderView;
     render = deps.render;
     saveBotDialog = deps.saveBotDialog;
+    openModelSettings = deps.openModelSettings;
   }
 
   function publish(dialog) {
@@ -262,7 +264,7 @@
       runtimeKind: isCloud ? "cloud-claude-code" : "desktop-local",
       deviceId: String(target.deviceId || "").trim(),
       deviceName: String(target.deviceName || "").trim(),
-      agentEngine: isCloud ? strictAgentEngine(target.agentEngine) : String(target.agentEngine || "hermes").trim()
+      agentEngine: isCloud ? strictAgentEngine(target.agentEngine) : String(target.agentEngine || "").trim()
     });
   }
 
@@ -278,10 +280,10 @@
         targetDeviceName: runtimeKind === "cloud-claude-code" ? "Mia Cloud" : String(parsed.deviceName || "").trim(),
         agentEngine: runtimeKind === "cloud-claude-code"
           ? strictAgentEngine(parsed.agentEngine)
-          : String(parsed.agentEngine || "hermes").trim()
+          : String(parsed.agentEngine || "").trim()
       };
     } catch {
-      return { runtimeKind: "desktop-local", targetDeviceId: "", targetDeviceName: "", agentEngine: "hermes" };
+      return { runtimeKind: "desktop-local", targetDeviceId: "", targetDeviceName: "", agentEngine: "" };
     }
   }
 
@@ -332,6 +334,11 @@
   function clearDialogRuntimeTargetOptions() {
     state?.botDialogRuntimeTargetOptions?.clear?.();
     state?.botDialogRuntimeTargetOptionsLoading?.clear?.();
+    if (botDraft && state?.botDialogOpen) {
+      botDraft.runtimeOptionsLoaded = false;
+      botDraft.runtimeLoading = true;
+      botDraft.runtimeLoadError = "";
+    }
   }
 
   function runtimeTargetBotSnapshot(current = {}) {
@@ -381,7 +388,7 @@
       : "desktop-local";
     const agentEngine = runtimeKind === "cloud-claude-code"
       ? strictAgentEngine(option.agentEngine || option.agent_engine || cloudAgentRuntime().agentEngine)
-      : String(option.agentEngine || option.agent_engine || "hermes").trim();
+      : String(option.agentEngine || option.agent_engine || "").trim();
     const deviceId = runtimeKind === "cloud-claude-code" ? "" : String(option.deviceId || option.device_id || "").trim();
     const localDevice = state?.runtime?.localDevice || {};
     const isCurrentDevice = runtimeKind === "desktop-local"
@@ -478,7 +485,7 @@
         runtimeKind: pending.runtimeKind,
         deviceId: pending.targetIntent?.deviceId || "",
         deviceName: pending.targetIntent?.deviceName || (pending.runtimeKind === "cloud-claude-code" ? "Mia Cloud" : "当前设备"),
-        agentEngine: pending.targetIntent?.agentEngine || "hermes",
+        agentEngine: "",
         label: "同步运行目标...",
         disabled: true,
         disabledReason: ""
@@ -491,10 +498,20 @@
     timer(callback, 0);
   }
 
-  function loadRuntimeTargetOptionsForDialog(current = {}, options = {}) {
-    if (options.skipCoreLoad) return;
+  function loadRuntimeTargetOptionsForDialog(current = {}, config = {}) {
+    if (config.skipCoreLoad) return;
     const api = window.mia?.social?.getBotRuntimeTargetOptions;
-    if (typeof api !== "function") return;
+    if (typeof api !== "function") {
+      botDraft.runtimeOptionsLoaded = true;
+      botDraft.runtimeLoading = false;
+      botDraft.runtimeLoadError = "无法读取本机 Agent 状态，请稍后重试。";
+      botDraft.localAgentSetupRequired = true;
+      botDraft.runtimeSetupRequired = true;
+      botDraft.runtimeGroups = [];
+      botDraft.runtimeValue = "";
+      publishBotDialog();
+      return;
+    }
     const key = runtimeTargetOptionsKey(current);
     const cache = dialogRuntimeTargetOptionsCache();
     if (cache.has(key)) return;
@@ -511,18 +528,38 @@
       Promise.resolve(api(request))
         .then((result) => {
           const data = result?.data || result || {};
-          if (!Array.isArray(data.groups)) return;
+          if (!Array.isArray(data.groups)) {
+            throw new Error("invalid runtime target options");
+          }
           cache.set(key, data);
           if (!state?.botDialogOpen || token !== botRuntimeTargetOptionsToken) return;
+          botDraft.runtimeOptionsLoaded = true;
+          botDraft.runtimeLoadError = "";
           renderBotRuntimeTargetSelect(current, { preservePrevious: true, skipCoreLoad: true });
         })
-        .catch((error) => console.warn("[bot-dialog] runtime target options load failed:", error?.message || error))
+        .catch((error) => {
+          if (state?.botDialogOpen && token === botRuntimeTargetOptionsToken && botDraft) {
+            botDraft.runtimeOptionsLoaded = true;
+            botDraft.runtimeLoading = false;
+            botDraft.runtimeLoadError = "无法读取本机 Agent 状态，请稍后重试。";
+            botDraft.localAgentSetupRequired = true;
+            botDraft.runtimeSetupRequired = true;
+            botDraft.runtimeGroups = [];
+            botDraft.runtimeValue = "";
+            publishBotDialog();
+          }
+          console.warn("[bot-dialog] runtime target options load failed:", error?.message || error);
+        })
         .finally(() => loading.delete(key));
     });
   }
 
-  function renderBotRuntimeTargetSelect(current = {}, options = {}) {
+  function renderBotRuntimeTargetSelect(current = {}, config = {}) {
     if (!botDraft) return;
+    if (!config.skipCoreLoad
+      && !dialogRuntimeTargetOptionsCache().has(runtimeTargetOptionsKey(current))) {
+      botDraft.runtimeOptionsLoaded = false;
+    }
     const previous = botDraft.runtimeValue;
     const cloudRuntime = cloudAgentRuntime();
     const groups = runtimeTargetGroups(current);
@@ -560,9 +597,13 @@
         title: option.disabledReason || "",
         value: encodeRuntimeTarget(option)
       }))
-    }));
-    let values = runtimeGroups.flatMap((group) => group.options.map((option) => option.value));
-    if (wanted && !values.includes(wanted)) {
+    })).filter((group) => group.options.length);
+    let runtimeOptions = runtimeGroups.flatMap((group) => group.options);
+    let values = runtimeOptions.map((option) => option.value);
+    const currentEngineAvailable = coreOptions.some((option) => (
+      !option.disabled && option.agentEngine === currentAgentEngine
+    ));
+    if (wanted && !values.includes(wanted) && currentEngineAvailable) {
       runtimeGroups.push({
         label: currentRuntimeKind === "cloud-claude-code"
           ? "Mia Cloud · 当前绑定"
@@ -574,14 +615,29 @@
           value: wanted
         }]
       });
-      values = [...values, wanted];
+      runtimeOptions = runtimeGroups.flatMap((group) => group.options);
+      values = runtimeOptions.map((option) => option.value);
     }
+    const enabledValues = runtimeOptions.filter((option) => !option.disabled).map((option) => option.value);
+    const localAgentAvailable = coreOptions.some((option) => (
+      option.runtimeKind === "desktop-local" && !option.disabled
+    ));
+    const inventoryScanning = Boolean(state?.runtime?.agentInventory?.summary?.scanning);
     botDraft.runtimeGroups = runtimeGroups;
-    botDraft.runtimeValue = options.preservePrevious && previous && values.includes(previous)
-      ? previous
-      : (values.includes(wanted) ? wanted : (values[0] || ""));
+    botDraft.runtimeLoading = !botDraft.runtimeOptionsLoaded || (inventoryScanning && !localAgentAvailable);
+    botDraft.localAgentSetupRequired = botDraft.runtimeOptionsLoaded
+      && !inventoryScanning
+      && !localAgentAvailable;
+    botDraft.runtimeSetupRequired = botDraft.runtimeOptionsLoaded
+      && !inventoryScanning
+      && enabledValues.length === 0;
+    botDraft.runtimeValue = !botDraft.runtimeOptionsLoaded
+      ? wanted
+      : (config.preservePrevious && previous && enabledValues.includes(previous)
+        ? previous
+        : (enabledValues.includes(wanted) ? wanted : (enabledValues[0] || "")));
     publishBotDialog();
-    loadRuntimeTargetOptionsForDialog(current, options);
+    loadRuntimeTargetOptionsForDialog(current, config);
   }
 
   function renderBotRuntimeLocationSelect(current = "desktop-local") {
@@ -619,6 +675,10 @@
 
   async function submitBotDraft() {
     if (!botDraft || typeof saveBotDialog !== "function") return "伙伴保存器未初始化";
+    if (botDraft.runtimeLoading) return "正在检测本机 Agent，请稍后再试。";
+    if (botDraft.runtimeSetupRequired || !botDraft.runtimeValue) {
+      return "请先前往“设置 → 模型”启用并选择可用的 Agent。";
+    }
     try {
       const error = await saveBotDialog({
         avatar: { ...botDraft.avatar },
@@ -657,7 +717,15 @@
       },
       persona: botDraft.persona,
       personaOpen: botDraft.personaOpen,
+      localAgentSetupRequired: botDraft.localAgentSetupRequired,
+      openModelSettings: () => {
+        closeBotDialog();
+        openModelSettings?.();
+      },
       runtimeGroups: botDraft.runtimeGroups,
+      runtimeLoadError: botDraft.runtimeLoadError,
+      runtimeLoading: botDraft.runtimeLoading,
+      runtimeSetupRequired: botDraft.runtimeSetupRequired,
       runtimeValue: botDraft.runtimeValue,
       setBadge: (value) => {
         botDraft.badgeValue = value;
@@ -699,6 +767,7 @@
       : null;
     const actualBot = seed ? null : (botKey ? bot : null);
     state.botMenuOpen = false;
+    state.contactMenuOpen = false;
     state.profileDialogOpen = false;
     state.botDialogMode = actualBot ? "edit" : "create";
     state.botDialogOpen = true;
@@ -723,7 +792,12 @@
       name: actualBot?.name || seed?.name || "",
       persona: actualBot ? personaText : (seed?.personaText || seed?.persona_text || seed?.bio || ""),
       personaOpen: Boolean(seed),
+      localAgentSetupRequired: false,
       runtimeGroups: [],
+      runtimeLoadError: "",
+      runtimeLoading: true,
+      runtimeOptionsLoaded: false,
+      runtimeSetupRequired: false,
       runtimeValue: "",
       title: actualBot
         ? `编辑「${String(actualBot.name || "").trim() || "伙伴"}」`
@@ -742,7 +816,6 @@
     const openToken = ++botDialogOpenToken;
     const openedKey = botDraft.key;
     const openedMode = botDraft.mode;
-    publishBotDialog();
     renderView?.();
     deferBotDialogWork(() => {
       if (openToken !== botDialogOpenToken || !state?.botDialogOpen) return;

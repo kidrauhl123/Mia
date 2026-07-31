@@ -92,6 +92,42 @@ test("bot runtime target UI uses Core options for dialog, contacts, and store en
   assert.doesNotMatch(manager, /function localRuntimeEngineIds/);
 });
 
+test("bot creation opens immediately and guides empty local Agent setups", () => {
+  const app = read("src/renderer/app.js");
+  const controller = read("src/renderer/bot/bot-dialog.js");
+  const main = read("src/renderer/react/main.tsx");
+  const dialogs = read("src/renderer/react/components/Dialogs.tsx");
+  const dialogStore = read("src/renderer/react/stores/dialogs.ts");
+  const css = read("src/renderer/styles/bot-dialog.css");
+  const html = read("src/renderer/index.html");
+
+  const addBotHandler = app.slice(
+    app.indexOf('els.addBot?.addEventListener("click"'),
+    app.indexOf('els.convMenuNewGroup?.addEventListener("click"')
+  );
+  const contactAddBotHandler = app.slice(
+    app.indexOf('els.contactMenuAddBot?.addEventListener("click"'),
+    app.indexOf('els.contactMenuNewGroup?.addEventListener("click"')
+  );
+  assert.match(addBotHandler, /window\.miaBotDialog\.openBotDialog\(\)/);
+  assert.doesNotMatch(addBotHandler, /renderView\(\)/);
+  assert.match(contactAddBotHandler, /window\.miaBotDialog\.openBotDialog\(\)/);
+  assert.doesNotMatch(contactAddBotHandler, /renderView\(\)/);
+
+  assert.match(main, /const dialogPortalsModule = import\("\.\/components\/Dialogs"\)/);
+  assert.match(main, /const DialogPortals = lazy\(\(\) => dialogPortalsModule\)/);
+  assert.match(main, /fallback=\{<DialogLoadingFallback \/>\}/);
+  assert.match(controller, /localAgentSetupRequired/);
+  assert.match(controller, /openModelSettings/);
+  assert.match(controller, /runtimeSetupRequired/);
+  assert.match(dialogStore, /openModelSettings: \(\) => void/);
+  assert.match(dialogs, /本机尚未启用 Agent/);
+  assert.match(dialogs, /请前往“设置 → 模型”启用 Mia 稳定版。/);
+  assert.match(dialogs, /前往模型设置/);
+  assert.match(css, /\.bot-runtime-setup/);
+  assert.match(html, /styles\/bot-dialog\.css/);
+});
+
 test("discover bot store is framed as assistants, not coworkers", () => {
   const app = read("src/renderer/app.js");
   const html = read("src/renderer/index.html");

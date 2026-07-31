@@ -1364,8 +1364,56 @@ async fn bot_service_owns_runtime_target_option_normalization() {
         fallback.groups[0].options[0].disabled_reason.as_deref(),
         Some("Mia Cloud 运行内核未同步")
     );
-    assert_eq!(fallback.groups[1].options[0].agent_engine, "codex");
-    assert_eq!(fallback.groups[1].options[0].device_id, "current-device");
+    assert_eq!(fallback.groups[1].status_label, "未启用");
+    assert!(fallback.groups[1].options.is_empty());
+    assert!(fallback.active_target.agent_engine.is_empty());
+    assert!(fallback.active_target.disabled);
+    assert_eq!(
+        fallback.active_target.disabled_reason.as_deref(),
+        Some("本机尚未启用可用的 Agent")
+    );
+}
+
+#[tokio::test]
+async fn bot_service_does_not_invent_local_agents_while_detection_is_empty_or_checking() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    for runtime in [
+        json!({
+            "localDevice": { "id": "win-local", "name": "Windows PC" },
+            "agentEngines": {},
+            "agentInventory": {
+                "summary": { "scanning": false },
+                "agents": []
+            }
+        }),
+        json!({
+            "localDevice": { "id": "win-local", "name": "Windows PC" },
+            "agentEngines": {},
+            "agentInventory": {
+                "summary": { "scanning": true },
+                "agents": [
+                    { "id": "hermes", "health": "checking", "source": "checking", "usableInMia": false },
+                    { "id": "claude-code", "health": "checking", "source": "checking", "usableInMia": false },
+                    { "id": "codex", "health": "checking", "source": "checking", "usableInMia": false }
+                ]
+            }
+        }),
+    ] {
+        let options = service.runtime_target_options(BotRuntimeTargetOptionsRequest {
+            bot: json!({}),
+            runtime,
+            engine_capabilities: json!({}),
+            preferred_agent_engine: Some("hermes".to_string()),
+        });
+
+        assert_eq!(options.groups.len(), 1);
+        assert_eq!(options.groups[0].status_label, "未启用");
+        assert!(options.groups[0].options.is_empty());
+        assert!(options.active_target.agent_engine.is_empty());
+        assert!(options.active_target.disabled);
+    }
 }
 
 #[tokio::test]

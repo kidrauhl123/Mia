@@ -81,10 +81,11 @@ function input(value = "") {
 }
 
 function normalizeAgentEngine(value = "") {
-  const id = String(value || "hermes").trim();
+  const id = String(value || "").trim();
+  if (id === "hermes") return "hermes";
   if (id === "claude" || id === "claude-code") return "claude-code";
   if (id === "codex" || id === "openai-codex") return "codex";
-  return "hermes";
+  return "";
 }
 
 function engineLabel(engine = "") {
@@ -103,7 +104,7 @@ function localEngineIds(runtime = {}, engineCapabilities = {}) {
   };
   for (const agent of Array.isArray(runtime.agentInventory?.agents) ? runtime.agentInventory.agents : []) {
     const id = normalizeAgentEngine(agent.id || agent.engine);
-    if (agent.usableInMia || runtime.agentInventory?.summary?.scanning) add(id);
+    if (agent.usableInMia) add(id);
   }
   const engines = runtime.agentEngines || {};
   for (const [key, value] of Object.entries(engines)) {
@@ -115,7 +116,6 @@ function localEngineIds(runtime = {}, engineCapabilities = {}) {
     if (value?.available || value === true) add(key);
   }
   if (runtime.engineInstalled || runtime.engineRunning) add("hermes");
-  if (!ids.length) add(runtime.preferredAgentEngine || "hermes");
   return ids;
 }
 
@@ -143,11 +143,12 @@ function coreRuntimeTargetOptionsForTest({ runtime = {}, engineCapabilities = {}
   const local = runtime.localDevice || {};
   const deviceId = String(local.id || "current-device");
   const deviceName = String(local.name || local.deviceName || "本机");
+  const localEngines = localEngineIds({ ...runtime, preferredAgentEngine }, engineCapabilities);
   groups.push({
     label: deviceName,
-    statusLabel: "本机",
+    statusLabel: localEngines.length ? "本机" : "未启用",
     runtimeKind: "desktop-local",
-    options: localEngineIds({ ...runtime, preferredAgentEngine }, engineCapabilities).map((engine) => ({
+    options: localEngines.map((engine) => ({
       runtimeKind: "desktop-local",
       deviceId,
       deviceName,
@@ -179,6 +180,7 @@ function createBotDialogContext({
   const calls = [];
   const events = [];
   const dialogs = [];
+  const modelSettingsCalls = [];
   const defaultRuntime = {
     cloud: {
       enabled: true,
@@ -275,6 +277,7 @@ function createBotDialogContext({
       miaCloudRuntime: cloudRuntime,
       miaReactDialogs: {
         publish(payload) {
+          events.push("publishDialog");
           dialogs.push(payload.dialog);
         }
       },
@@ -308,13 +311,15 @@ function createBotDialogContext({
     state,
     els,
     renderView() { events.push("renderView"); },
-    render() {}
+    render() {},
+    openModelSettings() { modelSettingsCalls.push("model"); }
   });
   return {
     context,
     calls,
     dialogs,
     events,
+    modelSettingsCalls,
     state,
     select,
     els,
@@ -400,8 +405,8 @@ test("bot dialog repairs an old Core 本机 option with the desktop runtime name
   assert.equal(context.window.miaBotDialog.readSelectedRuntimeTarget().targetDeviceName, "jungdeMacBook-Air-8");
 });
 
-test("creating a bot renders Core local runtime options before device ids load", async () => {
-  const { context, currentDialog } = createBotDialogContext({
+test("creating a bot never invents Hermes when no local Agent is enabled", async () => {
+  const { context, currentDialog, modelSettingsCalls } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
       agentEngines: {},
@@ -412,14 +417,14 @@ test("creating a bot renders Core local runtime options before device ids load",
   context.window.miaBotDialog.openBotDialog();
   await flushDialogAsyncWork();
 
-  assert.deepEqual(decodedRuntimeOptions(currentDialog()), [{
-    label: "Hermes",
-    disabled: false,
-    runtimeKind: "desktop-local",
-    deviceId: "current-device",
-    deviceName: "本机",
-    agentEngine: "hermes"
-  }]);
+  assert.deepEqual(decodedRuntimeOptions(currentDialog()), []);
+  assert.equal(currentDialog().runtimeLoading, false);
+  assert.equal(currentDialog().localAgentSetupRequired, true);
+  assert.equal(currentDialog().runtimeSetupRequired, true);
+
+  currentDialog().openModelSettings();
+  assert.deepEqual(modelSettingsCalls, ["model"]);
+  assert.equal(currentDialog().kind, "closed");
 });
 
 test("creating a bot renders Core-normalized local agent inventory engine choices", async () => {
@@ -452,7 +457,7 @@ test("creating a bot renders Core-normalized local agent inventory engine choice
   );
 });
 
-test("creating a bot renders Core local engine choices while agent scan is still running", async () => {
+test("creating a bot shows detection state without fake options while agent scan is running", async () => {
   const { context, currentDialog } = createBotDialogContext({
     runtime: {
       cloud: { enabled: false, devices: [] },
@@ -473,12 +478,10 @@ test("creating a bot renders Core local engine choices while agent scan is still
   context.window.miaBotDialog.openBotDialog();
   await flushDialogAsyncWork();
 
-  assert.deepEqual(
-    decodedRuntimeOptions(currentDialog())
-      .filter((option) => option.deviceId === "win-local")
-      .map((option) => option.agentEngine),
-    ["hermes", "claude-code", "codex"]
-  );
+  assert.deepEqual(decodedRuntimeOptions(currentDialog()), []);
+  assert.equal(currentDialog().runtimeLoading, true);
+  assert.equal(currentDialog().localAgentSetupRequired, false);
+  assert.equal(currentDialog().runtimeSetupRequired, false);
 });
 
 test("creating a bot paints the dialog before refreshing bridge devices", async () => {
@@ -488,9 +491,9 @@ test("creating a bot paints the dialog before refreshing bridge devices", async 
 
   context.window.miaBotDialog.openBotDialog();
 
-  assert.deepEqual(events, ["renderView"]);
+  assert.deepEqual(events, ["publishDialog", "renderView"]);
   await flushDialogAsyncWork();
-  assert.equal(events[0], "renderView");
+  assert.deepEqual(events.slice(0, 2), ["publishDialog", "renderView"]);
   assert.ok(events.includes("getBotRuntimeTargetOptions"));
   assert.ok(events.includes("listBridgeDevices"));
 });

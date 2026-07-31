@@ -5133,7 +5133,8 @@ async function initializeRuntime(options = {}) {
       state,
       renderView,
       render,
-      saveBotDialog: saveBotDialogDraft
+      saveBotDialog: saveBotDialogDraft,
+      openModelSettings: () => openSettingsView("model")
     });
   }
   if (window.miaTraceBlocks && window.miaTraceBlocks.initTraceBlocks) {
@@ -5968,8 +5969,6 @@ els.convMenuAddFriend?.addEventListener("click", () => {
   window.miaSocial?.openAddFriendDialog?.();
 });
 els.addBot?.addEventListener("click", () => {
-  state.botMenuOpen = false;
-  renderView();
   window.miaBotDialog.openBotDialog();
 });
 els.convMenuNewGroup?.addEventListener("click", () => {
@@ -5988,8 +5987,6 @@ els.contactMenuAddFriend?.addEventListener("click", () => {
   window.miaSocial?.openAddFriendDialog?.();
 });
 els.contactMenuAddBot?.addEventListener("click", () => {
-  state.contactMenuOpen = false;
-  renderView();
   window.miaBotDialog.openBotDialog();
 });
 els.contactMenuNewGroup?.addEventListener("click", () => {
@@ -6125,7 +6122,8 @@ async function saveBotDialogDraft(draft) {
     const runtimeKind = selectedRuntime.runtimeKind || existingBot?.runtimeKind || "desktop-local";
     const targetDeviceId = selectedRuntime.targetDeviceId || state.runtime?.localDevice?.id || "";
     const targetDeviceName = selectedRuntime.targetDeviceName || state.runtime?.localDevice?.name || "";
-    const agentEngine = selectedRuntime.agentEngine || "hermes";
+    const agentEngine = selectedRuntime.agentEngine || "";
+    if (!agentEngine) return "请先启用并选择可用的 Agent 内核。";
     const existingTargetDeviceId = existingBot?.targetDeviceId || existingBot?.target_device_id || existingBot?.deviceId || existingBot?.device_id || "";
     const runtimeChanged = draft.mode !== "edit"
       || runtimeKind !== (existingBot?.runtimeKind || existingBot?.runtime_kind || "desktop-local")

@@ -47,7 +47,16 @@ const ContactPortals = lazy(() => import("./components/Contacts"));
 const SkillPortals = lazy(() => import("./components/Skills"));
 const TaskPortals = lazy(() => import("./components/Tasks"));
 const SettingsCompatPortals = lazy(() => import("./components/SettingsCompat"));
-const DialogPortals = lazy(() => import("./components/Dialogs"));
+const dialogPortalsModule = import("./components/Dialogs");
+const DialogPortals = lazy(() => dialogPortalsModule);
+
+function DialogLoadingFallback() {
+  return (
+    <section className="bot-dialog" role="status" aria-live="polite">
+      <div className="bot-form bot-dialog-loading">正在打开…</div>
+    </section>
+  );
+}
 
 function portal(id: string, component: React.ReactNode): React.ReactPortal | null {
   const host = document.getElementById(id);
@@ -87,8 +96,12 @@ function RendererApp() {
         {snapshot.activeView === "skills" ? <SkillPortals /> : null}
         {snapshot.activeView === "tasks" ? <TaskPortals /> : null}
         {snapshot.activeView === "settings" ? <SettingsCompatPortals /> : null}
-        {dialogs.dialog.kind !== "closed" || dialogs.message ? <DialogPortals /> : null}
       </Suspense>
+      {dialogs.dialog.kind !== "closed" || dialogs.message ? (
+        <Suspense fallback={<DialogLoadingFallback />}>
+          <DialogPortals />
+        </Suspense>
+      ) : null}
     </>
   );
 }

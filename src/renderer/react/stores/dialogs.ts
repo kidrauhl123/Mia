@@ -203,10 +203,15 @@ export type BotDialogView = Readonly<{
   kind: "bot";
   mode: "create" | "edit";
   name: string;
+  localAgentSetupRequired: boolean;
+  openModelSettings: () => void;
   openAvatarEditor: () => void;
   persona: string;
   personaOpen: boolean;
   runtimeGroups: readonly BotRuntimeGroupView[];
+  runtimeLoadError: string;
+  runtimeLoading: boolean;
+  runtimeSetupRequired: boolean;
   runtimeValue: string;
   setBadge: (value: string) => void;
   setColor: (value: string) => void;

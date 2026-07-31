@@ -3699,11 +3699,14 @@ fn runtime_target_options_from_request(
         });
     }
 
-    let local = local_device_target(
-        &runtime,
-        &engine_capabilities,
-        request.preferred_agent_engine.as_deref(),
-    );
+    let local = local_device_target(&runtime, &engine_capabilities);
+    let active_local_engine_available = active.runtime_kind != "desktop-local"
+        || active.device_id != local.id
+        || local
+            .engines
+            .iter()
+            .any(|engine| engine == &active.agent_engine);
+    let active_target_disabled = !active_local_engine_available;
     groups.push(BotRuntimeTargetGroup {
         id: local.id.clone(),
         label: local.display_name.clone(),
@@ -3735,8 +3738,8 @@ fn runtime_target_options_from_request(
             device_name: &active.device_name,
             agent_engine: &active.agent_engine,
             selected: true,
-            disabled: false,
-            disabled_reason: None,
+            disabled: active_target_disabled,
+            disabled_reason: active_target_disabled.then(|| "本机尚未启用可用的 Agent".to_string()),
         }),
         runtime_label: runtime_target_label(&active, &bot, &runtime),
         runs_on_other_device: runtime_target_runs_on_other_device(&active, &runtime),
@@ -3758,7 +3761,7 @@ fn runtime_target_option(input: RuntimeTargetOptionInput<'_>) -> BotRuntimeTarge
     let engine = if input.runtime_kind == "cloud-claude-code" {
         strict_agent_engine(input.agent_engine)
     } else {
-        supported_agent_engine(input.agent_engine).unwrap_or_else(|| "hermes".to_string())
+        strict_agent_engine(input.agent_engine)
     };
     let engine_label = engine_label(&engine);
     let id = if input.runtime_kind == "cloud-claude-code" {
@@ -4024,13 +4027,12 @@ fn active_runtime_target(
     {
         device_name = local_device_display_name(runtime);
     }
-    let agent_engine = supported_agent_engine(
+    let agent_engine = strict_agent_engine(
         &first_map_string(&target_intent, &["agentEngine", "agent_engine", "engine"])
             .or_else(|| first_map_string(bot, &["agentEngine", "agent_engine", "engine"]))
             .or_else(|| first_map_string(&config, &["agentEngine", "agent_engine", "engine"]))
-            .unwrap_or_else(|| "hermes".to_string()),
-    )
-    .unwrap_or_else(|| "hermes".to_string());
+            .unwrap_or_default(),
+    );
     RuntimeTarget {
         runtime_kind,
         device_id,
@@ -4084,22 +4086,19 @@ fn cloud_agent_runtime(runtime: &Map<String, Value>) -> CloudRuntimeTarget {
 fn local_device_target(
     runtime: &Map<String, Value>,
     engine_capabilities: &Map<String, Value>,
-    preferred_agent_engine: Option<&str>,
 ) -> DeviceTarget {
     let id = nested_string(runtime, &["localDevice"], &["id"])
         .or_else(|| nested_string(runtime, &["cloud"], &["deviceId", "device_id"]))
         .unwrap_or_else(|| "current-device".to_string());
-    let mut engines = local_runtime_engine_ids(runtime, engine_capabilities);
-    if engines.is_empty() {
-        let fallback = preferred_agent_engine
-            .and_then(supported_agent_engine)
-            .unwrap_or_else(|| "hermes".to_string());
-        engines.push(fallback);
-    }
+    let engines = local_runtime_engine_ids(runtime, engine_capabilities);
     DeviceTarget {
         id,
         display_name: local_device_display_name(runtime),
-        status_label: "本机".to_string(),
+        status_label: if engines.is_empty() {
+            "未启用".to_string()
+        } else {
+            "本机".to_string()
+        },
         engines,
     }
 }
@@ -4149,12 +4148,6 @@ fn inventory_engine_usable(runtime: &Map<String, Value>, engine: &str) -> bool {
     let Some(inventory) = runtime.get("agentInventory").and_then(Value::as_object) else {
         return false;
     };
-    let scan_in_progress = inventory
-        .get("summary")
-        .and_then(Value::as_object)
-        .and_then(|summary| summary.get("scanning"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
     inventory
         .get("agents")
         .and_then(Value::as_array)
@@ -4166,16 +4159,11 @@ fn inventory_engine_usable(runtime: &Map<String, Value>, engine: &str) -> bool {
                 .and_then(|value| supported_agent_engine(&value))
                 .as_deref()
                 == Some(engine)
-                && (agent
+                && agent
                     .get("usableInMia")
                     .or_else(|| agent.get("usable_in_mia"))
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
-                    || (scan_in_progress
-                        && matches!(
-                            first_map_string(agent, &["health", "source"]).as_deref(),
-                            Some("checking")
-                        )))
         })
 }
 

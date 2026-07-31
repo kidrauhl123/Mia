@@ -960,20 +960,44 @@ function BotDialog({ dialog }: { dialog: BotDialogView }) {
           </div>
         </section>
         <AvatarColors color={dialog.color} colors={dialog.colors} setColor={dialog.setColor} />
-        <label>
-          运行位置和 Agent 内核
-          <select value={dialog.runtimeValue} onChange={(event) => dialog.setRuntime(event.currentTarget.value)}>
-            {dialog.runtimeGroups.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.options.map((option) => (
-                  <option key={option.value} value={option.value} disabled={option.disabled} title={option.title}>
-                    {option.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+        {dialog.runtimeLoading ? (
+          <label>
+            运行位置和 Agent 内核
+            <select value="" disabled aria-label="正在检测本机 Agent">
+              <option value="">正在检测本机 Agent…</option>
+            </select>
+          </label>
+        ) : dialog.runtimeGroups.length ? (
+          <label>
+            运行位置和 Agent 内核
+            <select value={dialog.runtimeValue} onChange={(event) => dialog.setRuntime(event.currentTarget.value)}>
+              {dialog.runtimeGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((option) => (
+                    <option key={option.value} value={option.value} disabled={option.disabled} title={option.title}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {dialog.localAgentSetupRequired || dialog.runtimeLoadError ? (
+          <aside className="bot-runtime-setup" aria-live="polite">
+            <div>
+              <strong>{dialog.runtimeLoadError ? "暂时无法读取 Agent 状态" : "本机尚未启用 Agent"}</strong>
+              <p>
+                {dialog.runtimeLoadError
+                  ? dialog.runtimeLoadError
+                  : "请前往“设置 → 模型”启用 Mia 稳定版。"}
+              </p>
+            </div>
+            <button className="secondary" type="button" onClick={dialog.openModelSettings}>
+              前往模型设置
+            </button>
+          </aside>
+        ) : null}
         <details className="persona-details accordion-details" open={dialog.personaOpen} onToggle={(event) => dialog.setPersonaOpen(event.currentTarget.open)}>
           <summary>人设</summary>
           <div className="accordion-body">
@@ -990,7 +1014,13 @@ function BotDialog({ dialog }: { dialog: BotDialogView }) {
         {error ? <div className="task-create-error">{error}</div> : null}
         <footer className="bot-dialog-actions">
           <button className="secondary" type="button" disabled={saving} onClick={dialog.close}>取消</button>
-          <button className="primary" type="submit" disabled={saving}>{saving ? "保存中…" : "保存伙伴"}</button>
+          <button
+            className="primary"
+            type="submit"
+            disabled={saving || dialog.runtimeLoading || dialog.runtimeSetupRequired}
+          >
+            {saving ? "保存中…" : "保存伙伴"}
+          </button>
         </footer>
       </form>
     </section>
