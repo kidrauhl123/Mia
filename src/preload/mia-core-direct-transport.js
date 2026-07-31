@@ -1,8 +1,74 @@
 "use strict";
 
+const nodeHttp = require("node:http");
+
 const { createMiaCoreHttpClient } = require("../shared/mia-core-http-client.js");
 const { createMiaCoreLocalEventsClient } = require("../shared/mia-core-event-client.js");
 const { coreRequestShouldWaitForStreamingEvents } = require("../shared/mia-core-request-policy.js");
+
+function createNodeLoopbackFetch(deps = {}) {
+  const http = deps.http || nodeHttp;
+  return async function nodeLoopbackFetch(url, options = {}) {
+    const target = new URL(String(url || ""));
+    if (target.protocol !== "http:" || target.hostname !== "127.0.0.1") {
+      throw new Error("Mia Core direct transport only allows 127.0.0.1 HTTP requests.");
+    }
+    return new Promise((resolve, reject) => {
+      const signal = options.signal;
+      const request = http.request({
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: String(options.method || "GET").toUpperCase(),
+        headers: options.headers || {}
+      });
+      const removeAbortListener = () => signal?.removeEventListener?.("abort", abort);
+      const abort = () => {
+        const reason = signal?.reason instanceof Error
+          ? signal.reason
+          : new Error("Mia Core request aborted.");
+        request.destroy(reason);
+      };
+      request.on("response", (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+        response.on("error", (error) => {
+          removeAbortListener();
+          reject(error);
+        });
+        response.on("end", () => {
+          removeAbortListener();
+          const body = Buffer.concat(chunks).toString("utf8");
+          const status = Number(response.statusCode || 0);
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            statusText: String(response.statusMessage || ""),
+            headers: {
+              get(name) {
+                const value = response.headers[String(name || "").toLowerCase()];
+                return Array.isArray(value) ? value.join(", ") : String(value || "");
+              }
+            },
+            json: async () => (body ? JSON.parse(body) : null),
+            text: async () => body
+          });
+        });
+      });
+      request.on("error", (error) => {
+        removeAbortListener();
+        reject(error);
+      });
+      if (signal?.aborted) {
+        abort();
+        return;
+      }
+      signal?.addEventListener?.("abort", abort, { once: true });
+      if (options.body !== undefined && options.body !== null) request.write(options.body);
+      request.end();
+    });
+  };
+}
 
 function loopbackBaseUrl(port) {
   const value = Number(port);
@@ -35,7 +101,7 @@ function createListenerSet() {
 
 function createMiaCoreDirectTransport(deps = {}) {
   const baseUrl = loopbackBaseUrl(deps.port);
-  const fetchImpl = deps.fetch || globalThis.fetch;
+  const fetchImpl = deps.fetch || createNodeLoopbackFetch({ http: deps.http });
   const WebSocketImpl = deps.WebSocketImpl || globalThis.WebSocket;
   const setTimeoutFn = deps.setTimeoutFn || setTimeout;
   const clearTimeoutFn = deps.clearTimeoutFn || clearTimeout;
@@ -142,5 +208,6 @@ function createMiaCoreDirectTransport(deps = {}) {
 
 module.exports = {
   createMiaCoreDirectTransport,
+  createNodeLoopbackFetch,
   loopbackBaseUrl
 };

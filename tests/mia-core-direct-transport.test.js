@@ -1,10 +1,12 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const http = require("node:http");
 const { test } = require("node:test");
 
 const {
   createMiaCoreDirectTransport,
+  createNodeLoopbackFetch,
   loopbackBaseUrl
 } = require("../src/preload/mia-core-direct-transport.js");
 
@@ -51,6 +53,52 @@ test("direct transport validates the loopback Core port", () => {
   assert.equal(loopbackBaseUrl(0), "");
   assert.equal(loopbackBaseUrl(65536), "");
   assert.equal(loopbackBaseUrl("not-a-port"), "");
+});
+
+test("default direct transport uses Node loopback HTTP without browser CORS", async (t) => {
+  let received = null;
+  const server = http.createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      received = {
+        body: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+        method: request.method,
+        url: request.url
+      };
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ groups: [] }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const port = server.address().port;
+  const transport = createMiaCoreDirectTransport({
+    port,
+    WebSocketImpl: FakeSocket
+  });
+  t.after(() => transport.stop());
+
+  const result = await transport.request("POST", "/api/bots/runtime-target-options", {
+    bot: {},
+    runtime: {},
+    engineCapabilities: {}
+  });
+
+  assert.deepEqual(result, { groups: [] });
+  assert.deepEqual(received, {
+    body: { bot: {}, runtime: {}, engineCapabilities: {} },
+    method: "POST",
+    url: "/api/bots/runtime-target-options"
+  });
+});
+
+test("Node loopback fetch rejects non-loopback destinations", async () => {
+  const fetch = createNodeLoopbackFetch();
+  await assert.rejects(
+    () => fetch("https://example.com/api"),
+    /only allows 127\.0\.0\.1/
+  );
 });
 
 test("direct transport owns one Core websocket and splits mapped task/cloud events", () => {
