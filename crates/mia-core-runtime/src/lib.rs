@@ -483,6 +483,10 @@ impl RuntimeSessionManager {
         }
         self.native_acp.respond_permission(request)
     }
+
+    pub fn renew_active_conversation_lease(&self, conversation_id: &str) {
+        self.native_acp.renew_active_lease(conversation_id);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

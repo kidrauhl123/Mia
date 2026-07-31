@@ -7466,6 +7466,52 @@ test("opening a conversation with a WARM local cache fetches a bounded recent ov
   assert.equal(s.moduleState.messageCache.get("dm:u_a:u_b").messages.length, 80, "cached history merged for instant paint");
 });
 
+test("compact cached messages hydrate their full trace only on demand", async () => {
+  const s = loadSocial();
+  let fetches = 0;
+  s.__mockWindow.mia.social = {
+    getCachedConversationMessage: async (conversationId, messageId) => {
+      fetches += 1;
+      assert.equal(conversationId, "c_compact");
+      assert.equal(messageId, "m_compact");
+      return {
+        ok: true,
+        data: {
+          message: {
+            id: "m_compact",
+            seq: 1,
+            sender_kind: "bot",
+            body_md: "done",
+            trace_json: JSON.stringify({ reasoning: "full reasoning", tools: [{ name: "shell", output: "full output" }] })
+          }
+        }
+      };
+    }
+  };
+  s.initSocialModule({ render() {}, els: {} });
+  s.setLifecycleState({ active: false, visible: false });
+  s.moduleState.activeConversationId = "c_compact";
+  s.moduleState.messageCache.set("c_compact", {
+    maxSeq: 1,
+    messages: [{
+      id: "m_compact",
+      seq: 1,
+      sender_kind: "bot",
+      body_md: "done",
+      trace_json: JSON.stringify({ reasoning: "preview" }),
+      _messagePayload: "compact"
+    }]
+  });
+
+  assert.equal(await s.hydrateCompactConversationMessage("m_compact"), true);
+  const [message] = s.moduleState.messageCache.get("c_compact").messages;
+  assert.equal(fetches, 1);
+  assert.equal(message._messagePayload, "full");
+  assert.match(message.trace_json, /full output/);
+  assert.equal(await s.hydrateCompactConversationMessage("m_compact"), false);
+  assert.equal(fetches, 1);
+});
+
 test("opening a conversation keeps cached messages missing from a partial cloud overlap", async () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);

@@ -1,6 +1,8 @@
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use dashmap::DashMap;
@@ -15,6 +17,8 @@ pub(crate) const DEFAULT_RUNTIME_TASK_CACHE_CAPACITY: usize = 4;
 pub(crate) struct BoundedTaskCache<T> {
     tasks: DashMap<String, Arc<Mutex<T>>>,
     last_used: DashMap<String, u64>,
+    last_used_at: DashMap<String, Instant>,
+    owner_keys: DashMap<String, String>,
     mutation: Mutex<()>,
     clock: AtomicU64,
     capacity: usize,
@@ -31,6 +35,8 @@ impl<T> BoundedTaskCache<T> {
         Self {
             tasks: DashMap::new(),
             last_used: DashMap::new(),
+            last_used_at: DashMap::new(),
+            owner_keys: DashMap::new(),
             mutation: Mutex::new(()),
             clock: AtomicU64::new(0),
             capacity: capacity.max(1),
@@ -52,6 +58,13 @@ impl<T> BoundedTaskCache<T> {
     pub(crate) fn remove(&self, key: &str) {
         self.tasks.remove(key);
         self.last_used.remove(key);
+        self.last_used_at.remove(key);
+        self.owner_keys.remove(key);
+    }
+
+    pub(crate) fn set_owner(&self, key: &str, owner_key: &str) {
+        self.owner_keys
+            .insert(key.to_string(), owner_key.to_string());
     }
 
     pub(crate) async fn get_or_try_insert_with<F, Fut>(
@@ -94,9 +107,43 @@ impl<T> BoundedTaskCache<T> {
         Ok(task)
     }
 
-    fn touch(&self, key: &str) {
+    pub(crate) fn touch(&self, key: &str) {
         let tick = self.clock.fetch_add(1, Ordering::Relaxed) + 1;
         self.last_used.insert(key.to_string(), tick);
+        self.last_used_at.insert(key.to_string(), Instant::now());
+    }
+
+    pub(crate) async fn remove_idle_older_than(
+        &self,
+        max_idle: Duration,
+        protected_owners: &HashSet<String>,
+    ) -> Vec<String> {
+        let _mutation = self.mutation.lock().await;
+        let now = Instant::now();
+        let stale_keys = self
+            .tasks
+            .iter()
+            .filter_map(|entry| {
+                let key = entry.key();
+                let is_protected = self
+                    .owner_keys
+                    .get(key)
+                    .is_some_and(|owner| protected_owners.contains(owner.value()));
+                let expired = self
+                    .last_used_at
+                    .get(key)
+                    .is_some_and(|last_used| now.duration_since(*last_used) >= max_idle);
+                (!is_protected
+                    && expired
+                    && Arc::strong_count(entry.value()) == 1
+                    && entry.value().try_lock().is_ok())
+                .then(|| key.clone())
+            })
+            .collect::<Vec<_>>();
+        for key in &stale_keys {
+            self.remove(key);
+        }
+        stale_keys
     }
 
     fn evict_idle_for_incoming(&self) -> Result<()> {
@@ -211,5 +258,29 @@ mod tests {
         );
         assert_eq!(*checked_out.lock().await, 1);
         assert_eq!(cache.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn idle_cleanup_respects_active_owner_leases() {
+        let cache = BoundedTaskCache::with_capacity(2);
+        cache
+            .get_or_try_insert_with("a:1", "a:", || async { Ok(1) })
+            .await
+            .unwrap();
+        cache
+            .get_or_try_insert_with("b:1", "b:", || async { Ok(2) })
+            .await
+            .unwrap();
+        cache.set_owner("a:1", "conversation-a");
+        cache.set_owner("b:1", "conversation-b");
+
+        let protected = HashSet::from(["conversation-a".to_string()]);
+        let removed = cache
+            .remove_idle_older_than(Duration::ZERO, &protected)
+            .await;
+
+        assert_eq!(removed, vec!["b:1"]);
+        assert!(cache.get("a:1").is_some());
+        assert!(cache.get("b:1").is_none());
     }
 }

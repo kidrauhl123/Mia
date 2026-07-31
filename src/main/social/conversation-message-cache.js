@@ -23,6 +23,11 @@ const {
   logicalMessageId,
   mergeLogicalMessages
 } = require("../../shared/conversation-message-identity");
+const {
+  canonicalConversationMessage,
+  compactConversationMessages,
+  hydrateConversationMessageAliases
+} = require("../../shared/conversation-message-payload");
 
 const DEFAULT_RECENT_LIMIT = 50;
 const DEFAULT_PRUNE_KEEP = 300;
@@ -36,20 +41,19 @@ function hasIndex(db, tableName, indexName) {
 }
 
 function persistedMessage(message) {
-  const { translation, ...persisted } = message;
-  return persisted;
+  return canonicalConversationMessage(message);
 }
 
 function parseMessageRow(row) {
   try {
     const payload = JSON.parse(row.payload);
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-    return {
+    return hydrateConversationMessageAliases({
       ...payload,
       id: String(payload.id || row.id || ""),
       seq: Number.isFinite(Number(payload.seq)) ? Number(payload.seq) : Number(row.seq),
       conversation_id: String(payload.conversation_id || row.conversation_id || "")
-    };
+    });
   } catch {
     return null;
   }
@@ -161,7 +165,34 @@ function migrate(db) {
       members_json       TEXT NOT NULL,
       updated_at         TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS cache_meta (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
+
+  const payloadVersion = db.prepare("SELECT value FROM cache_meta WHERE key = 'message_payload_version'").get()?.value;
+  if (payloadVersion !== "1") {
+    const rows = db.prepare("SELECT conversation_id, id, payload FROM messages").all();
+    const update = db.prepare("UPDATE messages SET payload = ? WHERE conversation_id = ? AND id = ?");
+    db.exec("BEGIN");
+    try {
+      for (const row of rows) {
+        let parsed;
+        try { parsed = JSON.parse(row.payload); } catch { continue; }
+        const next = JSON.stringify(persistedMessage(parsed));
+        if (next !== row.payload) update.run(next, row.conversation_id, row.id);
+      }
+      db.prepare(`
+        INSERT INTO cache_meta (key, value) VALUES ('message_payload_version', '1')
+        ON CONFLICT (key) DO UPDATE SET value = excluded.value
+      `).run();
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 // dbPath: absolute path to the sqlite file. The directory is created if missing.
@@ -198,6 +229,11 @@ function openConversationMessageCache(dbPath) {
     WHERE conversation_id = ?
     ORDER BY seq DESC
     LIMIT ?
+  `);
+  const messageStmt = db.prepare(`
+    SELECT conversation_id, id, seq, payload FROM messages
+    WHERE conversation_id = ? AND id = ?
+    LIMIT 1
   `);
   const logicalMessageStmt = db.prepare(`
     SELECT conversation_id, id, seq, payload FROM messages
@@ -325,7 +361,7 @@ function openConversationMessageCache(dbPath) {
   }
 
   // Newest `limit` messages, returned oldest→newest (render order).
-  function getRecentMessages(conversationId, limit = DEFAULT_RECENT_LIMIT) {
+  function getRecentMessages(conversationId, limit = DEFAULT_RECENT_LIMIT, options = {}) {
     const convId = String(conversationId || "");
     if (!convId) return [];
     const cap = Math.max(1, Math.min(Number(limit) || DEFAULT_RECENT_LIMIT, 1000));
@@ -336,7 +372,15 @@ function openConversationMessageCache(dbPath) {
         out.push(JSON.parse(row.payload));
       } catch { /* skip a corrupt row rather than fail the whole load */ }
     }
-    return collapseConversationMessages(out.reverse()).slice(-cap);
+    const messages = collapseConversationMessages(out.reverse()).slice(-cap).map(hydrateConversationMessageAliases);
+    return options?.compact ? compactConversationMessages(messages) : messages;
+  }
+
+  function getMessage(conversationId, messageId) {
+    const convId = String(conversationId || "");
+    const id = String(messageId || "");
+    if (!convId || !id) return null;
+    return parseMessageRow(messageStmt.get(convId, id));
   }
 
   function getMaxSeq(conversationId) {
@@ -530,6 +574,7 @@ function openConversationMessageCache(dbPath) {
   return {
     upsertMessages,
     getRecentMessages,
+    getMessage,
     getMaxSeq,
     deleteMessage,
     cleanupLegacyScheduledUserMessages,

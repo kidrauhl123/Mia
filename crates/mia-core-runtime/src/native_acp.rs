@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use agent_client_protocol::schema::{
     AgentCapabilities, CancelNotification, ContentBlock, EnvVariable, Implementation,
@@ -50,6 +50,9 @@ const ACP_INIT_TIMEOUT: Duration = Duration::from_secs(30);
 const ACP_CLIENT_NAME: &str = "Mia";
 const ACP_CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const ACP_STDERR_TAIL_LIMIT: usize = 16 * 1024;
+const ACP_IDLE_SESSION_TTL: Duration = Duration::from_secs(5 * 60);
+const ACP_ACTIVE_LEASE_TTL: Duration = Duration::from_secs(90);
+const ACP_IDLE_SCAN_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeAcpProbeErrorKind {
@@ -444,6 +447,8 @@ pub trait NativeAcpBackend: Send + Sync {
             error: Some("permission request not found".into()),
         }
     }
+
+    fn renew_active_lease(&self, _conversation_id: &str) {}
 }
 
 #[derive(Clone)]
@@ -519,13 +524,30 @@ impl NativeAcpSessionManager {
     ) -> AgentPermissionRespondResponse {
         self.backend.respond_permission(request)
     }
+
+    pub fn renew_active_lease(&self, conversation_id: &str) {
+        self.backend.renew_active_lease(conversation_id)
+    }
 }
 
-#[derive(Default)]
 pub struct RealNativeAcpBackend {
-    tasks: BoundedTaskCache<NativeAcpTask>,
+    tasks: Arc<BoundedTaskCache<NativeAcpTask>>,
     permissions: NativeAcpPermissionBroker,
     initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
+    active_leases: Arc<DashMap<String, Instant>>,
+    idle_cleanup_started: AtomicBool,
+}
+
+impl Default for RealNativeAcpBackend {
+    fn default() -> Self {
+        Self {
+            tasks: Arc::new(BoundedTaskCache::default()),
+            permissions: NativeAcpPermissionBroker::default(),
+            initial_prompt_provider: None,
+            active_leases: Arc::new(DashMap::new()),
+            idle_cleanup_started: AtomicBool::new(false),
+        }
+    }
 }
 
 impl std::fmt::Debug for RealNativeAcpBackend {
@@ -637,6 +659,15 @@ impl NativeAcpBackend for RealNativeAcpBackend {
     ) -> AgentPermissionRespondResponse {
         self.permissions.respond(request)
     }
+
+    fn renew_active_lease(&self, conversation_id: &str) {
+        let id = conversation_id.trim();
+        if id.is_empty() {
+            return;
+        }
+        self.active_leases.insert(id.to_string(), Instant::now());
+        self.ensure_idle_cleanup_started();
+    }
 }
 
 impl RealNativeAcpBackend {
@@ -649,7 +680,10 @@ impl RealNativeAcpBackend {
         let mut task = task.lock().await;
         task.ensure_session(plan).await?;
         task.reconcile_plan_controls(plan).await?;
-        Ok(task.control_snapshot(plan))
+        let snapshot = task.control_snapshot(plan);
+        drop(task);
+        self.tasks.touch(key);
+        Ok(snapshot)
     }
 
     async fn set_control_once(
@@ -662,7 +696,10 @@ impl RealNativeAcpBackend {
         let task = self.task_for_plan(key, plan).await?;
         let mut task = task.lock().await;
         task.ensure_session(plan).await?;
-        task.set_control(plan, control_id, value).await
+        let snapshot = task.set_control(plan, control_id, value).await?;
+        drop(task);
+        self.tasks.touch(key);
+        Ok(snapshot)
     }
 
     fn with_initial_prompt_provider(provider: Arc<dyn RuntimeInitialPromptProvider>) -> Self {
@@ -675,7 +712,7 @@ impl RealNativeAcpBackend {
     #[cfg(test)]
     fn with_task_capacity_for_tests(capacity: usize) -> Self {
         Self {
-            tasks: BoundedTaskCache::with_capacity(capacity),
+            tasks: Arc::new(BoundedTaskCache::with_capacity(capacity)),
             ..Self::default()
         }
     }
@@ -708,17 +745,20 @@ impl RealNativeAcpBackend {
                 cancellation.clone(),
             )
             .await;
+        self.tasks.touch(&key);
         match result {
             Err(error) if is_restartable_session_error(&error) => {
                 first_attempt_events.finish(false);
                 self.tasks.remove(&key);
                 let fresh_plan = plan_without_resume_session(plan);
                 let fresh_task = self.task_for_plan(&key, &fresh_plan).await?;
-                fresh_task
+                let result = fresh_task
                     .lock()
                     .await
                     .run_turn(fresh_plan, sink, cancellation)
-                    .await
+                    .await;
+                self.tasks.touch(&key);
+                result
             }
             result => {
                 first_attempt_events.finish(true);
@@ -733,7 +773,9 @@ impl RealNativeAcpBackend {
         plan: &RuntimeTurnPlan,
     ) -> Result<Arc<Mutex<NativeAcpTask>>> {
         let logical_key = native_acp_logical_task_key(plan);
-        self.tasks
+        self.ensure_idle_cleanup_started();
+        let task = self
+            .tasks
             .get_or_try_insert_with(key, &format!("{logical_key}:"), || async {
                 NativeAcpTask::spawn(
                     plan,
@@ -742,7 +784,41 @@ impl RealNativeAcpBackend {
                 )
                 .await
             })
-            .await
+            .await?;
+        self.tasks.set_owner(key, &plan.conversation_id);
+        Ok(task)
+    }
+
+    fn ensure_idle_cleanup_started(&self) {
+        if self.idle_cleanup_started.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let tasks = Arc::downgrade(&self.tasks);
+        let active_leases = self.active_leases.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(ACP_IDLE_SCAN_INTERVAL).await;
+                let Some(tasks) = tasks.upgrade() else {
+                    break;
+                };
+                let now = Instant::now();
+                active_leases
+                    .retain(|_, renewed_at| now.duration_since(*renewed_at) < ACP_ACTIVE_LEASE_TTL);
+                let protected = active_leases
+                    .iter()
+                    .map(|lease| lease.key().clone())
+                    .collect::<HashSet<_>>();
+                let removed = tasks
+                    .remove_idle_older_than(ACP_IDLE_SESSION_TTL, &protected)
+                    .await;
+                if !removed.is_empty() {
+                    tracing::info!(
+                        count = removed.len(),
+                        "reclaimed idle ACP session processes"
+                    );
+                }
+            }
+        });
     }
 }
 
@@ -1401,6 +1477,8 @@ struct NativeAcpTask {
     workspace_dir: PathBuf,
     platform_model_applied: Option<String>,
     initial_prompt_provider: Option<Arc<dyn RuntimeInitialPromptProvider>>,
+    process_id: Option<u32>,
+    child_exited: Arc<AtomicBool>,
 }
 
 impl std::fmt::Debug for NativeAcpTask {
@@ -1452,6 +1530,7 @@ impl NativeAcpTask {
                 command.program, command.args
             )
         })?;
+        let process_id = child.id();
         let stdin = child
             .stdin
             .take()
@@ -1465,11 +1544,14 @@ impl NativeAcpTask {
         let (connection_closed_tx, connection_closed_rx) = watch::channel(None::<String>);
         let child_exit_tx = connection_closed_tx.clone();
         let stderr_tail_for_exit = stderr_tail.clone();
+        let child_exited = Arc::new(AtomicBool::new(false));
+        let child_exited_for_wait = child_exited.clone();
         let child_wait_task = tokio::spawn(async move {
             let reason = match child.wait().await {
                 Ok(status) => format!("ACP agent process exited unexpectedly with status {status}"),
                 Err(error) => format!("ACP agent process wait failed: {error}"),
             };
+            child_exited_for_wait.store(true, Ordering::Release);
             // `wait` can resolve slightly before the stderr drain observes EOF.
             // Yield once so a Node/Claude fatal diagnostic written immediately
             // before exit is retained on the error delivered to the caller.
@@ -1491,6 +1573,12 @@ impl NativeAcpTask {
         {
             Ok(protocol) => protocol,
             Err(error) => {
+                #[cfg(windows)]
+                if !child_exited.load(Ordering::Acquire)
+                    && let Some(process_id) = process_id
+                {
+                    let _ = mia_core_common::process::terminate_process_tree(process_id);
+                }
                 child_wait_task.abort();
                 return Err(acp_initialize_error_with_stderr(error, &stderr_tail));
             }
@@ -1505,6 +1593,8 @@ impl NativeAcpTask {
             workspace_dir,
             platform_model_applied: None,
             initial_prompt_provider,
+            process_id,
+            child_exited,
         })
     }
 
@@ -1969,9 +2059,14 @@ impl NativeAcpTask {
 
 impl Drop for NativeAcpTask {
     fn drop(&mut self) {
-        // The wait task owns the child process. Aborting it drops that child,
-        // and `kill_on_drop(true)` prevents an evicted cached task from
-        // leaving an orphan ACP process behind.
+        // Stop the entire Windows process tree before aborting the wait task;
+        // `kill_on_drop` alone only covers the direct ACP bridge process.
+        #[cfg(windows)]
+        if !self.child_exited.load(Ordering::Acquire)
+            && let Some(process_id) = self.process_id
+        {
+            let _ = mia_core_common::process::terminate_process_tree(process_id);
+        }
         self.child_wait_task.abort();
         self.stderr_task.abort();
     }

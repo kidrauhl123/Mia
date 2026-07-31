@@ -13,6 +13,7 @@ const {
   collapseConversationMessages,
   logicalMessageId
 } = require("./shared/conversation-message-identity");
+const { compactConversationMessages } = require("./shared/conversation-message-payload");
 const { createMiaCoreDirectTransport } = require("./preload/mia-core-direct-transport.js");
 
 const miaCoreStartupState = ipcRenderer.sendSync(IpcChannel.MiaCoreStartupState) || {};
@@ -913,6 +914,35 @@ async function listCoreConversationMessages(conversationId, sinceSeq, limit) {
   return { ok: true, data: { ...(response || {}), messages }, ...(response || {}), messages };
 }
 
+function compactMessageListResult(result) {
+  const messages = result?.data?.messages || result?.messages || [];
+  const compact = compactConversationMessages(messages);
+  return {
+    ...(result || {}),
+    data: { ...(result?.data || result || {}), messages: compact },
+    messages: compact
+  };
+}
+
+async function cacheFullConversationMessages(conversationId, messages) {
+  if (!conversationId || !Array.isArray(messages) || !messages.length) return;
+  try {
+    await ipcRenderer.invoke(IpcChannel.SocialCacheConversationMessages, conversationId, messages);
+  } catch {
+    // The Core response remains usable even if the desktop render cache is unavailable.
+  }
+}
+
+async function renewConversationRuntimeLease(conversationId) {
+  const id = String(conversationId || "").trim();
+  if (!id) return { ok: false, error: "missing conversation id" };
+  const localId = isBotConversationId(id) && !isCloudStarterBotConversationId(id)
+    ? localCoreConversationIdForBotConversation(id)
+    : id;
+  const response = await miaCorePost(`/api/conversations/${encodeURIComponent(localId)}/runtime-lease`, {});
+  return { ok: true, data: response || {}, ...(response || {}) };
+}
+
 function rewriteLocalBotMessageConversation(message = {}, conversationId = "", localConversationId = "") {
   const normalized = normalizeCoreMessage(message, { conversationId });
   const content = (() => {
@@ -989,7 +1019,7 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
       // The merged history remains usable in memory even if the render cache is unavailable.
     }
   }
-  return {
+  return compactMessageListResult({
     ok: true,
     data: {
       ...(socialPayload?.data || socialPayload || {}),
@@ -998,7 +1028,7 @@ async function listLocalDesktopBotMessages(conversationId, sinceSeq, limit) {
     },
     localConversationId,
     messages
-  };
+  });
 }
 
 async function listConversationMessagesCompat(conversationId, sinceSeq, limit) {
@@ -1008,7 +1038,9 @@ async function listConversationMessagesCompat(conversationId, sinceSeq, limit) {
   }
   if (isCoreConversationId(conversationId)) {
     try {
-      return await listCoreConversationMessages(conversationId, sinceSeq, limit);
+      const result = await listCoreConversationMessages(conversationId, sinceSeq, limit);
+      await cacheFullConversationMessages(conversationId, result?.data?.messages || result?.messages || []);
+      return compactMessageListResult(result);
     } catch (error) {
       if (!String(error?.message || "").includes("404")) throw error;
     }
@@ -1434,6 +1466,10 @@ contextBridge.exposeInMainWorld("mia", {
     listConversationMessages: (conversationId, sinceSeq, limit) => listConversationMessagesCompat(conversationId, sinceSeq, limit),
     searchConversationMessages: (query, limit) => ipcRenderer.invoke(IpcChannel.SocialSearchConversationMessages, query, limit),
     getCachedConversationMessages: (conversationId, limit) => ipcRenderer.invoke(IpcChannel.SocialGetCachedMessages, conversationId, limit),
+    getCachedConversationMessage: (conversationId, messageId) => (
+      ipcRenderer.invoke(IpcChannel.SocialGetCachedMessage, conversationId, messageId)
+    ),
+    renewConversationRuntimeLease: (conversationId) => renewConversationRuntimeLease(conversationId),
     cacheConversationMetadata: (conversation) => ipcRenderer.invoke(IpcChannel.SocialCacheConversation, conversation),
     getCachedSocialBootstrap: (userId) => ipcRenderer.invoke(IpcChannel.SocialGetCachedBootstrap, userId),
     postConversationMessage: (conversationId, body) => postConversationMessageCompat(conversationId, body),

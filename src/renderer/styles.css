@@ -6442,7 +6442,22 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   background: var(--agent-run-status-loader-strong);
   opacity: 0.13;
   box-shadow: 0 0 3px var(--agent-run-status-loader-ring);
-  will-change: opacity;
+}
+
+.agent-run-status.is-loading .agent-run-status-loader {
+  animation: agent-run-status-orb-pulse 1800ms steps(6, end) infinite;
+  animation-delay: calc(0ms - var(--agent-run-animation-age, 0ms));
+}
+
+@keyframes agent-run-status-orb-pulse {
+  0%, 100% { opacity: 0.72; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-run-status.is-loading .agent-run-status-loader {
+    animation: none;
+  }
 }
 
 .agent-run-status-orb-dot.is-inactive {

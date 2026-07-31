@@ -6785,11 +6785,15 @@ els.chat.addEventListener("toggle", (event) => {
   const key = row.dataset.traceKey;
   if (!key) return;
   if (row.open) {
-    window.miaTraceBlocks?.hydrateTraceRow?.(row);
     state.openTraceKeys.add(key);
     state.openTraceKeys.delete(`!${key}`);
     row.dataset.userOpen = "true";
     delete row.dataset.autoOpen;
+    window.miaTraceBlocks?.hydrateTraceRow?.(row);
+    const article = row.closest?.("article[data-message-id]");
+    if (article?.dataset?.messageId) {
+      Promise.resolve(window.miaSocial?.hydrateCompactConversationMessage?.(article.dataset.messageId)).catch(() => {});
+    }
   } else {
     window.miaTraceBlocks?.releaseTraceRow?.(row);
     state.openTraceKeys.delete(key);

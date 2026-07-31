@@ -238,6 +238,48 @@ test("cache persists across reopen (cold-start render survives restart)", () => 
   }
 });
 
+test("large message payloads are canonical on disk, compact in lists, and full by id", () => {
+  const { dir, dbPath } = tempCache();
+  const large = "x".repeat(200_000);
+  const trace = { reasoning: large, tools: [{ id: "tool_1", name: "shell", output: large }] };
+  const blocks = [{ type: "tool", id: "tool_1", name: "shell", output: large }];
+  const cache = openConversationMessageCache(dbPath);
+  try {
+    cache.upsertMessages("c1", [msg(1, {
+      content: { runtime: { trace, contentBlocks: blocks }, label: "kept" },
+      content_json: JSON.stringify({ runtime: { trace, contentBlocks: blocks }, label: "kept" }),
+      trace,
+      trace_json: JSON.stringify(trace),
+      contentBlocks: blocks,
+      content_blocks_json: JSON.stringify(blocks)
+    })]);
+
+    const [compact] = cache.getRecentMessages("c1", 50, { compact: true });
+    assert.equal(compact._messagePayload, "compact");
+    assert.ok(JSON.stringify(compact).length < 20_000, "list payload stays bounded");
+
+    const full = cache.getMessage("c1", "m1");
+    assert.equal(full.trace.reasoning, large);
+    assert.equal(full.contentBlocks[0].output, large);
+  } finally {
+    cache.close();
+  }
+
+  const db = new DatabaseSync(dbPath);
+  try {
+    const payload = JSON.parse(db.prepare("SELECT payload FROM messages WHERE id = 'm1'").get().payload);
+    const content = JSON.parse(payload.content_json);
+    assert.equal(payload.content, undefined);
+    assert.equal(payload.trace, undefined);
+    assert.equal(payload.contentBlocks, undefined);
+    assert.equal(content.label, "kept");
+    assert.equal(content.runtime, undefined, "runtime aliases were removed from content_json");
+  } finally {
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("logical identity keeps cloud and Core mirrors as one durable cache row", () => {
   const { dir, dbPath } = tempCache();
   const cache = openConversationMessageCache(dbPath);

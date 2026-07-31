@@ -21,7 +21,8 @@ use super::conversation::{
     cancel_conversation_turn, create_conversation, delete_conversation, get_conversation,
     list_conversation_messages, list_conversations, materialize_conversation_skills,
     plan_agent_session_skills, prepare_conversation_runtime_controls,
-    run_conversation_utility_turn, send_conversation_message, set_conversation_runtime_control,
+    renew_conversation_runtime_lease, run_conversation_utility_turn, send_conversation_message,
+    set_conversation_runtime_control,
 };
 use super::engine::{
     agent_engines, codex_models, engine_capabilities, engine_model_catalog, hermes_slash_commands,
@@ -161,6 +162,10 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route(
             "/api/conversations/{conversation_id}/runtime-controls",
             axum::routing::patch(set_conversation_runtime_control),
+        )
+        .route(
+            "/api/conversations/{conversation_id}/runtime-lease",
+            post(renew_conversation_runtime_lease),
         )
         .route(
             "/api/conversations/{conversation_id}/messages",

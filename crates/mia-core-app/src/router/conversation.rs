@@ -72,6 +72,16 @@ pub async fn get_conversation(
         .map_err(map_sqlx_status)
 }
 
+pub async fn renew_conversation_runtime_lease(
+    State(states): State<ModuleStates>,
+    Path(conversation_id): Path<String>,
+) -> Json<Value> {
+    states
+        .runtime_sessions
+        .renew_active_conversation_lease(&conversation_id);
+    Json(json!({ "ok": true }))
+}
+
 pub async fn prepare_conversation_runtime_controls(
     State(states): State<ModuleStates>,
     Path(conversation_id): Path<String>,

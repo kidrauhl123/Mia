@@ -1,4 +1,5 @@
 const { IpcChannel } = require("../../shared/ipc-channels");
+const { compactConversationMessages } = require("../../shared/conversation-message-payload");
 
 function safeCall(fn) {
   return async (_event, ...args) => {
@@ -346,7 +347,7 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
       }
       catch (error) { log(`[social-ipc] message cache upsert failed: ${error?.message || error}`); }
     }
-    return result;
+    return replaceResultArray(result, "messages", compactConversationMessages(resultArray(result, "messages")));
   }));
   ipcMain.handle(IpcChannel.SocialSearchConversationMessages, cloudCall(async (query, limit) => {
     const result = await socialApi.searchConversationMessages(query, limit);
@@ -363,7 +364,11 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   }));
   ipcMain.handle(IpcChannel.SocialGetCachedMessages, safeCall((conversationId, limit) => {
     if (!messageCache) return { messages: [] };
-    return { messages: messageCache.getRecentMessages(conversationId, limit) };
+    return { messages: messageCache.getRecentMessages(conversationId, limit, { compact: true }) };
+  }));
+  ipcMain.handle(IpcChannel.SocialGetCachedMessage, safeCall((conversationId, messageId) => {
+    if (!messageCache || typeof messageCache.getMessage !== "function") return { message: null };
+    return { message: messageCache.getMessage(conversationId, messageId) };
   }));
   ipcMain.handle(IpcChannel.SocialCacheConversation, safeCall((conversation) => {
     writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, pendingSync: true, log });

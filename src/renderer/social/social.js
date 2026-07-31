@@ -299,7 +299,6 @@
   const SCROLL_LAYOUT_OBSERVER_TIMEOUT_MS = 2200;
   const MESSAGE_FOCUS_PENDING_TTL_MS = 10000;
   const MESSAGE_FOCUS_HIGHLIGHT_MS = 2200;
-  const PHASE_ORB_CYCLE_MS = 1700;
   const PHASE_ORB_BASE_OPACITY = 0.08;
   const PHASE_ORB_OPACITY = 0.96;
   const PHASE_ORB_NEAR_OPACITY = 0.34;
@@ -707,7 +706,7 @@
   let deps = null;
   let _cloudRunRenderFrame = 0;
   let _cloudRunStatusTimer = 0;
-  let _phaseOrbAnimationFrame = 0;
+  let _runtimeLeaseTimer = 0;
   let _rendererLifecycleActive = true;
   let _rendererDocumentVisible = true;
   let _permissionBannerWired = false;
@@ -1891,7 +1890,7 @@
     const angle = Math.atan2(y, x);
     const opacity = isLoading ? phaseOrbOpacityForCell(row, col, 0) : null;
     const opacityStyle = opacity == null ? "" : ` style="opacity:${opacity}"`;
-    return `data-orb-row="${row}" data-orb-col="${col}" data-orb-x="${x}" data-orb-y="${y}" data-orb-ring="${Number(ring.toFixed(3))}" data-orb-angle="${Number(angle.toFixed(3))}"${opacityStyle}`;
+    return `data-orb-row="${row}" data-orb-col="${col}" data-orb-ring="${Number(ring.toFixed(3))}" data-orb-angle="${Number(angle.toFixed(3))}"${opacityStyle}`;
   }
 
   function runStatusPhaseOrbHtml(isLoading) {
@@ -1928,106 +1927,6 @@
     `;
   }
 
-  function prefersReducedMotion() {
-    try {
-      return Boolean(global.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
-    } catch {
-      return false;
-    }
-  }
-
-  function phaseOrbStatusElements(root) {
-    if (!root) return [];
-    const items = [];
-    const className = String(root.className || "");
-    if (className.split(/\s+/).includes("agent-run-status")) items.push(root);
-    if (typeof root.querySelectorAll === "function") {
-      items.push(...Array.from(root.querySelectorAll(".agent-run-status")));
-    }
-    return items;
-  }
-
-  function updatePhaseOrbStatusElement(statusEl, now = Date.now()) {
-    if (!statusEl) return false;
-    const className = String(statusEl.className || "");
-    const isLoading = className.split(/\s+/).includes("is-loading");
-    const dots = typeof statusEl.querySelectorAll === "function"
-      ? Array.from(statusEl.querySelectorAll(".agent-run-status-orb-dot"))
-      : [];
-    if (!dots.length) return isLoading;
-
-    if (!isLoading) {
-      dots.forEach((dot) => {
-        if (dot?.style && typeof dot.style.removeProperty === "function") dot.style.removeProperty("opacity");
-      });
-      return false;
-    }
-
-    const reducedMotion = prefersReducedMotion();
-    const phase = reducedMotion ? 0 : ((Number(now) || Date.now()) % PHASE_ORB_CYCLE_MS) / PHASE_ORB_CYCLE_MS;
-    dots.forEach((dot) => {
-      if (!dot || String(dot.className || "").split(/\s+/).includes("is-inactive")) return;
-      const row = Number(dot.dataset?.orbRow);
-      const col = Number(dot.dataset?.orbCol);
-      const opacity = phaseOrbOpacityForCell(row, col, phase, { reducedMotion });
-      if (opacity == null || !dot.style) return;
-      dot.style.opacity = String(opacity);
-    });
-    return true;
-  }
-
-  function updatePhaseOrbStatusElements(root, now = Date.now()) {
-    let hasLoading = false;
-    for (const statusEl of phaseOrbStatusElements(root)) {
-      hasLoading = updatePhaseOrbStatusElement(statusEl, now) || hasLoading;
-    }
-    return hasLoading;
-  }
-
-  function requestPhaseOrbFrame(callback) {
-    const raf = typeof global.requestAnimationFrame === "function"
-      ? global.requestAnimationFrame.bind(global)
-      : null;
-    if (!raf) {
-      return typeof global.setTimeout === "function" ? global.setTimeout(() => callback(Date.now()), 16) : 0;
-    }
-    let sync = true;
-    const frame = raf((timestamp) => {
-      if (sync && typeof global.setTimeout === "function") {
-        global.setTimeout(() => callback(timestamp || Date.now()), 16);
-        return;
-      }
-      callback(timestamp || Date.now());
-    });
-    sync = false;
-    return frame;
-  }
-
-  function schedulePhaseOrbAnimation(root = document) {
-    if (!rendererWorkActive() || _phaseOrbAnimationFrame) return;
-    _phaseOrbAnimationFrame = requestPhaseOrbFrame((timestamp) => {
-      _phaseOrbAnimationFrame = 0;
-      if (rendererWorkActive() && updatePhaseOrbStatusElements(root || document, timestamp)) {
-        schedulePhaseOrbAnimation(root);
-      }
-    });
-  }
-
-  function startPhaseOrbAnimation(root = document) {
-    if (rendererWorkActive() && updatePhaseOrbStatusElements(root, Date.now())) {
-      schedulePhaseOrbAnimation(document);
-    }
-  }
-
-  function cancelPhaseOrbAnimation() {
-    if (!_phaseOrbAnimationFrame) return;
-    const cancel = typeof global.cancelAnimationFrame === "function"
-      ? global.cancelAnimationFrame.bind(global)
-      : (typeof global.clearTimeout === "function" ? global.clearTimeout.bind(global) : null);
-    cancel?.(_phaseOrbAnimationFrame);
-    _phaseOrbAnimationFrame = 0;
-  }
-
   function setTextIfChanged(element, text) {
     if (!element) return false;
     const next = String(text || "");
@@ -2059,7 +1958,6 @@
     setTextIfChanged(elapsedEl, model.elapsed);
     const goalEl = statusEl.querySelector?.(".agent-run-status-goal");
     if (goalEl) setTextIfChanged(goalEl, model.goalText);
-    startPhaseOrbAnimation(statusEl);
     return true;
   }
 
@@ -3166,13 +3064,32 @@
     _rendererDocumentVisible = Boolean(visible);
     if (!rendererWorkActive()) {
       cancelCloudRunRenderFrame();
-      cancelPhaseOrbAnimation();
       stopAllChatBottomStickSessions();
       refreshCloudRunStatusTimer();
+      refreshRuntimeLeaseTimer();
       return;
     }
     refreshCloudRunStatusTimer();
-    startPhaseOrbAnimation(document);
+    refreshRuntimeLeaseTimer();
+  }
+
+  function renewActiveConversationRuntimeLease() {
+    const conversationId = moduleState.activeConversationId;
+    const api = window.mia?.social;
+    if (!rendererWorkActive() || !conversationId || typeof api?.renewConversationRuntimeLease !== "function") {
+      return;
+    }
+    Promise.resolve(api.renewConversationRuntimeLease(conversationId)).catch(() => {});
+  }
+
+  function refreshRuntimeLeaseTimer() {
+    if (_runtimeLeaseTimer) {
+      global.clearInterval?.(_runtimeLeaseTimer);
+      _runtimeLeaseTimer = 0;
+    }
+    if (!rendererWorkActive() || !moduleState.activeConversationId) return;
+    renewActiveConversationRuntimeLease();
+    _runtimeLeaseTimer = global.setInterval?.(renewActiveConversationRuntimeLease, 30_000) || 0;
   }
 
   function activeConversationRun() {
@@ -4137,6 +4054,7 @@
       }
       if (removedConversationIds.includes(String(moduleState.activeConversationId || ""))) {
         moduleState.activeConversationId = null;
+        refreshRuntimeLeaseTimer();
       }
       if (deps && typeof deps.render === "function") deps.render("conversation");
       return;
@@ -4383,7 +4301,10 @@
       _messageRenderWindowStates.delete(conversationId);
       moduleState.unreadByConversation.delete(conversationId);
       _conversationMembersCache.delete(conversationId);
-      if (wasActiveConversation) moduleState.activeConversationId = null;
+      if (wasActiveConversation) {
+        moduleState.activeConversationId = null;
+        refreshRuntimeLeaseTimer();
+      }
       // Pin state is on cloud (Phase 3); the server side cascades on
       // conversation delete and pushes user_settings.updated, so no client-side
       // cleanup is needed here. Leftover pin entries (orphaned by a
@@ -4759,7 +4680,6 @@
         updateActiveCloudRunStreamingArticle(conversationId);
       }
       initNameBadgeLotties(containerEl);
-      startPhaseOrbAnimation(containerEl);
       applyScroll();
       if (conversation && conversationType === "group" && !_conversationMembersCache.has(conversationId)) {
         _fetchAndCacheConversationMembers(conversationId);
@@ -4783,7 +4703,6 @@
     })) {
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
-      startPhaseOrbAnimation(containerEl);
       initNameBadgeLotties(containerEl);
       applyScroll();
       animateMessageLayoutShift(containerEl, previousMessageLayout);
@@ -4820,7 +4739,6 @@
       appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "bottom");
       window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
       markRenderedTraceBlocks(containerEl);
-      startPhaseOrbAnimation(containerEl);
       initNameBadgeLotties(containerEl);
       applyScroll();
       animateMessageLayoutShift(containerEl, previousMessageLayout);
@@ -4853,7 +4771,6 @@
     appendMessageWindowNavigation(containerEl, conversationId, messageWindow, "bottom");
     window.miaAvatar?.hydrateAvatarVideos?.(containerEl);
     markRenderedTraceBlocks(containerEl);
-    startPhaseOrbAnimation(containerEl);
     initNameBadgeLotties(containerEl);
     applyScroll();
     animateMessageLayoutShift(containerEl, previousMessageLayout);
@@ -5363,6 +5280,7 @@
     enforceMessageCachePolicy(toId, toEntry);
     if (moduleState.activeConversationId === fromId) {
       moduleState.activeConversationId = toId;
+      refreshRuntimeLeaseTimer();
       rememberBotConversation(toId);
     }
     if (deps && typeof deps.render === "function") deps.render();
@@ -6301,6 +6219,36 @@
     return entry.messages.find((msg) => String(msg?.id || "") === id) || null;
   }
 
+  const _hydratingCompactMessages = new Map();
+
+  async function hydrateCompactConversationMessage(messageId) {
+    const conversationId = moduleState.activeConversationId;
+    const id = String(messageId || "").trim();
+    const cached = cachedMessageById(conversationId, id);
+    if (!conversationId || !id || cached?._messagePayload !== "compact") return false;
+    const requestKey = `${conversationId}:${id}`;
+    if (_hydratingCompactMessages.has(requestKey)) return _hydratingCompactMessages.get(requestKey);
+    const request = (async () => {
+      const api = window.mia?.social;
+      if (!api || typeof api.getCachedConversationMessage !== "function") return false;
+      try {
+        const response = await api.getCachedConversationMessage(conversationId, id);
+        const full = response?.ok ? response.data?.message : response?.message;
+        if (!full) return false;
+        _mergeMessagesIntoCache(conversationId, [{ ...full, _messagePayload: "full" }]);
+        if (conversationId === moduleState.activeConversationId) _reRenderActiveChat();
+        return true;
+      } catch (error) {
+        console.warn("[social] full message hydration failed:", error?.message || error);
+        return false;
+      } finally {
+        _hydratingCompactMessages.delete(requestKey);
+      }
+    })();
+    _hydratingCompactMessages.set(requestKey, request);
+    return request;
+  }
+
   const _ensuringConversations = new Set();
 
   // TG-style local-first open: paint the locally-cached recent history instantly
@@ -6439,6 +6387,7 @@
     _lastRenderedConversationMessageIds = [];
     if (next) _messageRenderWindowStates.delete(next);
     moduleState.activeConversationId = next;
+    refreshRuntimeLeaseTimer();
     if (typeof deps?.onActiveConversationChanged === "function") {
       try {
         deps.onActiveConversationChanged(previous, next);
@@ -7082,7 +7031,10 @@
       _messageRenderWindowStates.delete(conversationId);
       moduleState.unreadByConversation.delete(conversationId);
       _conversationMembersCache.delete(conversationId);
-      if (conversationId === moduleState.activeConversationId) moduleState.activeConversationId = null;
+      if (conversationId === moduleState.activeConversationId) {
+        moduleState.activeConversationId = null;
+        refreshRuntimeLeaseTimer();
+      }
       // Pin state is server-canonical now; cleanup happens via
       // user_settings.updated broadcast.
       if (deps && typeof deps.render === "function") deps.render();
@@ -7206,6 +7158,7 @@
     botConversationForKey,
     setActiveConversationId,
     focusConversationMessage,
+    hydrateCompactConversationMessage,
     markConversationRead,
     isConversationPinned,
     setConversationPinned,
