@@ -13,6 +13,7 @@ use mia_core_api_types::{
 };
 use mia_core_memory::{MemoryError, MemoryService};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 
 pub use bridge::{
@@ -521,17 +522,40 @@ impl CloudService {
             format!("run_{}", (self.now_ms)().max(0))
         });
         let cloud_conversation_id = clean_or_default(&request.conversation_id, || run_id.clone());
-        let origin_message_id = request.origin_message_id.as_deref().and_then(clean_text);
+        let cloud_origin_message_id = request.origin_message_id.as_deref().and_then(clean_text);
         let logical_message_id = request
             .logical_message_id
             .as_deref()
             .and_then(clean_text)
-            .or_else(|| origin_message_id.clone());
-        let local_conversation_id = format!(
-            "cloud_bridge_{}",
-            safe_identifier(&cloud_conversation_id, "conversation")
-        );
+            .or_else(|| cloud_origin_message_id.clone());
         let bot_id = clean_text(&request.bot_id);
+        let conversation_type = request.conversation_type.as_deref().and_then(clean_text);
+        let is_group = conversation_type
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("group"));
+        let local_conversation_id = match (is_group, bot_id.as_deref()) {
+            (true, Some(bot_id)) => format!(
+                "cloud_bridge_{}_bot_{}",
+                safe_identifier(&cloud_conversation_id, "conversation"),
+                safe_identifier(bot_id, "bot")
+            ),
+            _ => format!(
+                "cloud_bridge_{}",
+                safe_identifier(&cloud_conversation_id, "conversation")
+            ),
+        };
+        let origin_message_id = match (
+            is_group,
+            cloud_origin_message_id.as_deref(),
+            bot_id.as_deref(),
+        ) {
+            (true, Some(origin_message_id), Some(bot_id)) => Some(group_bridge_message_id(
+                &cloud_conversation_id,
+                origin_message_id,
+                bot_id,
+            )),
+            _ => cloud_origin_message_id.clone(),
+        };
         let bot_name = clean_text(&request.bot_name)
             .or_else(|| clean_text(&request.display_name))
             .unwrap_or_else(|| engine_label("codex").to_string());
@@ -568,9 +592,10 @@ impl CloudService {
                 "cloudBridge": {
                     "runId": run_id,
                     "conversationId": cloud_conversation_id,
+                    "conversationType": conversation_type,
                     "botId": bot_id,
                     "botName": title,
-                    "originMessageId": origin_message_id,
+                    "originMessageId": cloud_origin_message_id,
                     "logicalMessageId": logical_message_id,
                 }
             }),
@@ -864,6 +889,16 @@ fn safe_identifier(value: &str, fallback: &str) -> String {
     } else {
         safe
     }
+}
+
+fn group_bridge_message_id(conversation_id: &str, origin_message_id: &str, bot_id: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(conversation_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(origin_message_id.as_bytes());
+    hasher.update([0]);
+    hasher.update(bot_id.as_bytes());
+    format!("m_group_{:x}", hasher.finalize())
 }
 
 fn engine_label(engine: &str) -> &'static str {

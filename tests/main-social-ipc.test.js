@@ -373,6 +373,50 @@ test("listing cloud conversations preserves locally pending bot sessions across 
   }]);
 });
 
+test("creating a cloud group writes the conversation and members to the restart cache", async () => {
+  const ipcMain = fakeIpcMain();
+  const patches = [];
+  const conversation = { id: "g_new", type: "group", name: "New Group" };
+  const members = [
+    { member_kind: "user", member_ref: "u_me" },
+    { member_kind: "bot", member_ref: "bot_one" }
+  ];
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      createConversation: async () => ({ conversation, members })
+    },
+    messageCache: {
+      getSocialBootstrap: () => ({ conversations: [{ id: "dm:one:two", type: "dm" }] }),
+      updateSocialBootstrap: (userId, patch) => patches.push({ userId, patch })
+    },
+    getCloudUserId: () => "u_me"
+  });
+
+  const created = await ipcMain.handlers.get(IpcChannel.SocialCreateConversation)(null, {
+    name: "New Group",
+    memberBots: [{ botId: "bot_one" }]
+  });
+
+  assert.equal(created.ok, true);
+  assert.deepEqual(created.data, { conversation, members });
+  assert.deepEqual(patches, [
+    {
+      userId: "u_me",
+      patch: {
+        conversations: [
+          { id: "dm:one:two", type: "dm" },
+          conversation
+        ]
+      }
+    },
+    {
+      userId: "u_me",
+      patch: { members: { g_new: members } }
+    }
+  ]);
+});
+
 test("ensuring a bot session writes the visible conversation and members through to the bootstrap cache", async () => {
   const ipcMain = fakeIpcMain();
   const patches = [];

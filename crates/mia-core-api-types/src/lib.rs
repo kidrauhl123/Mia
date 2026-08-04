@@ -1636,6 +1636,8 @@ pub struct CloudBridgeRunRequest {
     pub effort_level: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
+    #[serde(default)]
+    pub conversation_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -298,6 +298,47 @@ test("bootstrapAfterLogin shares one authoritative refresh across concurrent cal
   assert.equal(calls.conversations, 1);
 });
 
+test("cached bootstrap stays eligible for retry until a live conversation refresh succeeds", async () => {
+  const s = loadSocial();
+  let liveReady = false;
+  s.initSocialModule({
+    getState: () => ({ runtime: { cloud: { enabled: true, user: { id: "u_1" } } } }),
+    render: () => {},
+    els: {},
+    appendTransientChat: () => {}
+  });
+  s.__mockWindow.mia.social = {
+    getCachedSocialBootstrap: async () => ({
+      ok: true,
+      data: {
+        userId: "u_1",
+        conversations: [{ id: "dm:cached:friend", type: "dm" }],
+        friends: [],
+        bots: [],
+        members: {}
+      }
+    }),
+    myIdentity: async () => ({ ok: true, data: { id: "u_1", username: "jung" } }),
+    listFriends: async () => ({ ok: true, data: { friends: [] } }),
+    listFriendRequests: async () => ({ ok: true, data: { requests: [] } }),
+    listBots: async () => ({ ok: true, data: { bots: [] } }),
+    listConversations: async () => liveReady
+      ? { ok: true, data: { conversations: [{ id: "g_live", type: "group" }] } }
+      : { ok: false, status: 503, error: "Core is starting" },
+    settingsGet: async () => ({})
+  };
+
+  await s.bootstrapAfterLogin();
+  assert.equal(s.isBootstrapped(), true);
+  assert.equal(s.hasLiveBootstrapCompleted(), false);
+  assert.equal(s.moduleState.conversations[0].id, "dm:cached:friend");
+
+  liveReady = true;
+  await s.bootstrapAfterLogin();
+  assert.equal(s.hasLiveBootstrapCompleted(), true);
+  assert.equal(s.moduleState.conversations[0].id, "g_live");
+});
+
 test("events_ready bursts schedule at most one trailing social refresh", async () => {
   const s = loadSocial();
   let identityCalls = 0;

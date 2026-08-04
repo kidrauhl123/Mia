@@ -399,7 +399,21 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     }
     return result;
   }));
-  ipcMain.handle(IpcChannel.SocialCreateConversation, cloudCall((payload) => socialApi.createConversation(payload)));
+  ipcMain.handle(IpcChannel.SocialCreateConversation, cloudCall(async (payload) => {
+    const result = await socialApi.createConversation(payload);
+    const conversation = resultObject(result, "conversation");
+    const members = resultArray(result, "members");
+    writeSocialConversationPatch({ messageCache, getCloudUserId, conversation, pendingSync: false, log });
+    if (conversation?.id && members.length) {
+      writeSocialBootstrapPatch({
+        messageCache,
+        getCloudUserId,
+        patch: { members: { [conversation.id]: members } },
+        log
+      });
+    }
+    return result;
+  }));
   ipcMain.handle(IpcChannel.SocialEnsureBotConversation, cloudCall((botId, body) => socialApi.ensureBotConversation(botId, body)));
   ipcMain.handle(IpcChannel.SocialEnsureBotSessionConversation, cloudCall(async (sessionId, body) => {
     const result = await socialApi.ensureBotSessionConversation(sessionId, body);

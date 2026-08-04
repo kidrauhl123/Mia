@@ -4986,7 +4986,11 @@ function refreshCloudMobileScan(force = false) { return window.miaCloudMobileLog
 function maybeBootstrapSocialAfterRuntime(runtime) {
   if (!runtime?.cloud?.enabled) return;
   if (!window.miaSocial || typeof window.miaSocial.bootstrapAfterLogin !== "function") return;
-  if (typeof window.miaSocial.isBootstrapped === "function" && window.miaSocial.isBootstrapped()) {
+  const cachedBootstrapReady = typeof window.miaSocial.isBootstrapped === "function"
+    && window.miaSocial.isBootstrapped();
+  const liveBootstrapReady = typeof window.miaSocial.hasLiveBootstrapCompleted !== "function"
+    || window.miaSocial.hasLiveBootstrapCompleted();
+  if (cachedBootstrapReady && liveBootstrapReady) {
     maybeEnsureStarterEngineBots();
     return;
   }

@@ -704,6 +704,7 @@
   };
 
   let deps = null;
+  let liveBootstrapCompleted = false;
   let _cloudRunRenderFrame = 0;
   let _cloudRunStatusTimer = 0;
   let _runtimeLeaseTimer = 0;
@@ -3881,6 +3882,7 @@
         // Account switch since the cached social bootstrap was written → drop the
         // stale render cache so we don't briefly show another user's conversations.
         if (moduleState.myUserId && freshUserId && moduleState.myUserId !== freshUserId) {
+           liveBootstrapCompleted = false;
            setActiveConversationId(null);
            moduleState.conversations = [];
            moduleState.messageCache.clear();
@@ -3906,6 +3908,7 @@
         moduleState.conversations = conversationsRes.data?.conversations || [];
         reconcileActiveConversationAgainstAvailableConversations();
         bootstrapCompleted = true;
+        liveBootstrapCompleted = true;
       }
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
@@ -3967,6 +3970,10 @@
 
   function isBootstrapped() {
     return Boolean(moduleState.bootstrapped);
+  }
+
+  function hasLiveBootstrapCompleted() {
+    return liveBootstrapCompleted;
   }
 
   // ── toast helper (used for new friend-request notifications) ────────────
@@ -7133,6 +7140,7 @@
     getPerformanceStats,
     bootstrapAfterLogin,
     isBootstrapped,
+    hasLiveBootstrapCompleted,
     handleCloudEvent,
     renderSidebarRows,
     renderConversationChat,

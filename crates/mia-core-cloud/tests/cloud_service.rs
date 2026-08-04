@@ -724,6 +724,51 @@ async fn cloud_service_prepares_bridge_run_without_leaking_runtime_secrets() {
 }
 
 #[tokio::test]
+async fn cloud_service_scopes_group_bridge_runs_by_bot() {
+    let database = init_database_memory().await.unwrap();
+    let service = CloudService::with_now(database.pool().clone(), || 123456);
+
+    let first = service
+        .prepare_bridge_run(CloudBridgeRunRequest {
+            conversation_id: "g_6567438".into(),
+            conversation_type: Some("group".into()),
+            origin_message_id: Some("m_user".into()),
+            bot_id: "bot_one".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let second = service
+        .prepare_bridge_run(CloudBridgeRunRequest {
+            conversation_id: "g_6567438".into(),
+            conversation_type: Some("group".into()),
+            origin_message_id: Some("m_user".into()),
+            bot_id: "bot_two".into(),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(
+        first.local_conversation_id,
+        "cloud_bridge_g_6567438_bot_bot_one"
+    );
+    assert_eq!(
+        second.local_conversation_id,
+        "cloud_bridge_g_6567438_bot_bot_two"
+    );
+    assert_ne!(first.origin_message_id, second.origin_message_id);
+    assert!(
+        first
+            .origin_message_id
+            .as_deref()
+            .is_some_and(|id| id.starts_with("m_group_"))
+    );
+    assert_eq!(first.logical_message_id.as_deref(), Some("m_user"));
+    assert_eq!(second.logical_message_id.as_deref(), Some("m_user"));
+    assert_eq!(first.metadata["cloudBridge"]["originMessageId"], "m_user");
+    assert_eq!(first.metadata["cloudBridge"]["conversationType"], "group");
+}
+
+#[tokio::test]
 async fn cloud_service_does_not_force_mia_provider_for_desktop_local_model_entries() {
     let database = init_database_memory().await.unwrap();
     let service = CloudService::with_now(database.pool().clone(), || 123456);
@@ -1089,6 +1134,7 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
                     "type": "conversation.bot_invocation_requested",
                     "seq": 8,
                     "conversationId": "botc_1",
+                    "conversationType": "group",
                     "botId": "bot_codex",
                     "runtimeKind": "desktop-local",
                     "runtimeConfig": {
@@ -1136,6 +1182,7 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].run_id, "cloud_evt_8_botc_1_bot_codex_m_user");
     assert_eq!(runs[0].conversation_id, "botc_1");
+    assert_eq!(runs[0].conversation_type.as_deref(), Some("group"));
     assert_eq!(runs[0].origin_message_id.as_deref(), Some("m_user"));
     assert_eq!(runs[0].logical_message_id.as_deref(), Some("m_user"));
     assert_eq!(runs[0].bot_id, "bot_codex");

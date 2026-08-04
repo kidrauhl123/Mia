@@ -537,9 +537,11 @@ fn endpoint_dtos_cover_the_initial_core_contract() {
         model: Some("mia-auto".into()),
         effort_level: Some("medium".into()),
         permission_mode: None,
+        conversation_type: Some("group".into()),
     };
     let serialized_bridge_run = serde_json::to_value(bridge_run).unwrap();
     assert_eq!(serialized_bridge_run["runId"], "run_1");
+    assert_eq!(serialized_bridge_run["conversationType"], "group");
     assert_eq!(
         serialized_bridge_run["runtimeConfig"]["agentEngine"],
         "codex"

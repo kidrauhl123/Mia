@@ -591,6 +591,8 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
     }
     let conversation_id = value_string(message, "conversationId")
         .ok_or_else(|| CloudError::InvalidInput("conversationId is required".into()))?;
+    let conversation_type = value_string(message, "conversationType")
+        .or_else(|| value_string(message, "conversation_type"));
     let bot_id = value_string(message, "botId")
         .ok_or_else(|| CloudError::InvalidInput("botId is required".into()))?;
     let triggering = message.get("triggeringMessage").unwrap_or(&Value::Null);
@@ -633,6 +635,7 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
             .or_else(|| value_string(&runtime_config, "permission_mode")),
         runtime_config,
         config: json!({}),
+        conversation_type,
     })
 }
 

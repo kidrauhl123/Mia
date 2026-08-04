@@ -4020,6 +4020,94 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
     }
 
     #[tokio::test]
+    async fn cloud_bridge_group_runs_isolate_bot_conversations_and_message_ids() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let app = create_router(&services);
+
+        let first_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/bridge/run")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "runId": "run_bot_one",
+                            "conversationId": "g_6567438",
+                            "conversationType": "group",
+                            "originMessageId": "m_shared",
+                            "botId": "bot_one",
+                            "text": "hello group",
+                            "runtimeConfig": { "agentEngine": "mock-agent" }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let second_response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/cloud/bridge/run")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({
+                            "runId": "run_bot_two",
+                            "conversationId": "g_6567438",
+                            "conversationType": "group",
+                            "originMessageId": "m_shared",
+                            "botId": "bot_two",
+                            "text": "hello group",
+                            "runtimeConfig": { "agentEngine": "mock-agent" }
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(first_response.status(), StatusCode::OK);
+        assert_eq!(second_response.status(), StatusCode::OK);
+        let first: Value = serde_json::from_slice(
+            &to_bytes(first_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        let second: Value = serde_json::from_slice(
+            &to_bytes(second_response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            first["conversationId"],
+            "cloud_bridge_g_6567438_bot_bot_one"
+        );
+        assert_eq!(
+            second["conversationId"],
+            "cloud_bridge_g_6567438_bot_bot_two"
+        );
+        assert_ne!(first["messageId"], second["messageId"]);
+        assert!(first["messageId"].as_str().unwrap().starts_with("m_group_"));
+        assert!(
+            second["messageId"]
+                .as_str()
+                .unwrap()
+                .starts_with("m_group_")
+        );
+    }
+
+    #[tokio::test]
     async fn cloud_bridge_async_run_acknowledges_before_runtime_finishes() {
         let mut config = AppConfig::default();
         let temp = tempfile::tempdir().unwrap();
