@@ -16,10 +16,14 @@
     if (typeof require === "function") return require("../../shared/avatar-resolve");
     throw new Error("cloud-conversation-source: shared/avatar-resolve.js must load first");
   }
-  const { MemberKind, SenderKind } = global.miaConversationKinds
+  const { GroupCoordinator, MemberKind, SenderKind } = global.miaConversationKinds
     || (typeof require === "function"
       ? require("../../shared/conversation-kinds")
-      : { MemberKind: { Bot: "bot", User: "user" }, SenderKind: { Bot: "bot", User: "user", System: "system" } });
+      : {
+          GroupCoordinator: { id: "group-orchestrator", displayName: "协调者" },
+          MemberKind: { Bot: "bot", User: "user" },
+          SenderKind: { Bot: "bot", User: "user", System: "system" }
+        });
 
   function hasOwn(obj, key) {
     return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
@@ -106,13 +110,16 @@
       }
       if (m.sender_kind === "bot") {
         const senderRef = botSenderRefForMessage(m);
+        const isCoordinator = senderRef === GroupCoordinator.id;
         const member = memberArr.find((mem) => mem.member_kind === "bot" && mem.member_ref === senderRef);
         const rawBot = botRecord(senderRef);
         const localBot = resolveContact({ kind: BotKind, ref: senderRef }, ctx);
         const ownedByMe = Boolean(rawBot);
         const ownAvatarIsHydrated = Boolean(rawBot && hasAvatarIdentityFields?.(rawBot));
         let displayName;
-        if (ownedByMe) {
+        if (isCoordinator) {
+          displayName = GroupCoordinator.displayName;
+        } else if (ownedByMe) {
           displayName = rawBot.displayName || rawBot.display_name || rawBot.name || localBot.displayName;
         } else if (member?.identity?.displayName) {
           displayName = member.identity.displayName;
@@ -124,7 +131,9 @@
             ? conversation.name
             : senderRef;
         }
-        const avatar = (!ownAvatarIsHydrated && member?.identity?.avatar)
+        const avatar = isCoordinator
+          ? { image: "", crop: null, color: "#6f63d9", text: "协" }
+          : (!ownAvatarIsHydrated && member?.identity?.avatar)
           ? member.identity.avatar
           : resolveAvatarForContact({
               id: botAvatarIdentityId(senderRef, rawBot || {}, member || {}),

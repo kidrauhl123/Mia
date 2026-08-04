@@ -419,6 +419,16 @@ impl CloudEventsManager {
         let request = desktop_invocation_run_request(&message)?;
         let conversation_id = request.conversation_id.clone();
         let bot_id = request.bot_id.clone();
+        let trigger_message_id = request.origin_message_id.clone();
+        let invocation_scope = if request
+            .conversation_type
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("group"))
+        {
+            format!("{conversation_id}::bot::{bot_id}")
+        } else {
+            conversation_id.clone()
+        };
         if !self.desktop_invocations.begin(&request.run_id).await {
             return Ok(());
         }
@@ -429,7 +439,7 @@ impl CloudEventsManager {
         );
         let lock = self
             .desktop_invocations
-            .conversation_lock(&conversation_id)
+            .conversation_lock(&invocation_scope)
             .await;
         let response = {
             let _guard = lock.lock().await;
@@ -448,6 +458,7 @@ impl CloudEventsManager {
                         json!({
                             "botId": bot_id.clone(),
                             "bodyMd": format!("本机运行失败：{error_message}"),
+                            "triggerMessageId": trigger_message_id,
                             "clientOpId": format!("{client_op_id}-error"),
                             "errorJson": { "message": error_message },
                         }),
@@ -470,6 +481,7 @@ impl CloudEventsManager {
                     "trace": empty_object_as_null(response.trace),
                     "contentBlocks": array_or_empty(response.content_blocks),
                     "turnId": response.turn_id,
+                    "triggerMessageId": trigger_message_id,
                     "clientOpId": client_op_id,
                 }),
             )

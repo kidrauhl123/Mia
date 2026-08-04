@@ -35,7 +35,7 @@ assertReactRendererReady();
 
 const SETUP_GUIDE_DISMISSED_KEY = window.miaAppState.SETUP_GUIDE_DISMISSED_KEY;
 const AGENT_SETUP_SKIPPED_KEY = window.miaAppState.AGENT_SETUP_SKIPPED_KEY;
-const { ConversationKind, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
+const { ConversationKind, GroupCoordinator, MemberKind, SenderKind } = (typeof window !== "undefined" && window.miaConversationKinds) || require("../shared/conversation-kinds");
 const { prepareOutgoingMessage } = (typeof window !== "undefined" && window.miaSendPipeline) || require("../shared/send-pipeline");
 const sessionHistory = (typeof window !== "undefined" && window.miaSessionHistory) || require("../shared/session-history");
 const SIDEBAR_WIDTH_MIN = 260;
@@ -1501,6 +1501,7 @@ function typingLabelForConversationRun(social, conversation, run = null) {
   const activeRun = run || conversationRunForSidebarPreview(social, conversation);
   const botId = activeRun?.botId || "";
   if (!botId) return "";
+  if (botId === GroupCoordinator?.id) return GroupCoordinator.displayName || "协调者";
   // Only group conversations need to identify the speaker — DM / bot chats
   // already have the bot's name in the header itself.
   if (conversation?.type !== "group") return "";

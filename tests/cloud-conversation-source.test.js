@@ -72,6 +72,29 @@ test("CloudConversationSource group bot message resolves bot contact via members
   assert.equal(spec.authorName, "codex");
 });
 
+test("CloudConversationSource renders the built-in group coordinator identity", () => {
+  const src = loadSource();
+  const conversation = { id: "g_coordinated", type: "group", name: "Team" };
+  const messages = [{
+    id: "msg_coordinator",
+    sender_kind: "bot",
+    sender_ref: "group-orchestrator",
+    body_md: "我来协调。",
+    created_at: "",
+    seq: 1
+  }];
+  const source = src.createCloudConversationSource({
+    conversation,
+    messages,
+    members: [],
+    ctx: { self: { id: "user_me", username: "me" }, bots: [], friends: [] }
+  });
+  const spec = source.listMessages()[0];
+  assert.equal(spec.authorName, "协调者");
+  assert.equal(spec.authorIdentity.id, "group-orchestrator");
+  assert.equal(spec.avatar.text, "协");
+});
+
 test("CloudConversationSource hydrates own bot avatar from ctx.bots", () => {
   const src = loadSource();
   const conversation = { id: "g_conversation2" };

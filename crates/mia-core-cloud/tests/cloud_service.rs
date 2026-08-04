@@ -1205,6 +1205,7 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
                 "trace": { "reasoning": "checked" },
                 "contentBlocks": [{ "type": "thinking", "id": "think_1", "text": "checked", "status": "completed" }],
                 "turnId": "turn_1",
+                "triggerMessageId": "m_user",
                 "clientOpId": "core-cloud-invocation-cloud_evt_8_botc_1_bot_codex_m_user"
             })
         )]
@@ -1213,6 +1214,91 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
         manager.status(false).await.unwrap().events["lastEventSeq"],
         8
     );
+    manager.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn cloud_events_manager_runs_different_group_bots_in_parallel() {
+    let database = init_database_memory().await.unwrap();
+    let http_transport = MockMemoryTransport::with_responses(vec![
+        json!({ "message": { "id": "m_reply_a", "body_md": "done by core" } }),
+        json!({ "message": { "id": "m_reply_b", "body_md": "done by core" } }),
+    ]);
+    let service = CloudService::with_memory_transport(
+        database.pool().clone(),
+        || 123456,
+        http_transport.clone(),
+    );
+    service
+        .connect(CloudConnectRequest {
+            url: Some("https://mia.example/".into()),
+            token: Some("secret-token".into()),
+            account_hint: None,
+            user: Some(json!({ "id": "u1" })),
+            account: None,
+            agent_runtime: None,
+            last_event_seq: Some(7),
+            last_memory_sync_at: None,
+        })
+        .await
+        .unwrap();
+    let invocation = |seq: i64, bot_id: &str, message_id: &str| {
+        CloudBridgeSocketEvent::Text(
+            json!({
+                "type": "conversation.bot_invocation_requested",
+                "seq": seq,
+                "conversationId": "group_parallel",
+                "conversationType": "group",
+                "botId": bot_id,
+                "runtimeKind": "desktop-local",
+                "runtimeConfig": { "agentEngine": "codex" },
+                "triggeringMessage": { "id": message_id, "body_md": "parallel work" },
+                "members": [{
+                    "member_kind": "bot",
+                    "member_ref": bot_id,
+                    "identity": { "displayName": bot_id }
+                }]
+            })
+            .to_string(),
+        )
+    };
+    let socket_transport = Arc::new(MockBridgeTransport {
+        events: Arc::new(Mutex::new(vec![
+            CloudBridgeSocketEvent::Open,
+            CloudBridgeSocketEvent::Text(
+                json!({ "type": "events_ready", "sinceSeq": 7, "serverSeq": 9 }).to_string(),
+            ),
+            invocation(8, "bot_a", "m_user_a"),
+            invocation(9, "bot_b", "m_user_b"),
+        ])),
+        ..Default::default()
+    });
+    let runner = Arc::new(MockBridgeRunner::with_run_delay(Duration::from_millis(250)));
+    let manager = CloudEventsManager::with_transport_and_desktop_runner(
+        service,
+        socket_transport,
+        Arc::new(|_, _| {}),
+        Some(runner.clone()),
+        Duration::from_millis(10),
+        Duration::from_secs(60),
+        Duration::from_secs(60),
+    );
+
+    manager.start().await.unwrap();
+    for _ in 0..20 {
+        if runner.runs.lock().unwrap().len() == 2 {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(runner.runs.lock().unwrap().len(), 2);
+    for _ in 0..60 {
+        if http_transport.calls().len() == 2 {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(http_transport.calls().len(), 2);
     manager.stop().await.unwrap();
 }
 
@@ -1441,6 +1527,7 @@ async fn cloud_events_manager_retries_desktop_bot_invocation_while_runtime_is_bu
                 "trace": { "reasoning": "checked" },
                 "contentBlocks": [{ "type": "thinking", "id": "think_1", "text": "checked", "status": "completed" }],
                 "turnId": "turn_1",
+                "triggerMessageId": "m_user",
                 "clientOpId": "core-cloud-invocation-cloud_evt_8_botc_1_bot_codex_m_user"
             })
         )]

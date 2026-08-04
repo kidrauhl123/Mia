@@ -993,8 +993,12 @@ function BotDialog({ dialog }: { dialog: BotDialogView }) {
                   : "请前往“设置 → 模型”启用 Mia 稳定版。"}
               </p>
             </div>
-            <button className="secondary" type="button" onClick={dialog.openModelSettings}>
-              前往模型设置
+            <button
+              className="secondary"
+              type="button"
+              onClick={dialog.runtimeLoadError ? dialog.retryRuntime : dialog.openModelSettings}
+            >
+              {dialog.runtimeLoadError ? "重新检测" : "前往模型设置"}
             </button>
           </aside>
         ) : null}

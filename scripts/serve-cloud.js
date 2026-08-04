@@ -3078,6 +3078,7 @@ function broadcastBotInvocations(context, conversationId, message, body, invoked
     broadcastPersistedEvent(context, member.owner_id, {
       type: "conversation.bot_invocation_requested",
       conversationId,
+      conversationType: context.socialStore.getConversation(conversationId)?.type || "",
       botId: member.member_ref,
       runtimeKind,
       runtimeConfig,
@@ -4141,6 +4142,11 @@ async function handleRequest(req, res, context) {
           }
         }
         pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
+      }
+      if (typeof context.cloudAgentDispatcher?.handleBotMessage === "function") {
+        Promise.resolve(context.cloudAgentDispatcher.handleBotMessage({ conversationId, message })).catch((error) => {
+          console.warn("[cloud-agent] coordinator synthesis failed:", error?.message || error);
+        });
       }
       const payload = { message, ...(message._alreadyExisted ? { deduplicated: true } : {}) };
       rememberOp(context, auth.user.id, body, 201, payload);

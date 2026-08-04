@@ -7436,6 +7436,17 @@ body.platform-win32 .skill-market-modal {
   z-index: 80;
 }
 
+/* Keep creation dialogs above the sidebar create menu, then mount the shared
+ * select popup above the dialog. Equal overlay tiers made the Agent picker
+ * render behind its own modal on Windows. */
+body.platform-win32 .bot-dialog {
+  z-index: 82;
+}
+
+body.platform-win32 .composer-select-menu {
+  z-index: 84;
+}
+
 .profile-popover-form {
   width: 100%;
   max-height: calc(100vh - 46px);

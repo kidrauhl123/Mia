@@ -14,6 +14,7 @@
   let botRuntimeHydrateToken = 0;
   let botDialogOpenToken = 0;
   let botRuntimeTargetOptionsToken = 0;
+  let botRuntimeTargetRetryTimer = 0;
   let profileSaveTimer = 0;
   let profileSaveInFlight = false;
   let profileSaveRequested = false;
@@ -498,18 +499,70 @@
     timer(callback, 0);
   }
 
+  function clearRuntimeTargetRetry() {
+    if (!botRuntimeTargetRetryTimer) return;
+    const clear = typeof window?.clearTimeout === "function" ? window.clearTimeout.bind(window) : clearTimeout;
+    clear(botRuntimeTargetRetryTimer);
+    botRuntimeTargetRetryTimer = 0;
+  }
+
+  function scheduleRuntimeTargetRetry(current = {}) {
+    clearRuntimeTargetRetry();
+    const retryCount = Number(botDraft?.runtimeRetryCount || 0);
+    const delay = [400, 1200, 2500][retryCount - 1];
+    if (!Number.isFinite(delay)) return;
+    const timer = typeof window?.setTimeout === "function" ? window.setTimeout.bind(window) : setTimeout;
+    const openToken = botDialogOpenToken;
+    botRuntimeTargetRetryTimer = timer(() => {
+      botRuntimeTargetRetryTimer = 0;
+      if (!botDraft || !state?.botDialogOpen || openToken !== botDialogOpenToken) return;
+      botDraft.runtimeOptionsLoaded = false;
+      botDraft.runtimeLoading = true;
+      botDraft.runtimeLoadError = "";
+      botDraft.runtimeGroups = [];
+      botDraft.runtimeSetupRequired = false;
+      publishBotDialog();
+      loadRuntimeTargetOptionsForDialog(current, { retry: true });
+    }, delay);
+  }
+
+  function markRuntimeTargetLoadFailed(current = {}) {
+    if (!botDraft || !state?.botDialogOpen) return;
+    botDraft.runtimeRetryCount = Number(botDraft.runtimeRetryCount || 0) + 1;
+    botDraft.runtimeOptionsLoaded = true;
+    botDraft.runtimeLoading = false;
+    botDraft.runtimeLoadError = "无法读取本机 Agent 状态，请稍后重试。";
+    botDraft.localAgentSetupRequired = false;
+    botDraft.runtimeSetupRequired = true;
+    botDraft.runtimeGroups = [{
+      label: "运行目标",
+      options: [{ disabled: true, label: "暂时无法读取 Agent 状态", title: "", value: "" }]
+    }];
+    botDraft.runtimeValue = "";
+    publishBotDialog();
+    scheduleRuntimeTargetRetry(current);
+  }
+
+  function retryRuntimeTargetOptions() {
+    if (!botDraft || !state?.botDialogOpen) return;
+    clearRuntimeTargetRetry();
+    botRuntimeTargetOptionsToken += 1;
+    state?.botDialogRuntimeTargetOptionsLoading?.clear?.();
+    botDraft.runtimeRetryCount = 0;
+    botDraft.runtimeOptionsLoaded = false;
+    botDraft.runtimeLoading = true;
+    botDraft.runtimeLoadError = "";
+    botDraft.runtimeGroups = [];
+    botDraft.runtimeSetupRequired = false;
+    publishBotDialog();
+    loadRuntimeTargetOptionsForDialog(botDraft.runtimeTargetCurrent || {}, { retry: true });
+  }
+
   function loadRuntimeTargetOptionsForDialog(current = {}, config = {}) {
     if (config.skipCoreLoad) return;
     const api = window.mia?.social?.getBotRuntimeTargetOptions;
     if (typeof api !== "function") {
-      botDraft.runtimeOptionsLoaded = true;
-      botDraft.runtimeLoading = false;
-      botDraft.runtimeLoadError = "无法读取本机 Agent 状态，请稍后重试。";
-      botDraft.localAgentSetupRequired = true;
-      botDraft.runtimeSetupRequired = true;
-      botDraft.runtimeGroups = [];
-      botDraft.runtimeValue = "";
-      publishBotDialog();
+      markRuntimeTargetLoadFailed(current);
       return;
     }
     const key = runtimeTargetOptionsKey(current);
@@ -533,20 +586,15 @@
           }
           cache.set(key, data);
           if (!state?.botDialogOpen || token !== botRuntimeTargetOptionsToken) return;
+          clearRuntimeTargetRetry();
+          botDraft.runtimeRetryCount = 0;
           botDraft.runtimeOptionsLoaded = true;
           botDraft.runtimeLoadError = "";
           renderBotRuntimeTargetSelect(current, { preservePrevious: true, skipCoreLoad: true });
         })
         .catch((error) => {
           if (state?.botDialogOpen && token === botRuntimeTargetOptionsToken && botDraft) {
-            botDraft.runtimeOptionsLoaded = true;
-            botDraft.runtimeLoading = false;
-            botDraft.runtimeLoadError = "无法读取本机 Agent 状态，请稍后重试。";
-            botDraft.localAgentSetupRequired = true;
-            botDraft.runtimeSetupRequired = true;
-            botDraft.runtimeGroups = [];
-            botDraft.runtimeValue = "";
-            publishBotDialog();
+            markRuntimeTargetLoadFailed(current);
           }
           console.warn("[bot-dialog] runtime target options load failed:", error?.message || error);
         })
@@ -556,6 +604,7 @@
 
   function renderBotRuntimeTargetSelect(current = {}, config = {}) {
     if (!botDraft) return;
+    botDraft.runtimeTargetCurrent = { ...current };
     if (!config.skipCoreLoad
       && !dialogRuntimeTargetOptionsCache().has(runtimeTargetOptionsKey(current))) {
       botDraft.runtimeOptionsLoaded = false;
@@ -722,6 +771,7 @@
         closeBotDialog();
         openModelSettings?.();
       },
+      retryRuntime: retryRuntimeTargetOptions,
       runtimeGroups: botDraft.runtimeGroups,
       runtimeLoadError: botDraft.runtimeLoadError,
       runtimeLoading: botDraft.runtimeLoading,
@@ -771,6 +821,7 @@
     state.profileDialogOpen = false;
     state.botDialogMode = actualBot ? "edit" : "create";
     state.botDialogOpen = true;
+    clearRuntimeTargetRetry();
     clearDialogRuntimeTargetOptions();
     const avatarSrc = window.miaAvatar.canonicalAvatarSrc(actualBot?.avatarImage || "");
     const avatar = {
@@ -797,7 +848,9 @@
       runtimeLoadError: "",
       runtimeLoading: true,
       runtimeOptionsLoaded: false,
+      runtimeRetryCount: 0,
       runtimeSetupRequired: false,
+      runtimeTargetCurrent: null,
       runtimeValue: "",
       title: actualBot
         ? `编辑「${String(actualBot.name || "").trim() || "伙伴"}」`
@@ -805,21 +858,30 @@
     };
     const runtimeKind = window.miaBotDirectory?.normalizeRuntimeKind?.(
       actualBot?.runtimeKind || actualBot?.runtime_kind || seed?.runtimeKind,
-      window.miaBotDirectory?.isCloudIdentityBot?.(actualBot) ? "cloud-claude-code" : "desktop-local"
+      actualBot && window.miaBotDirectory?.isCloudIdentityBot?.(actualBot) ? "cloud-claude-code" : "desktop-local"
     ) || "desktop-local";
-    renderBotRuntimeTargetSelect({
+    const initialRuntimeTarget = {
       runtimeKind,
       deviceId: actualBot?.targetDeviceId || actualBot?.target_device_id || actualBot?.deviceId || actualBot?.device_id || "",
       deviceName: actualBot?.targetDeviceName || actualBot?.target_device_name || actualBot?.deviceName || actualBot?.device_name || "",
       agentEngine: actualBot?.agentEngine || actualBot?.agent_engine || seed?.agentEngine || state.preferredAgentEngine || "hermes"
-    });
+    };
+    botDraft.runtimeTargetCurrent = { ...initialRuntimeTarget };
+    botDraft.runtimeValue = encodeRuntimeTarget(initialRuntimeTarget);
     const openToken = ++botDialogOpenToken;
     const openedKey = botDraft.key;
     const openedMode = botDraft.mode;
+    publishBotDialog();
     renderView?.();
     deferBotDialogWork(() => {
       if (openToken !== botDialogOpenToken || !state?.botDialogOpen) return;
       if (botDraft?.key !== openedKey || botDraft?.mode !== openedMode) return;
+      try {
+        renderBotRuntimeTargetSelect(initialRuntimeTarget);
+      } catch (error) {
+        markRuntimeTargetLoadFailed(initialRuntimeTarget);
+        console.warn("[bot-dialog] runtime target setup failed:", error?.message || error);
+      }
       refreshBridgeDevicesForDialog();
       if (actualBot) hydrateActiveRuntimeTargetForDialog(actualBot);
     });
@@ -854,6 +916,7 @@
     botDialogOpenToken += 1;
     botRuntimeHydrateToken += 1;
     botRuntimeTargetOptionsToken += 1;
+    clearRuntimeTargetRetry();
     clearDialogRuntimeTargetOptions();
     state.botDialogOpen = false;
     botDraft = null;

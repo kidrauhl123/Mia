@@ -173,6 +173,7 @@ function createBotDialogContext({
   activeBinding,
   runtime = null,
   engineCapabilities = null,
+  isCloudIdentityBot = null,
   listBridgeDevices = null,
   runtimeTargetOptions = null
 } = {}) {
@@ -246,6 +247,7 @@ function createBotDialogContext({
           return id === "claude-code" || id === "codex" ? id : "hermes";
         },
         isCloudIdentityBot(bot) {
+          if (typeof isCloudIdentityBot === "function") return isCloudIdentityBot(bot);
           return Array.isArray(bot?.sourceKinds) && bot.sourceKinds.includes("cloud");
         }
       },
@@ -285,7 +287,10 @@ function createBotDialogContext({
         social: {
           getBotRuntimeTargetOptions: async (input) => {
             events.push("getBotRuntimeTargetOptions");
-            return runtimeTargetOptions || coreRuntimeTargetOptionsForTest({
+            const provided = typeof runtimeTargetOptions === "function"
+              ? await runtimeTargetOptions(input)
+              : runtimeTargetOptions;
+            return provided || coreRuntimeTargetOptionsForTest({
               runtime: input?.runtime || state.runtime,
               engineCapabilities: input?.engineCapabilities || state.engineCapabilities || {},
               preferredAgentEngine: input?.preferredAgentEngine || state.runtime?.preferredAgentEngine || ""
@@ -334,6 +339,20 @@ function decodedRuntimeOptions(dialog) {
     ...JSON.parse(option.value)
   }));
 }
+
+test("creating a bot does not inspect a null existing-bot identity", () => {
+  const { context, currentDialog } = createBotDialogContext({
+    isCloudIdentityBot(bot) {
+      assert.notEqual(bot, null);
+      return false;
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+
+  assert.equal(currentDialog().kind, "bot");
+  assert.equal(currentDialog().mode, "create");
+});
 
 test("creating a bot renders Core-provided Mia Cloud and local engine options", async () => {
   const { context, currentDialog } = createBotDialogContext({
@@ -496,6 +515,36 @@ test("creating a bot paints the dialog before refreshing bridge devices", async 
   assert.deepEqual(events.slice(0, 2), ["publishDialog", "renderView"]);
   assert.ok(events.includes("getBotRuntimeTargetOptions"));
   assert.ok(events.includes("listBridgeDevices"));
+});
+
+test("creating a bot keeps a visible Agent field and can retry a transient Core failure", async () => {
+  let attempts = 0;
+  const { context, currentDialog } = createBotDialogContext({
+    runtimeTargetOptions: async (input) => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("Core is still starting");
+      return coreRuntimeTargetOptionsForTest({
+        runtime: input.runtime,
+        engineCapabilities: input.engineCapabilities,
+        preferredAgentEngine: input.preferredAgentEngine
+      });
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
+
+  assert.equal(currentDialog().runtimeLoading, false);
+  assert.equal(currentDialog().runtimeLoadError, "无法读取本机 Agent 状态，请稍后重试。");
+  assert.equal(currentDialog().localAgentSetupRequired, false);
+  assert.equal(currentDialog().runtimeGroups[0].options[0].label, "暂时无法读取 Agent 状态");
+
+  currentDialog().retryRuntime();
+  await flushDialogAsyncWork();
+
+  assert.equal(attempts, 2);
+  assert.equal(currentDialog().runtimeLoadError, "");
+  assert.ok(decodedRuntimeOptions(currentDialog()).some((option) => option.agentEngine === "hermes"));
 });
 
 test("opening create after editing a bot clears the previous bot draft", () => {

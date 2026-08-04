@@ -213,6 +213,7 @@ export type BotDialogView = Readonly<{
   runtimeLoading: boolean;
   runtimeSetupRequired: boolean;
   runtimeValue: string;
+  retryRuntime: () => void;
   setBadge: (value: string) => void;
   setColor: (value: string) => void;
   setName: (value: string) => void;

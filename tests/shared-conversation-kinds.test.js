@@ -2,12 +2,19 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   ConversationKind,
+  GroupCoordinator,
   MemberKind,
   SenderKind,
   isGroup,
   isPrivate,
   isCloudBacked
 } = require("../src/shared/conversation-kinds");
+
+test("GroupCoordinator exposes the stable built-in group identity", () => {
+  assert.equal(GroupCoordinator.id, "group-orchestrator");
+  assert.equal(GroupCoordinator.displayName, "协调者");
+  assert.equal(Object.isFrozen(GroupCoordinator), true);
+});
 
 test("ConversationKind values match the literals used across the codebase", () => {
   assert.equal(ConversationKind.BotPrivate, "bot");

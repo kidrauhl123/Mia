@@ -5,7 +5,7 @@ const {
   workerFileArtifactsForDeliveryRequest
 } = require("./attachment-materializer.js");
 const { createGroupOrchestrator } = require("./group-orchestrator.js");
-const { MemberKind } = require("../shared/conversation-kinds.js");
+const { GroupCoordinator, MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../shared/assistant-content-blocks.js");
 const { decisionToHermesChoice } = require("../shared/agent-permissions.js");
@@ -232,7 +232,6 @@ function createCloudAgentDispatcher(deps = {}) {
   const broadcastTransientEvent = typeof deps.broadcastTransientEvent === "function"
     ? deps.broadcastTransientEvent
     : () => {};
-  const loadPrompts = typeof deps.loadPrompts === "function" ? deps.loadPrompts : undefined;
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
   const memoryStore = deps.memoryStore || null;
@@ -252,13 +251,14 @@ function createCloudAgentDispatcher(deps = {}) {
     delete: typeof deps.deleteScheduledTask === "function" ? deps.deleteScheduledTask : null
   };
   const pending = new Set();
+  const coordinationSynthesis = new Map();
   const groupOrchestrator = createGroupOrchestrator({
     socialStore,
     messagesStore,
     botsStore,
     workerManager,
     agentClient,
-    ...(loadPrompts ? { loadPrompts } : {}),
+    skillsCatalog,
     getUserPublic,
     log
   });
@@ -957,6 +957,154 @@ function createCloudAgentDispatcher(deps = {}) {
     return null;
   }
 
+  function coordinatorTriggerMessageId(originMessageId, phase) {
+    return `coord:${String(originMessageId || "").trim()}:${phase}`;
+  }
+
+  function parseMessageMentions(message = {}) {
+    if (Array.isArray(message.mentions)) return message.mentions;
+    if (!message.mentions_json) return [];
+    try {
+      const parsed = JSON.parse(String(message.mentions_json));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function coordinationMentions(delegations = []) {
+    return (Array.isArray(delegations) ? delegations : []).map((delegation) => ({
+      kind: BOT_MEMBER_KIND,
+      botId: delegation.botId,
+      member_ref: delegation.botId,
+      task: delegation.task
+    }));
+  }
+
+  function broadcastConversationMessage(conversationId, message) {
+    if (!message || message._alreadyExisted) return;
+    for (const member of socialStore.listConversationMembers(conversationId)) {
+      if (member.member_kind === MemberKind.User) {
+        broadcastPersistedEvent(member.member_ref, {
+          type: "conversation.message_appended",
+          conversationId,
+          message
+        });
+      }
+    }
+  }
+
+  function appendCoordinatorMessage({ userId, conversationId, originMessageId, phase, bodyMd, delegations = [] }) {
+    const message = messagesStore.appendMessage({
+      conversationId,
+      senderKind: BOT_SENDER_KIND,
+      senderRef: GroupCoordinator.id,
+      senderOwnerId: userId,
+      bodyMd,
+      mentions: delegations.length ? coordinationMentions(delegations) : null,
+      triggerMessageId: coordinatorTriggerMessageId(originMessageId, phase),
+      status: "complete"
+    });
+    broadcastConversationMessage(conversationId, message);
+    return message;
+  }
+
+  function delegatedMessage(message, delegation) {
+    const original = String(message?.body_md || "").trim();
+    const task = String(delegation?.task || original).trim();
+    const body = [
+      `协调者委派给你的群聊子任务：\n${task}`,
+      original && original !== task ? `原始用户请求：\n${original}` : "",
+      "请只完成这项分工，直接返回可供协调者汇总的简洁结果。"
+    ].filter(Boolean).join("\n\n");
+    return {
+      ...(message || {}),
+      body_md: body,
+      task_prompt: body,
+      mentions: [],
+      mentions_json: null
+    };
+  }
+
+  function coordinationRows(conversationId) {
+    const latest = messagesStore.listLatestMessages(conversationId, 500);
+    return Array.isArray(latest) ? latest : (latest?.messages || []);
+  }
+
+  async function maybeSynthesizeGroupTurn({ conversationId, triggerMessageId }) {
+    const originMessageId = String(triggerMessageId || "").trim();
+    if (!originMessageId || originMessageId.startsWith("coord:")) return null;
+    const key = `${conversationId}:${originMessageId}`;
+    if (coordinationSynthesis.has(key)) return coordinationSynthesis.get(key);
+
+    const promise = (async () => {
+      const conversation = socialStore.getConversation(conversationId);
+      if (!conversation || conversation.type !== "group") return null;
+      const rows = coordinationRows(conversationId);
+      const existingSummary = rows.find((row) => (
+        row.sender_kind === BOT_SENDER_KIND
+          && row.sender_ref === GroupCoordinator.id
+          && row.trigger_message_id === coordinatorTriggerMessageId(originMessageId, "summary")
+      ));
+      if (existingSummary) return existingSummary;
+      const plan = rows.find((row) => (
+        row.sender_kind === BOT_SENDER_KIND
+          && row.sender_ref === GroupCoordinator.id
+          && row.trigger_message_id === coordinatorTriggerMessageId(originMessageId, "plan")
+      ));
+      if (!plan) return null;
+      const delegations = parseMessageMentions(plan)
+        .map((mention) => ({
+          botId: String(mention?.botId || mention?.bot_id || mention?.member_ref || "").trim(),
+          task: String(mention?.task || "").trim()
+        }))
+        .filter((delegation) => delegation.botId);
+      if (!delegations.length) return null;
+      const replies = [];
+      for (const delegation of delegations) {
+        const reply = rows.find((row) => (
+          row.sender_kind === BOT_SENDER_KIND
+            && row.sender_ref === delegation.botId
+            && row.trigger_message_id === originMessageId
+        ));
+        if (!reply) return null;
+        replies.push(reply);
+      }
+      const originalMessage = messagesStore.getMessage(originMessageId);
+      if (!originalMessage) return null;
+      const userId = String(originalMessage.sender_ref || "").trim();
+      if (!userId) return null;
+      const bodyMd = await groupOrchestrator.synthesizeTurn({
+        userId,
+        conversationId,
+        originalMessage,
+        delegations,
+        replies
+      });
+      return appendCoordinatorMessage({
+        userId,
+        conversationId,
+        originMessageId,
+        phase: "summary",
+        bodyMd
+      });
+    })();
+    coordinationSynthesis.set(key, promise);
+    try {
+      return await promise;
+    } finally {
+      coordinationSynthesis.delete(key);
+    }
+  }
+
+  async function handleBotMessage({ conversationId, message } = {}) {
+    if (!conversationId || !message || message.sender_kind !== BOT_SENDER_KIND) return null;
+    return maybeSynthesizeGroupTurn({
+      conversationId,
+      triggerMessageId: message.trigger_message_id || message.triggerMessageId
+    });
+  }
+
   async function runInvocation(args = {}) {
     const userId = String(args.userId || "").trim();
     const conversationId = String(args.conversationId || "").trim();
@@ -971,18 +1119,16 @@ function createCloudAgentDispatcher(deps = {}) {
     if (!conversation) return null;
 
     if (conversation.type === "group") {
-      const decision = await groupOrchestrator.chooseTargets({
+      const decision = await groupOrchestrator.planTurn({
         userId,
         conversationId,
         conversation,
         message,
         requestedBotId
       });
-      const chosen = decision?.chosen || [];
-      if (!chosen.length) return null;
-      const replies = [];
-      for (const member of chosen) {
-        const reply = await dispatchBot({
+      if (!decision) return null;
+      if (decision.mode === "direct") {
+        const replies = await Promise.all((decision.chosen || []).map((member) => dispatchBot({
           ownerId: member.owner_id,
           botId: member.member_ref,
           conversationId,
@@ -991,10 +1137,39 @@ function createCloudAgentDispatcher(deps = {}) {
           members: decision.members || [],
           bots: decision.bots || [],
           runtimeBinding: requestedBotId && member.member_ref === requestedBotId ? runtimeBinding : null
-        });
-        if (reply) replies.push(reply);
+        })));
+        return replies.find(Boolean) || null;
       }
-      return replies[0] || null;
+
+      const coordinatorReply = appendCoordinatorMessage({
+        userId,
+        conversationId,
+        originMessageId: message.id,
+        phase: "plan",
+        bodyMd: decision.reply,
+        delegations: decision.delegations || []
+      });
+      if (coordinatorReply._alreadyExisted || !decision.delegations?.length) return coordinatorReply;
+
+      const replies = await Promise.all(decision.delegations.map((delegation) => {
+        const member = delegation.member;
+        return dispatchBot({
+          ownerId: member.owner_id,
+          botId: member.member_ref,
+          conversationId,
+          conversationType: conversation.type,
+          message: delegatedMessage(message, delegation),
+          members: decision.members || [],
+          bots: decision.bots || [],
+          runtimeBinding: null
+        });
+      }));
+      const completedReply = replies.find(Boolean);
+      if (!completedReply) return coordinatorReply;
+      return await maybeSynthesizeGroupTurn({
+        conversationId,
+        triggerMessageId: message.id
+      }) || coordinatorReply;
     }
 
     // Bot DM: one bot, bound to the sender.
@@ -1035,7 +1210,7 @@ function createCloudAgentDispatcher(deps = {}) {
     }
   }
 
-  return { handleUserMessage, invokeBot, respondApproval, stopRun, idle };
+  return { handleBotMessage, handleUserMessage, invokeBot, respondApproval, stopRun, idle };
 }
 
 module.exports = { createCloudAgentDispatcher };

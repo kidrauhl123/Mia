@@ -96,6 +96,7 @@ test("bot creation opens immediately and guides empty local Agent setups", () =>
   const dialogs = read("src/renderer/react/components/Dialogs.tsx");
   const dialogStore = read("src/renderer/react/stores/dialogs.ts");
   const css = read("src/renderer/styles/bot-dialog.css");
+  const shellCss = read("src/renderer/styles.css");
   const html = read("src/renderer/index.html");
 
   const addBotHandler = app.slice(
@@ -117,11 +118,16 @@ test("bot creation opens immediately and guides empty local Agent setups", () =>
   assert.match(controller, /localAgentSetupRequired/);
   assert.match(controller, /openModelSettings/);
   assert.match(controller, /runtimeSetupRequired/);
+  assert.match(controller, /actualBot && window\.miaBotDirectory\?\.isCloudIdentityBot\?\.\(actualBot\)/);
   assert.match(dialogStore, /openModelSettings: \(\) => void/);
   assert.match(dialogs, /本机尚未启用 Agent/);
   assert.match(dialogs, /请前往“设置 → 模型”启用 Mia 稳定版。/);
   assert.match(dialogs, /前往模型设置/);
+  assert.match(dialogs, /重新检测/);
+  assert.match(dialogStore, /retryRuntime: \(\) => void/);
   assert.match(css, /\.bot-runtime-setup/);
+  assert.match(shellCss, /body\.platform-win32 \.bot-dialog\s*\{\s*z-index:\s*82;/);
+  assert.match(shellCss, /body\.platform-win32 \.composer-select-menu\s*\{\s*z-index:\s*84;/);
   assert.match(html, /styles\/bot-dialog\.css/);
 });
 

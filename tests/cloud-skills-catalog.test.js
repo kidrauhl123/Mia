@@ -67,6 +67,7 @@ test("the real skills/ folder loads top-level catalog and excludes _builtin", ()
 test("cloud runtime catalog loads bundled skills separately from the marketplace", () => {
   const ids = loadBuiltinSkillsCatalog().map((skill) => skill.id);
   assert.ok(ids.includes("mia-scheduler"));
+  assert.ok(ids.includes("mia-group-coordinator"));
   assert.ok(ids.includes("meeting-notes"));
 });
 
