@@ -119,6 +119,7 @@ test("bot creation opens immediately and guides empty local Agent setups", () =>
   assert.match(controller, /openModelSettings/);
   assert.match(controller, /runtimeSetupRequired/);
   assert.match(controller, /actualBot && window\.miaBotDirectory\?\.isCloudIdentityBot\?\.\(actualBot\)/);
+  assert.doesNotMatch(controller, /scheduleRuntimeTargetRetry/);
   assert.match(dialogStore, /openModelSettings: \(\) => void/);
   assert.match(dialogs, /本机尚未启用 Agent/);
   assert.match(dialogs, /请前往“设置 → 模型”启用 Mia 稳定版。/);

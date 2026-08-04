@@ -14,7 +14,6 @@
   let botRuntimeHydrateToken = 0;
   let botDialogOpenToken = 0;
   let botRuntimeTargetOptionsToken = 0;
-  let botRuntimeTargetRetryTimer = 0;
   let profileSaveTimer = 0;
   let profileSaveInFlight = false;
   let profileSaveRequested = false;
@@ -499,36 +498,8 @@
     timer(callback, 0);
   }
 
-  function clearRuntimeTargetRetry() {
-    if (!botRuntimeTargetRetryTimer) return;
-    const clear = typeof window?.clearTimeout === "function" ? window.clearTimeout.bind(window) : clearTimeout;
-    clear(botRuntimeTargetRetryTimer);
-    botRuntimeTargetRetryTimer = 0;
-  }
-
-  function scheduleRuntimeTargetRetry(current = {}) {
-    clearRuntimeTargetRetry();
-    const retryCount = Number(botDraft?.runtimeRetryCount || 0);
-    const delay = [400, 1200, 2500][retryCount - 1];
-    if (!Number.isFinite(delay)) return;
-    const timer = typeof window?.setTimeout === "function" ? window.setTimeout.bind(window) : setTimeout;
-    const openToken = botDialogOpenToken;
-    botRuntimeTargetRetryTimer = timer(() => {
-      botRuntimeTargetRetryTimer = 0;
-      if (!botDraft || !state?.botDialogOpen || openToken !== botDialogOpenToken) return;
-      botDraft.runtimeOptionsLoaded = false;
-      botDraft.runtimeLoading = true;
-      botDraft.runtimeLoadError = "";
-      botDraft.runtimeGroups = [];
-      botDraft.runtimeSetupRequired = false;
-      publishBotDialog();
-      loadRuntimeTargetOptionsForDialog(current, { retry: true });
-    }, delay);
-  }
-
   function markRuntimeTargetLoadFailed(current = {}) {
     if (!botDraft || !state?.botDialogOpen) return;
-    botDraft.runtimeRetryCount = Number(botDraft.runtimeRetryCount || 0) + 1;
     botDraft.runtimeOptionsLoaded = true;
     botDraft.runtimeLoading = false;
     botDraft.runtimeLoadError = "无法读取本机 Agent 状态，请稍后重试。";
@@ -540,15 +511,12 @@
     }];
     botDraft.runtimeValue = "";
     publishBotDialog();
-    scheduleRuntimeTargetRetry(current);
   }
 
   function retryRuntimeTargetOptions() {
     if (!botDraft || !state?.botDialogOpen) return;
-    clearRuntimeTargetRetry();
     botRuntimeTargetOptionsToken += 1;
     state?.botDialogRuntimeTargetOptionsLoading?.clear?.();
-    botDraft.runtimeRetryCount = 0;
     botDraft.runtimeOptionsLoaded = false;
     botDraft.runtimeLoading = true;
     botDraft.runtimeLoadError = "";
@@ -586,8 +554,6 @@
           }
           cache.set(key, data);
           if (!state?.botDialogOpen || token !== botRuntimeTargetOptionsToken) return;
-          clearRuntimeTargetRetry();
-          botDraft.runtimeRetryCount = 0;
           botDraft.runtimeOptionsLoaded = true;
           botDraft.runtimeLoadError = "";
           renderBotRuntimeTargetSelect(current, { preservePrevious: true, skipCoreLoad: true });
@@ -821,7 +787,6 @@
     state.profileDialogOpen = false;
     state.botDialogMode = actualBot ? "edit" : "create";
     state.botDialogOpen = true;
-    clearRuntimeTargetRetry();
     clearDialogRuntimeTargetOptions();
     const avatarSrc = window.miaAvatar.canonicalAvatarSrc(actualBot?.avatarImage || "");
     const avatar = {
@@ -848,7 +813,6 @@
       runtimeLoadError: "",
       runtimeLoading: true,
       runtimeOptionsLoaded: false,
-      runtimeRetryCount: 0,
       runtimeSetupRequired: false,
       runtimeTargetCurrent: null,
       runtimeValue: "",
@@ -916,7 +880,6 @@
     botDialogOpenToken += 1;
     botRuntimeHydrateToken += 1;
     botRuntimeTargetOptionsToken += 1;
-    clearRuntimeTargetRetry();
     clearDialogRuntimeTargetOptions();
     state.botDialogOpen = false;
     botDraft = null;

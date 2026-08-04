@@ -156,6 +156,7 @@ test("bot preload bridge keeps bot identity cloud-owned while Core owns runtime 
   assert.doesNotMatch(getBotIdentityCompat, /miaCoreGet|\/api\/bots/);
   assert.doesNotMatch(saveBotIdentityCompat, /saveCoreBotIdentity|miaCorePost|\/api\/bots/);
   assert.match(preload, /getBotRuntimeTargetOptions:\s*\(input\)\s*=>\s*getCoreBotRuntimeTargetOptions\(input\)/);
+  assert.match(preload, /miaCorePost\("\/api\/bots\/runtime-target-options", compactRuntimeTargetRequest\(request\)\)/);
   assert.match(preload, /getBotRuntimeControlOptions:\s*\(input\)\s*=>\s*getCoreBotRuntimeControlOptions\(input\)/);
   assert.match(preload, /getBotCapabilityOptions:\s*\(input\)\s*=>\s*getCoreBotCapabilityOptions\(input\)/);
   assert.match(preload, /function getCoreBotMemory\(botId\)/);

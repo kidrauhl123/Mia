@@ -14,6 +14,7 @@ const {
   logicalMessageId
 } = require("./shared/conversation-message-identity");
 const { compactConversationMessages } = require("./shared/conversation-message-payload");
+const { compactRuntimeTargetRequest } = require("./shared/runtime-target-request");
 const { createMiaCoreDirectTransport } = require("./preload/mia-core-direct-transport.js");
 
 const miaCoreStartupState = ipcRenderer.sendSync(IpcChannel.MiaCoreStartupState) || {};
@@ -375,7 +376,7 @@ async function saveCoreBotRuntime(botId, body = {}) {
 
 async function getCoreBotRuntimeTargetOptions(input = {}) {
   const request = input && typeof input === "object" ? input : {};
-  return coreOk(miaCorePost("/api/bots/runtime-target-options", request));
+  return coreOk(miaCorePost("/api/bots/runtime-target-options", compactRuntimeTargetRequest(request)));
 }
 
 async function getCoreBotRuntimeControlOptions(input = {}) {
