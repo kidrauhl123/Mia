@@ -16,6 +16,7 @@ const DEFAULT_DIRECTORIES = [
   "/var/www/mia-updates",
   "/var/www/mia-web/downloads",
 ];
+const ARTIFACT_FAMILIES = new Set(["macOS", "Windows", "Android"]);
 
 function parseKeepVersions(value, label = "keep") {
   const number = Number(value);
@@ -81,6 +82,19 @@ function normalizeRemoteProductName(value) {
   return productName;
 }
 
+function normalizeArtifactFamilies(values) {
+  if (values == null) return null;
+  if (!Array.isArray(values)) throw new Error("Release artifact families must be an array.");
+  const families = [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+  if (!families.length) return null;
+  for (const family of families) {
+    if (!ARTIFACT_FAMILIES.has(family)) {
+      throw new Error(`Unsupported release artifact family: ${family}`);
+    }
+  }
+  return families;
+}
+
 function protectedFeedArtifacts(directory) {
   const protectedNames = new Set();
   for (const feedName of ["latest-mac.yml", "latest.yml", "mia-mobile-update.json"]) {
@@ -127,8 +141,11 @@ function planReleaseArtifactPrune({
   directories = DEFAULT_DIRECTORIES,
   keepVersions = DEFAULT_KEEP_VERSIONS,
   productName = DEFAULT_PRODUCT_NAME,
+  families,
 } = {}) {
   const keep = parseKeepVersions(keepVersions);
+  const selectedFamilies = normalizeArtifactFamilies(families);
+  const selectedFamilySet = selectedFamilies ? new Set(selectedFamilies) : null;
   if (!Array.isArray(directories) || !directories.length) throw new Error("At least one release directory is required.");
 
   return directories.map((directoryValue) => {
@@ -136,6 +153,7 @@ function planReleaseArtifactPrune({
     const inventory = readArtifactEntries(directory, productName);
     const versionSets = new Map();
     for (const entry of inventory.entries) {
+      if (selectedFamilySet && !selectedFamilySet.has(entry.family)) continue;
       if (!versionSets.has(entry.family)) versionSets.set(entry.family, new Set());
       versionSets.get(entry.family).add(entry.version);
     }
@@ -143,13 +161,22 @@ function planReleaseArtifactPrune({
       family,
       new Set([...versions].sort((left, right) => compareArtifactVersionsDescending(family, left, right)).slice(0, keep)),
     ]));
-    const retained = inventory.entries.filter((entry) => entry.protectedByFeed || retainedVersions.get(entry.family)?.has(entry.version));
-    const removed = inventory.entries.filter((entry) => !entry.protectedByFeed && !retainedVersions.get(entry.family)?.has(entry.version));
+    const retained = inventory.entries.filter((entry) => (
+      (selectedFamilySet && !selectedFamilySet.has(entry.family))
+      || entry.protectedByFeed
+      || retainedVersions.get(entry.family)?.has(entry.version)
+    ));
+    const removed = inventory.entries.filter((entry) => (
+      (!selectedFamilySet || selectedFamilySet.has(entry.family))
+      && !entry.protectedByFeed
+      && !retainedVersions.get(entry.family)?.has(entry.version)
+    ));
 
     return {
       directory,
       exists: inventory.exists,
       keep,
+      families: selectedFamilies,
       retainedVersions,
       retained,
       removed,
@@ -185,7 +212,8 @@ function printPrunePlan(plans, { apply = false } = {}) {
     const retained = [...plan.retainedVersions]
       .map(([family, versions]) => `${family}=${[...versions].join(",") || "none"}`)
       .join(" ");
-    console.log(`[release-retention] ${plan.directory}: retain ${retained || "no managed artifacts"}`);
+    const scope = plan.families?.join(",") || "all platforms";
+    console.log(`[release-retention] ${plan.directory}: scope ${scope}; retain ${retained || "no managed artifacts"}`);
     console.log(`[release-retention] ${mode} ${plan.removed.length} artifact(s), ${formatBytes(plan.bytesToRemove)}`);
   }
 }
@@ -195,6 +223,7 @@ function runRemoteReleaseArtifactPrune({
   directories = DEFAULT_DIRECTORIES,
   keepVersions = DEFAULT_KEEP_VERSIONS,
   productName = DEFAULT_PRODUCT_NAME,
+  families,
   apply = false,
   cwd,
   spawnSync = childProcess.spawnSync,
@@ -204,8 +233,10 @@ function runRemoteReleaseArtifactPrune({
   const keep = parseKeepVersions(keepVersions);
   const safeProductName = normalizeRemoteProductName(productName);
   const safeDirectories = directories.map(normalizeRemoteDirectory);
+  const safeFamilies = normalizeArtifactFamilies(families);
   const args = ["-", "--keep", String(keep), "--product", safeProductName];
   for (const directory of safeDirectories) args.push("--dir", directory);
+  for (const family of safeFamilies || []) args.push("--family", family);
   if (apply) args.push("--apply");
   const result = spawnSync("ssh", [target, "node", ...args], {
     cwd,
@@ -218,7 +249,7 @@ function runRemoteReleaseArtifactPrune({
 }
 
 function parseArgs(argv) {
-  const options = { directories: [], keepVersions: DEFAULT_KEEP_VERSIONS, productName: DEFAULT_PRODUCT_NAME, apply: false, remote: "" };
+  const options = { directories: [], families: [], keepVersions: DEFAULT_KEEP_VERSIONS, productName: DEFAULT_PRODUCT_NAME, apply: false, remote: "" };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--apply") {
@@ -232,11 +263,15 @@ function parseArgs(argv) {
       const directory = String(argv[++index] || "").trim();
       if (!directory) throw new Error("--dir requires a value.");
       options.directories.push(directory);
+    } else if (argument === "--family") {
+      const family = String(argv[++index] || "").trim();
+      if (!family) throw new Error("--family requires a value.");
+      options.families.push(family);
     } else if (argument === "--remote") {
       options.remote = String(argv[++index] || "").trim();
       if (!options.remote) throw new Error("--remote requires an SSH target.");
     } else if (argument === "--help") {
-      console.log("Usage: node scripts/prune-release-artifacts.js [--dir <path>] [--keep <count>] [--apply] [--remote <ssh-target>]");
+      console.log("Usage: node scripts/prune-release-artifacts.js [--dir <path>] [--family <macOS|Windows|Android>] [--keep <count>] [--apply] [--remote <ssh-target>]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${argument}`);
@@ -267,7 +302,9 @@ module.exports = {
   DEFAULT_KEEP_VERSIONS,
   applyReleaseArtifactPrune,
   androidArtifactInfo,
+  ARTIFACT_FAMILIES,
   desktopArtifactInfo,
+  normalizeArtifactFamilies,
   normalizeRemoteDirectory,
   parseKeepVersions,
   planReleaseArtifactPrune,

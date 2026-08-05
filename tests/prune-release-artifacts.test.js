@@ -71,6 +71,28 @@ test("release retention keeps current plus two rollback versions and protects ac
   }
 });
 
+test("platform-scoped pre-publish retention does not shorten other platforms' rollback windows", () => {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "mia-release-retention-scope-"));
+  try {
+    for (const version of ["0.1.10", "0.1.11", "0.1.12"]) {
+      writeArtifact(temporary, `Mia-${version}-arm64-mac.zip`);
+      writeArtifact(temporary, `Mia-${version}-Update.exe`);
+    }
+
+    const [plan] = planReleaseArtifactPrune({
+      directories: [temporary],
+      keepVersions: 2,
+      families: ["Windows"],
+    });
+
+    assert.deepEqual(removedNames(plan), ["Mia-0.1.10-Update.exe"]);
+    assert.equal(plan.families?.join(","), "Windows");
+    assert.equal(plan.retained.some((entry) => entry.fileName === "Mia-0.1.10-arm64-mac.zip"), true);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test("release retention rejects unsafe windows and streams the same helper to a remote node process", () => {
   assert.throws(() => parseKeepVersions(0), /positive integer/);
   assert.throws(() => normalizeRemoteDirectory("/var/www/../root"), /absolute plain path/);
@@ -79,6 +101,7 @@ test("release retention rejects unsafe windows and streams the same helper to a 
     remote: "mia-jms-deploy",
     directories: ["/updates", "/downloads"],
     keepVersions: 3,
+    families: ["macOS"],
     apply: true,
     cwd: "/tmp/mia",
     spawnSync(command, args, options) {
@@ -89,6 +112,7 @@ test("release retention rejects unsafe windows and streams the same helper to a 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, "ssh");
   assert.deepEqual(calls[0].args.slice(0, 4), ["mia-jms-deploy", "node", "-", "--keep"]);
+  assert.ok(calls[0].args.includes("--family"));
   assert.ok(calls[0].args.includes("--apply"));
   assert.match(String(calls[0].options.input), /planReleaseArtifactPrune/);
 });
@@ -96,10 +120,10 @@ test("release retention rejects unsafe windows and streams the same helper to a 
 test("all standard publish and Cloud install paths enforce the release-artifact window", () => {
   const root = path.resolve(__dirname, "..");
   const source = (relativePath) => fs.readFileSync(path.join(root, relativePath), "utf8");
-  assert.match(source("scripts/publish-mac-update.js"), /pruneRemoteReleaseArtifacts\(Math\.max\(1, releaseArtifactKeep - 1\), "pre-publish"\)/);
+  assert.match(source("scripts/publish-mac-update.js"), /pruneRemoteReleaseArtifacts\(Math\.max\(1, releaseArtifactKeep - 1\), "pre-publish", \["macOS"\]\)/);
   assert.match(source("scripts/publish-mac-update.js"), /pruneRemoteReleaseArtifacts\(releaseArtifactKeep, "post-publish"\)/);
-  assert.match(source("scripts/publish-win-update.js"), /runRemoteReleaseArtifactPrune/);
-  assert.match(source("scripts/publish-mobile-update.js"), /runRemoteReleaseArtifactPrune/);
+  assert.match(source("scripts/publish-win-update.js"), /pruneRemoteReleaseArtifacts\(Math\.max\(1, releaseArtifactKeep - 1\), "pre-publish", \["Windows"\]\)/);
+  assert.match(source("scripts/publish-mobile-update.js"), /pruneRemoteReleaseArtifacts\(Math\.max\(1, RELEASE_ARTIFACT_KEEP - 1\), "pre-publish", \["Android"\]\)/);
   assert.match(source("scripts/build-cloud-release.js"), /copyFile\("scripts\/prune-release-artifacts\.js"/);
   assert.match(source("scripts/install-cloud-release-local.sh"), /prune-release-artifacts\.js[\s\S]*?--keep "\$RELEASE_ARTIFACT_KEEP"/);
   assert.match(source("scripts/deploy-cloud-release.sh"), /prune-release-artifacts\.js[\s\S]*?--keep "\\\$RELEASE_ARTIFACT_KEEP"/);

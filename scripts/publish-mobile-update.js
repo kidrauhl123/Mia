@@ -72,12 +72,13 @@ function latestApkAliasCommand({ downloadsDir, apkName, latestApkName, nonce = p
   ].join(" && ");
 }
 
-function pruneRemoteReleaseArtifacts(keepVersions, phase) {
+function pruneRemoteReleaseArtifacts(keepVersions, phase, families) {
   console.log(`[publish] applying ${phase} release-artifact retention (keep ${keepVersions} Android version(s)).`);
   runRemoteReleaseArtifactPrune({
     remote: REMOTE,
     directories: [DOWNLOADS_DIR],
     keepVersions,
+    families,
     apply: true,
     cwd: ROOT,
   });
@@ -115,8 +116,9 @@ function main() {
   const apkUrl = `${PUBLIC_BASE}/downloads/${apkName}`;
   const latestApkUrl = `${PUBLIC_BASE}/downloads/${latestApkName}`;
 
-  // Preserve the active manifest target while making room for the next APK.
-  pruneRemoteReleaseArtifacts(Math.max(1, RELEASE_ARTIFACT_KEEP - 1), "pre-publish");
+  // Preserve the active manifest target while making room for the next APK,
+  // without trimming desktop rollback artifacts that share this directory.
+  pruneRemoteReleaseArtifacts(Math.max(1, RELEASE_ARTIFACT_KEEP - 1), "pre-publish", ["Android"]);
 
   // Put the APK on the server.
   if (sourceUrl) {

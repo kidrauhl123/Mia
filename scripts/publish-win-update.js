@@ -33,13 +33,15 @@ const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
 const shouldSyncWebDownloads = process.env.MIA_UPDATE_SYNC_WEB_DOWNLOADS !== "0";
 const releaseArtifactKeep = parseKeepVersions(process.env.MIA_RELEASE_ARTIFACT_KEEP || "3", "MIA_RELEASE_ARTIFACT_KEEP");
 
-function pruneRemoteReleaseArtifacts(keepVersions, phase) {
-  console.log(`Applying ${phase} release-artifact retention (keep ${keepVersions} version(s) per platform).`);
+function pruneRemoteReleaseArtifacts(keepVersions, phase, families) {
+  const scope = families ? `${families.join(", ")} only` : "each platform";
+  console.log(`Applying ${phase} release-artifact retention (keep ${keepVersions} version(s), ${scope}).`);
   runRemoteReleaseArtifactPrune({
     remote,
     directories: [remoteDir, webDownloadsDir],
     keepVersions,
     productName,
+    families,
     apply: true,
     cwd: root,
   });
@@ -114,9 +116,9 @@ for (const file of staged) console.log(`  - ${path.basename(file)}`);
 
 if (shouldDeploy) {
   if (!remote) throw new Error("Set MIA_UPDATE_REMOTE or MIA_DEPLOY_REMOTE when MIA_UPDATE_DEPLOY=1.");
-  // Reclaim space before transferring a new multi-hundred-megabyte installer.
-  // The post-publish pass restores the normal current-plus-two-rollbacks window.
-  pruneRemoteReleaseArtifacts(Math.max(1, releaseArtifactKeep - 1), "pre-publish");
+  // Reclaim space before transferring a new multi-hundred-megabyte installer
+  // without shortening the rollback window of a different desktop platform.
+  pruneRemoteReleaseArtifacts(Math.max(1, releaseArtifactKeep - 1), "pre-publish", ["Windows"]);
   console.log(`Deploying updates to ${remote}:${remoteDir}`);
   execFileSync("ssh", [remote, "mkdir", "-p", remoteDir], { cwd: root, stdio: "inherit" });
   execFileSync("rsync", ["-av", `${stageDir}/`, `${remote}:${remoteDir}`], { cwd: root, stdio: "inherit" });
