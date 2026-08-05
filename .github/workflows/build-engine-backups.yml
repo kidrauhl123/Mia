@@ -37,6 +37,12 @@ jobs:
         with:
           node-version: "22"
 
+      # build-engine-backups validates the finished ZIP with the production
+      # adm-zip dependency, so this workflow must not rely on a runner-global
+      # node_modules directory.
+      - name: Install locked Node dependencies
+        run: npm ci --ignore-scripts
+
       - name: Install Rust toolchain
         shell: bash
         run: |
