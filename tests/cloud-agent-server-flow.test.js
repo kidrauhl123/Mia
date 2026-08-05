@@ -292,7 +292,7 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
     eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
     await waitForMessage(eventsWs, (message) => message.type === "events_ready");
 
-    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.conversationId === conversationId);
+    const runStarted = waitForMessage(eventsWs, (message) => message.type === "cloud_agent_run_started" && message.conversationId === conversationId && message.hermesRunId);
     const sent = await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
       method: "POST",
       headers: authHeaders,
@@ -326,6 +326,79 @@ test("POST /api/conversations/:id/messages appends cloud bot reply through exist
     assert.equal(hermesCalls[0].attachments.length, 1);
     assert.equal(hermesCalls[0].attachments[0].path.startsWith("/data/attachments/"), true);
   } finally {
+    closeWs(eventsWs);
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("events_ready includes active cloud runs so reconnecting clients keep typing state", async () => {
+  const dataDir = tempDir("mia-cloud-agent-run-resume-");
+  let finishRun;
+  const runGate = new Promise((resolve) => { finishRun = resolve; });
+  const server = createMiaCloudServer({
+    dataDir,
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return {
+          userId,
+          baseUrl: "http://worker",
+          apiKey: "k",
+          gatewayWsUrl: "ws://worker/api/ws",
+          paths: { attachments: path.join(dataDir, "agent-users", userId, "attachments") }
+        };
+      }
+    },
+    cloudAgentClient: {
+      async runChat(args) {
+        args.onRunCreated?.("hr_resume_1");
+        await runGate;
+        return { runId: "hr_resume_1", content: "resumed reply", events: [] };
+      }
+    }
+  });
+  const baseUrl = await listen(server);
+  let eventsWs = null;
+  try {
+    const account = createAccount(server, "resume-user");
+    const authHeaders = { authorization: `Bearer ${account.token}` };
+    await upsertCloudClaudeCodeBot(baseUrl, authHeaders, "mia", "Mia");
+    const ensured = await jsonFetch(baseUrl, "/api/me/bot-conversations/mia", {
+      method: "PUT",
+      headers: authHeaders,
+      body: { botId: "mia", title: "Mia", runtimeKind: "cloud-claude-code" }
+    });
+    const conversationId = ensured.conversation.id;
+    eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
+    await waitForMessage(eventsWs, (message) => message.type === "events_ready");
+    const queued = waitForMessage(eventsWs, (message) => (
+      message.type === "cloud_agent_run_started"
+        && message.conversationId === conversationId
+        && message.status === "queued"
+    ));
+
+    await jsonFetch(baseUrl, `/api/conversations/${conversationId}/messages`, {
+      method: "POST",
+      headers: authHeaders,
+      body: { bodyMd: "keep running", clientOpId: "op_cloud_resume_1" }
+    });
+    const queuedRun = await queued;
+    await new Promise((resolve) => {
+      eventsWs.once("close", resolve);
+      eventsWs.close();
+    });
+
+    eventsWs = new WebSocket(eventsWsUrl(baseUrl), wsTokenProtocol(account.token));
+    const ready = await waitForMessage(eventsWs, (message) => message.type === "events_ready");
+    assert.equal(ready.activeRuns.length, 1);
+    assert.equal(ready.activeRuns[0].id, queuedRun.runId);
+    assert.equal(ready.activeRuns[0].conversationId, conversationId);
+    assert.match(ready.activeRuns[0].status, /^(queued|running)$/);
+
+    finishRun();
+    await server.mia.cloudAgentDispatcher.idle();
+  } finally {
+    finishRun?.();
     closeWs(eventsWs);
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

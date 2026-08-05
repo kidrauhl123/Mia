@@ -59,6 +59,13 @@ function createCloudAgentRunsStore(db) {
       AND status IN ('queued', 'running', 'cancelling')
     ORDER BY created_at ASC
   `);
+  const selectActiveForUserStmt = db.prepare(`
+    SELECT id, user_id, bot_id, conversation_id, trigger_message_id, hermes_run_id,
+           status, error_json, created_at, updated_at
+    FROM cloud_agent_runs
+    WHERE user_id = ? AND status IN ('queued', 'running', 'cancelling')
+    ORDER BY created_at ASC
+  `);
   const updateRunningStmt = db.prepare(`
     UPDATE cloud_agent_runs
     SET status = 'running', hermes_run_id = ?, updated_at = ?
@@ -112,6 +119,10 @@ function createCloudAgentRunsStore(db) {
     ).map(rowToRun).filter(Boolean);
   }
 
+  function listActiveForUser(userId) {
+    return selectActiveForUserStmt.all(String(userId || "").trim()).map(rowToRun).filter(Boolean);
+  }
+
   function markRunning(id, hermesRunId) {
     updateRunningStmt.run(String(hermesRunId || ""), nowIso(), String(id));
     return getRun(id);
@@ -137,7 +148,7 @@ function createCloudAgentRunsStore(db) {
     return getRun(id);
   }
 
-  return { createRun, getRun, listActiveForTarget, markRunning, markComplete, markError, markCancelling, markCancelled };
+  return { createRun, getRun, listActiveForTarget, listActiveForUser, markRunning, markComplete, markError, markCancelling, markCancelled };
 }
 
 module.exports = { createCloudAgentRunsStore };

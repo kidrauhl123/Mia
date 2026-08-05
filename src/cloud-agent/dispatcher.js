@@ -541,6 +541,14 @@ function createCloudAgentDispatcher(deps = {}) {
       conversationId,
       triggerMessageId: message.id
     });
+    broadcastTransientEvent(ownerId, {
+      type: "cloud_agent_run_started",
+      runId: run.id,
+      conversationId,
+      botId,
+      triggerMessageId: message.id,
+      status: "queued"
+    });
     function markRunCancelledIfNeeded() {
       const current = cloudAgentRunsStore.getRun(run.id);
       if (runIsCancelled(current)) return current;

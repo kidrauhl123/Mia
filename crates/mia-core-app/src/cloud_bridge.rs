@@ -24,9 +24,6 @@ use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 
-use crate::claude_code_mia_proxy::{
-    ClaudeCodeMiaProxyConfig, RunningClaudeCodeMiaProxy, start_claude_code_mia_proxy,
-};
 use crate::codex_mia_proxy::{CodexMiaProxyConfig, RunningCodexMiaProxy, start_codex_mia_proxy};
 use crate::runtime::{ConversationRuntimeClaim, RuntimeRegistry};
 use crate::turn_execution::runtime_session_with_actual_id;
@@ -694,7 +691,16 @@ impl MiaRuntimeProxyRegistry {
             first_string(&plan.provider, &["apiKey", "api_key"]).unwrap_or(cloud_token);
         let key = format!("{}:{}", plan.engine, plan.conversation_id);
         let identity = proxy_identity(&plan.engine, &upstream_base_url, &upstream_api_key, &model);
-        let access = {
+        let access = if plan.engine == "claude-code" {
+            // Claude Code already speaks Anthropic Messages natively. Point it
+            // at Mia Cloud directly so server tools (including DeepSeek native
+            // Web Search), thinking blocks, and streaming events survive end
+            // to end instead of being translated through OpenAI Chat Completions.
+            MiaRuntimeProxyAccess {
+                base_url: anthropic_messages_base_url(&upstream_base_url),
+                api_key: upstream_api_key.clone(),
+            }
+        } else {
             let mut entries = self.entries.lock().await;
             let reusable = entries
                 .get(&key)
@@ -704,15 +710,6 @@ impl MiaRuntimeProxyRegistry {
                 access
             } else {
                 let handle = match plan.engine.as_str() {
-                    "claude-code" => MiaRuntimeProxyHandle::Claude(
-                        start_claude_code_mia_proxy(ClaudeCodeMiaProxyConfig {
-                            base_url: upstream_base_url.clone(),
-                            api_key: upstream_api_key.clone(),
-                            model: model.clone(),
-                        })
-                        .await
-                        .map_err(|error| CloudError::Runtime(error.to_string()))?,
-                    ),
                     "codex" | "hermes" => MiaRuntimeProxyHandle::OpenAi(
                         start_codex_mia_proxy(CodexMiaProxyConfig {
                             base_url: upstream_base_url.clone(),
@@ -964,10 +961,6 @@ struct MiaRuntimeProxyEntry {
 impl MiaRuntimeProxyEntry {
     fn access(&self) -> MiaRuntimeProxyAccess {
         match &self.handle {
-            MiaRuntimeProxyHandle::Claude(proxy) => MiaRuntimeProxyAccess {
-                base_url: proxy.base_url.clone(),
-                api_key: proxy.auth_token.clone(),
-            },
             MiaRuntimeProxyHandle::OpenAi(proxy) => MiaRuntimeProxyAccess {
                 base_url: proxy.base_url.clone(),
                 api_key: proxy.api_key.clone(),
@@ -978,7 +971,6 @@ impl MiaRuntimeProxyEntry {
 
 #[derive(Debug)]
 enum MiaRuntimeProxyHandle {
-    Claude(RunningClaudeCodeMiaProxy),
     OpenAi(RunningCodexMiaProxy),
 }
 
@@ -986,6 +978,11 @@ enum MiaRuntimeProxyHandle {
 struct MiaRuntimeProxyAccess {
     base_url: String,
     api_key: String,
+}
+
+fn anthropic_messages_base_url(base_url: &str) -> String {
+    let base_url = base_url.trim().trim_end_matches('/');
+    base_url.strip_suffix("/v1").unwrap_or(base_url).to_string()
 }
 
 fn proxy_identity(engine: &str, base_url: &str, api_key: &str, model: &str) -> String {
@@ -2153,9 +2150,9 @@ fn first_string(source: &Value, keys: &[&str]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use mia_core_api_types::CreateConversationRequest;
+    use mia_core_api_types::{CloudConnectRequest, CreateConversationRequest};
     use mia_core_db::init_database_memory;
-    use mia_core_runtime::{RuntimeBuilder, RuntimeProtocol, RuntimeTurnInput};
+    use mia_core_runtime::{RuntimeBuilder, RuntimeCommand, RuntimeProtocol, RuntimeTurnInput};
     use sqlx::Row;
     use tokio::time::timeout;
 
@@ -2190,6 +2187,71 @@ mod tests {
 
         assert!(runtime_plan_uses_session_manager(&native_acp));
         assert!(!runtime_plan_uses_session_manager(&mock));
+    }
+
+    #[test]
+    fn claude_code_uses_the_native_anthropic_model_proxy_base() {
+        assert_eq!(
+            anthropic_messages_base_url("https://mia.example/api/me/model-proxy/v1"),
+            "https://mia.example/api/me/model-proxy"
+        );
+        assert_eq!(
+            anthropic_messages_base_url("https://api.deepseek.com/anthropic/"),
+            "https://api.deepseek.com/anthropic"
+        );
+    }
+
+    #[tokio::test]
+    async fn claude_code_mia_plan_connects_directly_to_the_cloud_anthropic_endpoint() {
+        let database = init_database_memory().await.unwrap();
+        let cloud = CloudService::new(database.pool().clone());
+        cloud
+            .connect(CloudConnectRequest {
+                url: Some("https://mia.example".into()),
+                token: Some("mia-user-token".into()),
+                account_hint: None,
+                user: Some(json!({ "id": "u1" })),
+                account: None,
+                agent_runtime: None,
+                last_event_seq: None,
+                last_memory_sync_at: None,
+            })
+            .await
+            .unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let registry = MiaRuntimeProxyRegistry::new(root.path());
+        let mut plan = runtime_plan_for_protocol(RuntimeProtocol::NativeAcp);
+        plan.engine = "claude-code".into();
+        plan.command = Some(RuntimeCommand {
+            program: "claude".into(),
+            args: Vec::new(),
+        });
+
+        registry
+            .prepare_plan(
+                &cloud,
+                &json!({
+                    "platformProvider": "mia",
+                    "platformModel": "mia-auto"
+                }),
+                &mut plan,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            plan.environment
+                .get("ANTHROPIC_BASE_URL")
+                .map(String::as_str),
+            Some("https://mia.example/api/me/model-proxy")
+        );
+        assert_eq!(
+            plan.environment
+                .get("ANTHROPIC_AUTH_TOKEN")
+                .map(String::as_str),
+            Some("mia-user-token")
+        );
+        assert!(registry.entries.lock().await.is_empty());
     }
 
     #[tokio::test]

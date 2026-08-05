@@ -59,7 +59,6 @@ function createEngineInstallService(deps = {}) {
   const pinnedHermesPackageVersion = String(deps.hermesPackageVersion || packageConfig?.hermes?.packageVersion || "").trim();
   const pinnedHermesWheelSha256 = String(deps.hermesWheelSha256 || packageConfig?.hermes?.wheelSha256 || "").trim();
   const bundledHermesRuntimeDir = deps.bundledHermesRuntimeDir || (() => path.join(runtimePaths().home, "engine-backups", "hermes", runtimeKey(platform, arch)));
-  const buildPythonPath = deps.buildPythonPath || (() => "");
   const systemHermesPython = deps.systemHermesPython || (() => "");
   const appendLog = deps.appendLog || (() => {});
   const clearLogs = deps.clearLogs || (() => {});
@@ -271,7 +270,14 @@ function createEngineInstallService(deps = {}) {
 
   function stableEngineInfoAt(engineId, root) {
     const id = normalizeEngineId(engineId);
-    if (id === "hermes") return hermesStableInfo(root);
+    if (id === "hermes") {
+      const info = hermesStableInfo(root);
+      const check = runHermesRuntimeCheck(info.path, info.sitePackages);
+      if (!check.ok) {
+        throw new Error(`Mia stable Hermes runtime failed its import check: ${check.error}`);
+      }
+      return info;
+    }
     const runtime = runtimeFromDirectory(id, root);
     return id === "claude-code" ? claudeStableInfo(runtime) : codexStableInfo(runtime);
   }
@@ -323,15 +329,26 @@ function createEngineInstallService(deps = {}) {
     return engineSource() !== "none";
   }
 
-  function hermesApiRuntimeCheck(python = enginePython()) {
-    if (!isInstalled()) return { ok: false, error: "Hermes is not enabled." };
-    const result = spawnSync(python, [
-      "-c",
-      "import importlib; [importlib.import_module(x) for x in ['hermes_cli.main','aiohttp','mcp','ddgs']]; print('import OK')"
-    ], {
+  function runHermesRuntimeCheck(python, sitePackages = "") {
+    const checkEnv = {
+      ...env,
+      PYTHONNOUSERSITE: "1",
+      PYTHONDONTWRITEBYTECODE: "1"
+    };
+    for (const key of Object.keys(checkEnv)) {
+      if (key.toUpperCase() === "PYTHONPATH" || key.toUpperCase() === "PYTHONHOME") delete checkEnv[key];
+    }
+    const privateSitePackages = String(sitePackages || "").trim();
+    const bootstrap = [
+      "import importlib,sys",
+      privateSitePackages ? `sys.path.insert(0,${JSON.stringify(privateSitePackages)})` : "",
+      "[importlib.import_module(x) for x in ['pydantic_core','fastapi','hermes_cli.main','aiohttp','mcp','ddgs']]",
+      "print('import OK')"
+    ].filter(Boolean).join(";");
+    const result = spawnSync(python, ["-I", "-c", bootstrap], {
       encoding: "utf8",
-      timeout: 5000,
-      env: { ...env, PYTHONPATH: buildPythonPath() },
+      timeout: 10000,
+      env: checkEnv,
       ...(platform === "win32" ? { windowsHide: true } : {})
     });
     if (!result.error && result.status === 0) return { ok: true, error: "" };
@@ -339,6 +356,17 @@ function createEngineInstallService(deps = {}) {
       ok: false,
       error: String(result.stderr || result.stdout || result.error?.message || "Hermes runtime check failed.").trim()
     };
+  }
+
+  function hermesApiRuntimeCheck(python = enginePython()) {
+    if (!isInstalled()) return { ok: false, error: "Hermes is not enabled." };
+    const managed = managedHermesInfo();
+    const selectedPython = String(python || "").trim();
+    const managedSitePackages = managed
+      && path.resolve(selectedPython) === path.resolve(managed.path)
+      ? managed.sitePackages
+      : "";
+    return runHermesRuntimeCheck(selectedPython, managedSitePackages);
   }
 
   function isApiRuntimeReady() {
@@ -366,6 +394,10 @@ function createEngineInstallService(deps = {}) {
     if (id === "hermes") initializeRuntime();
     emitProgress(options, { engineId: id, status: "running", stage: "verify", percent: 93, message: `正在校验 Mia 稳定版 ${definition.label}...` });
     const info = stableEngineInfo(id);
+    if (id === "hermes") {
+      const check = runHermesRuntimeCheck(info.path, info.sitePackages);
+      if (!check.ok) throw new Error(`Mia stable Hermes runtime failed its import check: ${check.error}`);
+    }
     throwIfCancelled(options.signal);
     appendLog(`Activating Mia backup ${definition.label} ${info.version || "(pinned)"} at ${info.path}`);
     persistFallback(id, info);
@@ -384,9 +416,20 @@ function createEngineInstallService(deps = {}) {
     const definition = ENGINE_DEFINITIONS[id];
     if (!definition) throw new Error(`Engine ${id} is not installable from Mia.`);
     throwIfCancelled(options.signal);
-    try {
-      stableEngineInfo(id);
-    } catch {
+    let shouldDownload = options.forceDownload === true;
+    if (!shouldDownload) {
+      try {
+        const info = stableEngineInfo(id);
+        if (id === "hermes") {
+          const check = runHermesRuntimeCheck(info.path, info.sitePackages);
+          shouldDownload = !check.ok;
+          if (shouldDownload) appendLog(`Hermes runtime integrity check failed; restoring the full stable backup. ${check.error}`);
+        }
+      } catch {
+        shouldDownload = true;
+      }
+    }
+    if (shouldDownload) {
       const expected = expectedBackupVersions(id);
       await getBackupClient().install({
         engineId: id,
@@ -396,8 +439,14 @@ function createEngineInstallService(deps = {}) {
         expectedRuntimeVersion: expected.runtimeVersion,
         signal: options.signal,
         prepare: async (root) => {
-          const info = stableEngineInfoAt(id, root);
+          // A freshly extracted Unix Python may need its executable bit before
+          // the Hermes import preflight can run.
+          const info = id === "hermes" ? hermesStableInfo(root) : stableEngineInfoAt(id, root);
           if (platform !== "win32" && typeof fsImpl.chmodSync === "function") fsImpl.chmodSync(info.path, 0o755);
+          if (id === "hermes") {
+            const check = runHermesRuntimeCheck(info.path, info.sitePackages);
+            if (!check.ok) throw new Error(`Mia stable Hermes runtime failed its import check: ${check.error}`);
+          }
         },
         validate: async (root) => stableEngineInfoAt(id, root),
         onProgress: (progress) => emitProgress(options, {
@@ -424,13 +473,23 @@ function createEngineInstallService(deps = {}) {
   }
 
   function repairAsync(options = {}) {
-    return installEngineAsync("hermes", options);
+    return installEngineAsync("hermes", { ...options, forceDownload: true });
+  }
+
+  async function ensureEnabledHermesRuntime(options = {}) {
+    if (!fallbackEnabled("hermes") || systemHermesPythonPath()) return { checked: false, repaired: false };
+    const check = hermesApiRuntimeCheck();
+    if (check.ok) return { checked: true, repaired: false };
+    appendLog(`Hermes runtime integrity check failed at startup; restoring the full stable backup. ${check.error}`);
+    await installEngineAsync("hermes", { ...options, forceDownload: true });
+    return { checked: true, repaired: true };
   }
 
   return {
     activateStableEngine,
     enginePython,
     engineSource,
+    ensureEnabledHermesRuntime,
     fallbackEnabled,
     fallbackState,
     fallbackStatePath,

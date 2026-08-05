@@ -2820,6 +2820,11 @@ app.whenReady().then(async () => {
   // still constructs miaCoreControlServer and pings/forwards to the node-Core
   // daemon over 127.0.0.1; startDaemonService launches Mia Rust Core.
   if (!shouldRunDesktopInstance) return;
+  try {
+    await engineInstallService.ensureEnabledHermesRuntime();
+  } catch (error) {
+    appendEngineLog(`Hermes runtime self-repair failed: ${error?.message || error}`);
+  }
   createWindow();
   startupTimer.mark("window:created");
 });

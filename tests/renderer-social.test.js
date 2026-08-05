@@ -5203,7 +5203,7 @@ test("stale cloud agent run clears sidebar typing when terminal events are lost"
   assert.equal(headerPaints, 1);
 });
 
-test("daemon local-events disconnect clears busy cloud agent runs immediately", () => {
+test("daemon local-events disconnect keeps busy cloud agent runs visible while reconnecting", () => {
   let renders = 0;
   let headerPaints = 0;
   const s = loadSocial();
@@ -5230,10 +5230,40 @@ test("daemon local-events disconnect clears busy cloud agent runs immediately", 
     payload: { connected: false }
   });
 
-  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_codex"), false);
-  assert.equal(s.conversationRunIsBusy("botc_u_a_codex"), false);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("botc_u_a_codex"), true);
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_codex").transportDisconnected, true);
+  assert.equal(s.conversationRunIsBusy("botc_u_a_codex"), true);
   assert.equal(renders, 1);
   assert.equal(headerPaints, 1);
+});
+
+test("events_ready restores active cloud run snapshots after reconnect", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "botc_u_a_mia";
+  s.moduleState.conversations = [{ id: "botc_u_a_mia", type: "bot", decorations: { botId: "mia" } }];
+
+  s.handleCloudEvent({
+    type: "events_ready",
+    payload: {
+      activeRuns: [{
+        id: "car_resume",
+        conversationId: "botc_u_a_mia",
+        botId: "mia",
+        triggerMessageId: "m_user",
+        status: "running",
+        createdAt: "2026-08-05T10:00:00.000Z",
+        updatedAt: "2026-08-05T10:00:01.000Z"
+      }]
+    }
+  });
+
+  const run = s.moduleState.cloudAgentRunsByConversation.get("botc_u_a_mia");
+  assert.equal(run.runId, "car_resume");
+  assert.equal(run.backendObserved, true);
+  assert.equal(run.hasTypingActivity, true);
+  assert.equal(run.transportDisconnected, false);
+  assert.equal(s.conversationRunIsBusy("botc_u_a_mia"), true);
 });
 
 test("cloud run streaming keeps canonical text while smoothing displayed text", () => {
@@ -5622,7 +5652,7 @@ test("handleCloudEvent does not infer group typing state from conductor-mode use
   assert.equal(s.moduleState.cloudAgentRunsByConversation.has("g_typing"), false);
 });
 
-test("cloud agent run start waits for real activity before exposing typing state", () => {
+test("cloud agent run start immediately exposes typing state", () => {
   const scheduled = [];
   let headerPaints = 0;
   let renders = 0;
@@ -5650,8 +5680,8 @@ test("cloud agent run start waits for real activity before exposing typing state
   assert.equal(s.activeConversationRun().status, "running");
   assert.equal(s.activeConversationRun().botId, "mia");
   assert.equal(s.conversationRunIsBusy("botc_u_a_mia"), true);
-  assert.equal(s.activeConversationRunIsTyping(), false);
-  assert.equal(s.conversationRunIsTyping("botc_u_a_mia"), false);
+  assert.equal(s.activeConversationRunIsTyping(), true);
+  assert.equal(s.conversationRunIsTyping("botc_u_a_mia"), true);
   assert.equal(renders, 1);
   scheduled.splice(0).forEach((fn) => fn());
   assert.equal(headerPaints, 1);
@@ -5667,7 +5697,8 @@ test("cloud agent run start waits for real activity before exposing typing state
   };
   s.renderConversationChat(chat);
 
-  assert.equal(chat.children.length, 0);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
 
   s.handleCloudEvent({
     type: "cloud_agent_run_event",
@@ -5794,7 +5825,7 @@ test("renderConversationChat does not label tool-only agent activity as typing",
   assert.doesNotMatch(chat.children[0].innerHTML, /typing-status/);
 });
 
-test("renderConversationChat does not show a status row before agent run activity", () => {
+test("renderConversationChat shows a status row immediately after agent run start", () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);
   s.initSocialModule({ getState: () => ({ user: { id: "u_a" }, bots: [{ key: "mia", name: "Mia" }] }), render: () => {}, els: {}, appendTransientChat: () => {} });
@@ -5818,7 +5849,8 @@ test("renderConversationChat does not show a status row before agent run activit
   };
   s.renderConversationChat(chat);
 
-  assert.equal(chat.children.length, 0);
+  assert.equal(chat.children.length, 1);
+  assert.match(chat.children[0].innerHTML, /agent-run-status/);
 });
 
 test("renderConversationChat renders active cloud run status at the bottom of the stream", () => {

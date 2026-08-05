@@ -2187,20 +2187,20 @@ fn resolve_mia_stable_hermes_gateway_runtime(
     }
     let runtime = mia_stable_hermes_runtime(options)?;
     let mut env = BTreeMap::new();
-    let delimiter = if cfg!(windows) { ";" } else { ":" };
-    let mut python_path = vec![path_to_string(&runtime.site_packages)];
-    if let Some(existing) = options
-        .env
-        .get("PYTHONPATH")
-        .filter(|value| !value.trim().is_empty())
-    {
-        python_path.push(existing.clone());
-    }
-    env.insert("PYTHONPATH".into(), python_path.join(delimiter));
+    env.insert("PYTHONNOUSERSITE".into(), "1".into());
+    env.insert("PYTHONDONTWRITEBYTECODE".into(), "1".into());
+    let site_packages = serde_json::to_string(&path_to_string(&runtime.site_packages)).ok()?;
+    let bootstrap = format!(
+        "import os,runpy,sys;sys.path.insert(0,{site_packages});os.environ.pop('PYTHONPATH',None);os.environ.pop('PYTHONHOME',None);runpy.run_module('hermes_cli.main',run_name='__main__',alter_sys=True)"
+    );
     Some(as_hermes_gateway_runtime(ResolvedAgentRuntime {
         command: path_to_string(&runtime.python),
         path: path_to_string(&runtime.python),
-        args: vec!["-m".into(), "hermes_cli.main".into(), "acp".into()],
+        // Load Mia's private modules into this interpreter only, then remove
+        // Python's runtime path from the process environment before Hermes can
+        // spawn Agent tools. This keeps shell/Python tools from mutating or
+        // importing Mia's shared runtime.
+        args: vec!["-I".into(), "-c".into(), bootstrap],
         source: "managed".into(),
         managed: true,
         version: runtime.version,
@@ -2632,6 +2632,9 @@ pub(crate) fn resolve_managed_agent_runtime_plan(
         }
         let runtime = resolve_mia_stable_hermes_gateway_runtime(&initial_options)?;
         let mut environment = base_env;
+        environment.retain(|key, _| {
+            !key.eq_ignore_ascii_case("PYTHONPATH") && !key.eq_ignore_ascii_case("PYTHONHOME")
+        });
         environment.extend(runtime.env.clone());
         return Some(AgentManagedRuntimePlan {
             command: RuntimeCommand {
@@ -3542,8 +3545,9 @@ mod tests {
         assert_eq!(
             hermes.runtime.args,
             [
-                "-m",
-                "hermes_cli.main",
+                "-I",
+                "-c",
+                hermes.runtime.args[2].as_str(),
                 "serve",
                 "--host",
                 "127.0.0.1",
@@ -3551,8 +3555,52 @@ mod tests {
                 "0"
             ]
         );
+        assert!(hermes.runtime.args[2].contains("hermes_cli.main"));
+        assert!(hermes.runtime.args[2].contains("sys.path.insert"));
         assert_eq!(hermes.runtime.protocol, "tui-gateway");
         assert!(hermes.runtime.managed);
+    }
+
+    #[test]
+    fn managed_hermes_plan_does_not_leak_python_runtime_to_agent_tools() {
+        let root = managed_fixture_root("hermes-python-env-isolation");
+        let python = root.join("python").join(if cfg!(windows) {
+            "python.exe"
+        } else {
+            "bin/python3"
+        });
+        write_test_executable(&python);
+        std::fs::create_dir_all(root.join("site-packages")).unwrap();
+        std::fs::write(
+            root.join("runtime-build-info.json"),
+            serde_json::to_vec_pretty(&json!({ "hermesVersion": "2026.7.7.2" })).unwrap(),
+        )
+        .unwrap();
+        let env = BTreeMap::from([
+            (
+                "MIA_ENGINE_FALLBACKS_JSON".into(),
+                r#"{"engines":{"hermes":{"enabled":true}}}"#.into(),
+            ),
+            (
+                "MIA_BUNDLED_HERMES_RUNTIME_DIR".into(),
+                path_to_string(&root),
+            ),
+            ("PYTHONPATH".into(), "C:\\poisoned-runtime".into()),
+            ("PYTHONHOME".into(), "C:\\wrong-python".into()),
+        ]);
+
+        let plan = resolve_managed_agent_runtime_plan("hermes", &env).expect("managed Hermes plan");
+
+        assert!(!plan.environment.contains_key("PYTHONPATH"));
+        assert!(!plan.environment.contains_key("PYTHONHOME"));
+        assert_eq!(
+            plan.environment
+                .get("PYTHONDONTWRITEBYTECODE")
+                .map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(plan.command.args[0], "-I");
+        assert!(plan.command.args[2].contains("os.environ.pop('PYTHONPATH'"));
     }
 
     #[test]

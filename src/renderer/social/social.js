@@ -1821,6 +1821,8 @@
     if (Array.isArray(run?.pendingPermissions) && run.pendingPermissions.length) {
       return "等待授权";
     }
+    if (run?.transportDisconnected) return "连接恢复中";
+    if (status === "queued") return "正在排队";
     if (run?.statusText && !isGenericLocalEngineStartupStatus(run.statusText)) return String(run.statusText);
     const tool = latestRunToolForStatus(run);
     return runActivityPhrase(run, runActivityPhrasePoolName(run, tool), options);
@@ -1833,7 +1835,7 @@
     const label = firstText(options.label, runActivityLabel(run, { elapsedMs }));
     const elapsed = formatRunElapsed(elapsedMs);
     const goalText = runGoalStatusText(run);
-    const isLoading = status === "running" || status === "cancelling";
+    const isLoading = status === "queued" || status === "running" || status === "cancelling";
     const statusClass = status === "cancelled" || status === "interrupted"
       ? " is-interrupted"
       : (status === "error" ? " is-error" : ` is-running${status === "cancelling" ? " is-cancelling" : ""} is-loading`);
@@ -3107,7 +3109,7 @@
 
   function isConversationRunBusy(run) {
     const status = String(run?.status || "").trim();
-    return status === "running" || status === "cancelling";
+    return status === "queued" || status === "running" || status === "cancelling";
   }
 
   function isConversationRunTyping(run) {
@@ -3998,6 +4000,56 @@
 
   // ── handleCloudEvent ──────────────────────────────────────────────────────
 
+  function reconcileCloudAgentRunSnapshots(snapshots) {
+    if (!Array.isArray(snapshots)) return false;
+    const activeRunIds = new Set();
+    let changed = false;
+    for (const snapshot of snapshots) {
+      const conversationId = String(snapshot?.conversationId || snapshot?.conversation_id || "").trim();
+      const runId = String(snapshot?.id || snapshot?.runId || snapshot?.run_id || "").trim();
+      if (!conversationId || !runId) continue;
+      activeRunIds.add(runId);
+      const previous = moduleState.cloudAgentRunsByConversation.get(conversationId);
+      const previousRunId = String(previous?.runId || "").trim();
+      if (previous?.backendObserved && previousRunId && previousRunId !== runId) {
+        clearRunPermissions(previous);
+        moduleState.cloudAgentRunsByConversation.delete(conversationId);
+      }
+      const run = cloudRunFor(conversationId, runId);
+      run.runId = runId;
+      run.botId = String(snapshot?.botId || snapshot?.bot_id || run.botId || "").trim();
+      run.triggerMessageId = String(snapshot?.triggerMessageId || snapshot?.trigger_message_id || run.triggerMessageId || "").trim();
+      run.hermesRunId = String(snapshot?.hermesRunId || snapshot?.hermes_run_id || run.hermesRunId || "").trim();
+      const status = String(snapshot?.status || "running").trim().toLowerCase();
+      run.status = ["queued", "running", "cancelling"].includes(status) ? status : "running";
+      run.createdAt = snapshot?.createdAt || snapshot?.created_at || run.createdAt;
+      run.serverUpdatedAt = snapshot?.updatedAt || snapshot?.updated_at || run.serverUpdatedAt;
+      run.backendObserved = true;
+      run.transportDisconnected = false;
+      run.hasTypingActivity = true;
+      // Receiving an authoritative active snapshot is itself fresh activity.
+      // Do not immediately discard a long-running job because its last server
+      // event predates the render-side stale timer.
+      markCloudRunActivity(run);
+      changed = true;
+    }
+    for (const [conversationId, run] of moduleState.cloudAgentRunsByConversation.entries()) {
+      const runId = String(run?.runId || "").trim();
+      if (!run?.backendObserved || activeRunIds.has(runId)) continue;
+      clearRunPermissions(run);
+      moduleState.cloudAgentRunsByConversation.delete(conversationId);
+      changed = true;
+    }
+    if (changed) {
+      refreshCloudRunStatusTimer();
+      renderAgentPermissionBanner();
+      if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
+      if (deps && typeof deps.render === "function") deps.render();
+      scheduleCloudRunRender(moduleState.activeConversationId);
+    }
+    return changed;
+  }
+
   function handleCloudEvent(event) {
     if (!event) return;
     const type = cloudEventEnvelopeType(event);
@@ -4008,6 +4060,7 @@
     // state from the cloud. Otherwise any social events that were
     // broadcast while we were disconnected stay invisible until restart.
     if (type === "events_ready") {
+      reconcileCloudAgentRunSnapshots(payload?.activeRuns);
       const refresh = scheduleEventsReadyBootstrap();
       refresh?.catch?.((err) => console.warn("[social] rebootstrap on events_ready failed:", err));
       return;
@@ -4015,7 +4068,17 @@
 
     if (type === "daemon.local_events_status") {
       if (payload?.connected === false) {
-        if (clearBusyCloudAgentRuns()) refreshCloudRunStatusTimer();
+        let changed = false;
+        for (const run of moduleState.cloudAgentRunsByConversation.values()) {
+          if (!isConversationRunBusy(run)) continue;
+          run.transportDisconnected = true;
+          changed = true;
+        }
+        if (changed) {
+          if (deps && typeof deps.paintHeaderStatus === "function") deps.paintHeaderStatus();
+          if (deps && typeof deps.render === "function") deps.render();
+          scheduleCloudRunRender(moduleState.activeConversationId);
+        }
       }
       return;
     }
@@ -4113,7 +4176,11 @@
       run.hermesRunId = payload.hermesRunId || run.hermesRunId || "";
       run.botId = payload.botId || run.botId || "";
       run.backendObserved = true;
-      run.status = "running";
+      run.status = ["queued", "running", "cancelling"].includes(String(payload.status || "").trim())
+        ? String(payload.status).trim()
+        : "running";
+      run.transportDisconnected = false;
+      run.hasTypingActivity = true;
       markCloudRunActivity(run);
       if (!wasBusy && deps && typeof deps.render === "function") deps.render();
       scheduleCloudRunRender(conversationId);
@@ -5682,6 +5749,8 @@
     run.triggerMessageId = String(localMsg?.id || run.triggerMessageId || "");
     run.botId = botKeyForConversation(conversation, conversationId) || run.botId || "";
     run.status = "running";
+    run.hasTypingActivity = true;
+    run.transportDisconnected = false;
     markCloudRunActivity(run);
     scheduleCloudRunRender(conversationId);
     refreshCloudRunStatusTimer();

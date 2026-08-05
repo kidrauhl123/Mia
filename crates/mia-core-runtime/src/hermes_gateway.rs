@@ -1227,7 +1227,7 @@ impl HermesGatewayProcess {
             .take()
             .ok_or_else(|| anyhow!("Hermes Gateway stderr was not piped"))?;
         let stderr_tail = Arc::new(StdMutex::new(String::new()));
-        tokio::spawn(drain_stderr(stderr, stderr_tail.clone()));
+        let mut stderr_task = Some(tokio::spawn(drain_stderr(stderr, stderr_tail.clone())));
         let mut lines = BufReader::new(stdout).lines();
         let port = match tokio::time::timeout(HERMES_STARTUP_TIMEOUT, async {
             loop {
@@ -1238,8 +1238,15 @@ impl HermesGatewayProcess {
                         }
                     }
                     None => {
-                        let status = child.try_wait()?;
-                        bail!("Hermes Gateway exited before readiness marker: {status:?}");
+                        let status = child.wait().await?;
+                        if let Some(task) = stderr_task.take() {
+                            let _ = task.await;
+                        }
+                        let stderr = stderr_tail.lock().unwrap().clone();
+                        bail!(
+                            "Hermes Gateway exited before readiness marker with {status}{}",
+                            stderr_suffix(&stderr)
+                        );
                     }
                 }
             }
@@ -2308,6 +2315,53 @@ mod tests {
             None
         );
         assert_eq!(hermes_ready_port("starting"), None);
+    }
+
+    #[tokio::test]
+    async fn early_gateway_exit_reports_real_status_and_stderr() {
+        let workspace = std::env::temp_dir().join(format!(
+            "mia-hermes-gateway-startup-error-{}",
+            Uuid::now_v7().simple()
+        ));
+        let fixture_program = if cfg!(windows) {
+            std::env::var("ComSpec").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".to_string())
+        } else {
+            "sh".into()
+        };
+        let mut plan =
+            bundled_turn_plan(fixture_program.clone(), BTreeMap::new(), workspace.clone());
+        plan.command = Some(if cfg!(windows) {
+            RuntimeCommand {
+                program: fixture_program,
+                args: vec![
+                    "/D".into(),
+                    "/S".into(),
+                    "/C".into(),
+                    "echo pydantic startup failure 1>&2 & exit /b 7".into(),
+                ],
+            }
+        } else {
+            RuntimeCommand {
+                program: "sh".into(),
+                args: vec![
+                    "-c".into(),
+                    "printf 'pydantic startup failure' >&2; exit 7".into(),
+                ],
+            }
+        });
+
+        let error = match HermesGatewayProcess::spawn(&plan).await {
+            Ok(_) => panic!("gateway fixture should exit before readiness"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(
+            error.contains("exited before readiness marker with"),
+            "{error}"
+        );
+        assert!(error.contains("pydantic startup failure"), "{error}");
+        assert!(!error.contains("None"), "{error}");
+        let _ = tokio::fs::remove_dir_all(workspace).await;
     }
 
     #[test]

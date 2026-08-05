@@ -2518,7 +2518,7 @@ function sendWsJson(ws, payload) {
   });
 }
 
-function attachEventSocket(hub, ws, userId, { eventLog, sinceSeq = 0 } = {}) {
+function attachEventSocket(hub, ws, userId, { eventLog, sinceSeq = 0, activeRuns = [] } = {}) {
   if (!hub.socketsByUser.has(userId)) hub.socketsByUser.set(userId, new Set());
   hub.socketsByUser.get(userId).add(ws);
   ws.on("close", () => {
@@ -2548,7 +2548,13 @@ function attachEventSocket(hub, ws, userId, { eventLog, sinceSeq = 0 } = {}) {
   }
   const resetTo = cursorStart > serverSeq ? serverSeq : null;
   if (resetTo !== null) cursorStart = serverSeq;
-  sendWsJson(ws, { type: "events_ready", sinceSeq: cursorStart, serverSeq, resetTo });
+  sendWsJson(ws, {
+    type: "events_ready",
+    sinceSeq: cursorStart,
+    serverSeq,
+    resetTo,
+    activeRuns: Array.isArray(activeRuns) ? activeRuns : []
+  });
 
   if (eventLog && serverSeq > cursorStart) {
     let cursor = cursorStart;
@@ -4980,7 +4986,14 @@ function handleBridgeUpgrade(req, socket, head, context, wss) {
   wss.handleUpgrade(req, socket, head, (ws) => {
     if (url.pathname === "/api/events") {
       const sinceSeq = Number(url.searchParams.get("since_seq") || 0);
-      attachEventSocket(context.eventHub, ws, auth.user.id, { eventLog: context.eventLog, sinceSeq });
+      const activeRuns = typeof context.cloudAgentRunsStore?.listActiveForUser === "function"
+        ? context.cloudAgentRunsStore.listActiveForUser(auth.user.id)
+        : [];
+      attachEventSocket(context.eventHub, ws, auth.user.id, {
+        eventLog: context.eventLog,
+        sinceSeq,
+        activeRuns
+      });
       return;
     }
     attachBridgeDevice(context.bridgeHub, ws, {

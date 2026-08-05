@@ -130,7 +130,7 @@ test("activating all three engines records Mia-private fixed versions without ru
   assert.equal(state.engines["claude-code"].runtimeVersion, "0.59.0");
   assert.equal(state.engines.codex.version, "0.144.5");
   assert.equal(state.engines.codex.runtimeVersion, "1.1.4");
-  assert.equal(calls.some((call) => call.type === "spawn"), false);
+  assert.equal(calls.filter((call) => call.type === "spawn").length, 2);
   assert.equal(progress.filter((value) => value.status === "success").length, 3);
 });
 
@@ -239,8 +239,87 @@ test("Hermes API check runs the selected private Python with the sealed site-pac
   const spawn = calls.find((call) => call.type === "spawn");
   assert.equal(check.ok, true);
   assert.match(spawn.command, /hermes-runtime[\\/]python[\\/]python\.exe$/);
-  assert.match(spawn.options.env.PYTHONPATH, /hermes-runtime[\\/]site-packages/);
+  assert.equal(spawn.args[0], "-I");
+  assert.match(spawn.args[2], /pydantic_core/);
+  const privateSitePackages = path.join(path.dirname(path.dirname(spawn.command)), "site-packages");
+  assert.ok(spawn.args[2].includes(JSON.stringify(privateSitePackages).slice(1, -1)));
+  assert.equal(spawn.options.env.PYTHONPATH, undefined);
   assert.equal(spawn.options.windowsHide, true);
+});
+
+test("corrupted Hermes runtime is atomically restored before activation", async (t) => {
+  let importChecks = 0;
+  const downloads = [];
+  const fixture = setup(t, {
+    spawnSync: () => {
+      importChecks += 1;
+      return importChecks === 1
+        ? { status: 1, stdout: "", stderr: "No module named pydantic_core._pydantic_core" }
+        : { status: 0, stdout: "import OK\n", stderr: "" };
+    },
+    backupClient: {
+      async install(options) {
+        downloads.push(options.engineId);
+        fs.rmSync(options.destination, { recursive: true, force: true });
+        writeEngineFixture(options.engineId, options.destination);
+        await options.prepare(options.destination);
+        await options.validate(options.destination);
+      }
+    }
+  });
+
+  await fixture.service.installEngineAsync("hermes");
+
+  assert.deepEqual(downloads, ["hermes"]);
+  assert.equal(fixture.service.fallbackEnabled("hermes"), true);
+  assert.ok(fixture.calls.some((call) => call.type === "log" && /integrity check failed/.test(call.line)));
+});
+
+test("repairAsync always replaces the complete Hermes runtime", async (t) => {
+  const downloads = [];
+  const fixture = setup(t, {
+    backupClient: {
+      async install(options) {
+        downloads.push(options.engineId);
+        fs.rmSync(options.destination, { recursive: true, force: true });
+        writeEngineFixture(options.engineId, options.destination);
+        await options.prepare(options.destination);
+        await options.validate(options.destination);
+      }
+    }
+  });
+
+  await fixture.service.repairAsync();
+
+  assert.deepEqual(downloads, ["hermes"]);
+});
+
+test("startup integrity check restores an enabled corrupted Hermes runtime", async (t) => {
+  let importChecks = 0;
+  const downloads = [];
+  const fixture = setup(t, {
+    spawnSync: () => {
+      importChecks += 1;
+      return importChecks === 2
+        ? { status: 1, stdout: "", stderr: "DLL load failed while importing _pydantic_core" }
+        : { status: 0, stdout: "import OK\n", stderr: "" };
+    },
+    backupClient: {
+      async install(options) {
+        downloads.push(options.engineId);
+        fs.rmSync(options.destination, { recursive: true, force: true });
+        writeEngineFixture(options.engineId, options.destination);
+        await options.prepare(options.destination);
+        await options.validate(options.destination);
+      }
+    }
+  });
+  fixture.service.installEngine("hermes");
+
+  const result = await fixture.service.ensureEnabledHermesRuntime();
+
+  assert.deepEqual(result, { checked: true, repaired: true });
+  assert.deepEqual(downloads, ["hermes"]);
 });
 
 test("activation rejects cancellation and unknown engines", async (t) => {
