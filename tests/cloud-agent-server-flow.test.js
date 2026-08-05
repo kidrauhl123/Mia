@@ -657,7 +657,7 @@ test("POST group mention does not invoke deleted bots from stale group membershi
   }
 });
 
-test("POST group message routes named bot only and gives the agent group identity", async () => {
+test("POST group mention routes only the mentioned bot and gives it group identity", async () => {
   const dataDir = tempDir("mia-cloud-agent-named-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -703,7 +703,8 @@ test("POST group message routes named bot only and gives the agent group identit
       method: "POST",
       headers: authHeaders,
       body: {
-        bodyMd: "空铃在干啥",
+        bodyMd: "@空铃 在干啥",
+        mentions: [{ kind: "bot", botId: "kongling" }],
         clientOpId: "op_cloud_named_group_1"
       }
     });
@@ -789,7 +790,7 @@ test("POST cloud Claude Code run cancel routes only through the cloud agent disp
   }
 });
 
-test("POST group short message reaches the single-bot handler through the HTTP entrypoint", async () => {
+test("POST ordinary single-bot group message reaches the visible coordinator", async () => {
   const dataDir = tempDir("mia-cloud-agent-ack-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -834,7 +835,9 @@ test("POST group short message reaches the single-bot handler through the HTTP e
     await server.mia.cloudAgentDispatcher.idle();
 
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].bot.id, "mia");
+    assert.equal(hermesCalls[0].bot.id, "group-orchestrator");
+    assert.match(hermesCalls[0].input, /Group Bot roster/);
+    assert.match(hermesCalls[0].input, /Mia/);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

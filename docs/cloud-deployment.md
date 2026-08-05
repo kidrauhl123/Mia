@@ -11,6 +11,22 @@ This document is the production checklist for the official Mia Cloud/Web host.
 - Public origin: `https://mia.gifgif.cn`; apex alias: `https://gifgif.cn`
 - Local API listener: `127.0.0.1:4175`
 
+## Release Artifact Retention
+
+Public installer storage is bounded by a fixed retention policy. Keep the newest **three** versions for each desktop platform (current release plus two rollback releases) and the newest **three** numbered Android APKs. The active `latest-mac.yml`, `latest.yml`, and `mia-mobile-update.json` targets are always protected even if they fall outside that window. Current `latest` aliases, manifests, non-versioned development APKs, website assets, Cloud data, and logs are not touched.
+
+Every macOS, Windows, and Android publisher prunes before transfer (leaving enough rollback artifacts to make room) and again after a verified publish. Every Cloud install runs the same pruning pass, including Web/API-only deploys. `MIA_RELEASE_ARTIFACT_KEEP` controls the window and defaults to `3`; it must be at least `1`.
+
+To inspect a server without deleting files:
+
+```bash
+npm run release:artifacts:prune -- --remote mia-jms-deploy \
+  --dir /var/www/mia-updates \
+  --dir /var/www/mia-web/downloads
+```
+
+Add `--apply` only after reviewing that dry-run output. This policy is deliberately limited to known versioned Mia DMG/ZIP/EXE/APK artifact names, so it cannot remove user uploads or SQLite data.
+
 ## Required Environment
 
 ```ini
@@ -339,6 +355,7 @@ Supported deployment overrides:
 - `MIA_DEPLOY_SUDO`: optional simple privilege command, for example `sudo -n`; shell snippets are rejected.
 - `MIA_DEPLOY_BACKUP_DIR`: remote backup directory, default `/root`.
 - `MIA_DEPLOY_BACKUP_KEEP`: successful deploys retain this many newest backups per backup family, default `3`; set to `0` to disable pruning.
+- `MIA_RELEASE_ARTIFACT_KEEP`: newest version count kept for each desktop platform and numbered Android APKs, default `3`; current feed targets are always protected.
 - `MIA_DEPLOY_ID`: optional deploy identifier used in backup filenames, default `<timestamp>-<pid>`.
 - `MIA_DEPLOY_API_DIR`: remote API install directory, default `/opt/mia-cloud`.
 - `MIA_DEPLOY_WEB_DIR`: remote Web install directory, default `/var/www/mia-web`.

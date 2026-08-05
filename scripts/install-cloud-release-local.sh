@@ -17,6 +17,7 @@ API_DIR="${MIA_DEPLOY_API_DIR:-/opt/mia-cloud}"
 WEB_DIR="${MIA_DEPLOY_WEB_DIR:-/var/www/mia-web}"
 WEB_BASENAME="$(basename "$WEB_DIR")"
 UPDATES_DIR="${MIA_DEPLOY_UPDATES_DIR:-/var/www/mia-updates}"
+RELEASE_ARTIFACT_KEEP="${MIA_RELEASE_ARTIFACT_KEEP:-3}"
 DATA_DIR="${MIA_DEPLOY_DATA_DIR:-/var/lib/mia-cloud}"
 AGENT_ROOT="${MIA_CLOUD_AGENT_ROOT:-/var/lib/mia-cloud-agent-users}"
 AGENT_MODE="${MIA_CLOUD_AGENT_MODE:-claude-code}"
@@ -604,6 +605,11 @@ run_as_root mkdir -p "$API_DIR" "$WEB_DIR" "$UPDATES_DIR" "$DATA_DIR" "$AGENT_RO
 run_as_root rsync -a --delete "$INSTALL_TMP/api/" "$API_DIR/"
 run_as_root cp "$INSTALL_TMP/manifest.json" "$API_DIR/release-manifest.json"
 sync_web_release
+run_as_root node "$INSTALL_TMP/prune-release-artifacts.js" \
+  --apply \
+  --keep "$RELEASE_ARTIFACT_KEEP" \
+  --dir "$UPDATES_DIR" \
+  --dir "$WEB_DIR/downloads"
 run_as_root mkdir -p "$(dirname "$NGINX_MAP_CONF")" "$(dirname "$NGINX_SITE_CONF")"
 run_as_root cp "$INSTALL_TMP/nginx/mia-websocket-map.conf" "$NGINX_MAP_CONF"
 run_as_root cp "$INSTALL_TMP/nginx/mia-cloud-site.conf" "$NGINX_SITE_CONF"

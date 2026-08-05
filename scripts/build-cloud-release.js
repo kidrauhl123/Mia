@@ -651,6 +651,7 @@ function verifyRelease() {
     "doctor-cloud.js",
     "verify-site-verification.js",
     "diagnose-deploy-ssh.js",
+    "prune-release-artifacts.js",
     "install-officecli-runtime.sh",
     "install-cloud-release-local.sh",
     "cloud-deployment.md",
@@ -721,7 +722,8 @@ function verifyRelease() {
     "prepare-cloud-smoke-account.js",
     "doctor-cloud.js",
     "verify-site-verification.js",
-    "diagnose-deploy-ssh.js"
+    "diagnose-deploy-ssh.js",
+    "prune-release-artifacts.js"
   ]) {
     if (!/\.(?:c|m)?js$/i.test(file)) continue;
     childProcess.execFileSync(process.execPath, ["--check", assertFile(file)], {
@@ -985,6 +987,7 @@ function main() {
   copyFile("scripts/doctor-cloud.js", path.join(distDir, "doctor-cloud.js"));
   copyFile("scripts/verify-site-verification.js", path.join(distDir, "verify-site-verification.js"));
   copyFile("scripts/diagnose-deploy-ssh.js", path.join(distDir, "diagnose-deploy-ssh.js"));
+  copyFile("scripts/prune-release-artifacts.js", path.join(distDir, "prune-release-artifacts.js"));
   copyFile("scripts/install-officecli-runtime.sh", path.join(distDir, "install-officecli-runtime.sh"));
   copyFile("scripts/install-cloud-release-local.sh", path.join(distDir, "install-cloud-release-local.sh"));
   copyFile("docs/cloud-deployment.md", path.join(distDir, "cloud-deployment.md"));

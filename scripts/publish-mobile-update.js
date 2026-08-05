@@ -18,6 +18,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
+const { parseKeepVersions, runRemoteReleaseArtifactPrune } = require("./prune-release-artifacts.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const MOBILE_CONFIG = path.join(ROOT, "apps", "mobile-rn", "app.config.ts");
@@ -44,6 +45,7 @@ const RUNTIME = arg("runtime-version", currentMobileRuntimeVersion());
 const MIN_SUPPORTED = Number(arg("min-supported", "1"));
 const MANDATORY = flag("mandatory");
 const NOTES = arg("notes") ? arg("notes").split("|").map((s) => s.trim()).filter(Boolean) : [];
+const RELEASE_ARTIFACT_KEEP = parseKeepVersions(process.env.MIA_RELEASE_ARTIFACT_KEEP || "3", "MIA_RELEASE_ARTIFACT_KEEP");
 
 if (!process.env.SSH_ASKPASS) {
   process.env.SSH_ASKPASS = path.join(ROOT, "scripts", "jms-askpass.sh");
@@ -68,6 +70,17 @@ function latestApkAliasCommand({ downloadsDir, apkName, latestApkName, nonce = p
     `ln -sfn ${shellQuote(apkName)} ${shellQuote(temporaryLink)}`,
     `mv -fT ${shellQuote(temporaryLink)} ${shellQuote(latestDest)}`,
   ].join(" && ");
+}
+
+function pruneRemoteReleaseArtifacts(keepVersions, phase) {
+  console.log(`[publish] applying ${phase} release-artifact retention (keep ${keepVersions} Android version(s)).`);
+  runRemoteReleaseArtifactPrune({
+    remote: REMOTE,
+    directories: [DOWNLOADS_DIR],
+    keepVersions,
+    apply: true,
+    cwd: ROOT,
+  });
 }
 
 function resolveBuild(buildId) {
@@ -101,6 +114,9 @@ function main() {
   const latestDest = `${DOWNLOADS_DIR}/${latestApkName}`;
   const apkUrl = `${PUBLIC_BASE}/downloads/${apkName}`;
   const latestApkUrl = `${PUBLIC_BASE}/downloads/${latestApkName}`;
+
+  // Preserve the active manifest target while making room for the next APK.
+  pruneRemoteReleaseArtifacts(Math.max(1, RELEASE_ARTIFACT_KEEP - 1), "pre-publish");
 
   // Put the APK on the server.
   if (sourceUrl) {
@@ -149,6 +165,7 @@ function main() {
   const latestApkHttp = out("curl", ["-sS", "-I", "-o", "/dev/null", "-w", "%{http_code}", latestApkUrl]).trim();
   console.log(`[publish] verify manifest=${manifestHttp} apk=${apkHttp} latest=${latestApkHttp}`);
   if (manifestHttp !== "200" || apkHttp !== "200" || latestApkHttp !== "200") throw new Error("post-upload verification failed");
+  pruneRemoteReleaseArtifacts(RELEASE_ARTIFACT_KEEP, "post-publish");
   console.log("[publish] done — clients on a lower versionCode will now see the update.");
 }
 

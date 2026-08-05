@@ -58,9 +58,14 @@ function flushAsyncWork() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function latestContactPatch(patches, predicate) {
+  return [...patches].reverse().find(predicate);
+}
+
 function loadBotManager(options = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/bot/bot-manager.js"), "utf8");
   const timers = [];
+  const contactPatches = [];
   const mockWindow = {
     mia: options.mia || {},
     miaSocial: { moduleState: { bots: [] }, pendingRequestCount: () => 0 },
@@ -106,6 +111,9 @@ function loadBotManager(options = {}) {
     miaAvatarResolve: {
       resolveAvatarForContact: () => ({ image: "", crop: null, color: "#5e5ce6", text: "?" })
     },
+    miaReactContacts: {
+      publish(patch) { contactPatches.push(patch); }
+    },
     setTimeout: (fn, delay = 0) => {
       timers.push({ fn, delay });
       return timers.length;
@@ -124,7 +132,7 @@ function loadBotManager(options = {}) {
     Set,
   });
   vm.runInContext(source, context);
-  return { manager: mockWindow.miaBotManager, window: mockWindow, timers };
+  return { manager: mockWindow.miaBotManager, window: mockWindow, timers, contactPatches };
 }
 
 test("sidebar conversation sorting uses lastMessageAt instead of metadata updatedAt", () => {
@@ -156,8 +164,8 @@ test("sidebar conversation sorting keeps pinned rows first and places empty conv
   ]);
 });
 
-test("renderContacts groups bot contacts by alphabetical initial", () => {
-  const { manager, window } = loadBotManager();
+test("renderContacts publishes bot contacts by alphabetical initial", () => {
+  const { manager, window, contactPatches } = loadBotManager();
   const contactList = mockEl();
   const contactDetail = mockEl();
   const state = {
@@ -191,13 +199,12 @@ test("renderContacts groups bot contacts by alphabetical initial", () => {
 
   manager.renderContacts();
 
-  const rendered = contactList.children.map((child) => {
-    if (String(child.className || "").includes("contact-group-header")) {
-      return `header:${child.innerHTML.match(/<span>([^<]+)<\/span>/)?.[1] || child.textContent}`;
-    }
-    return child.innerHTML.match(/<strong>([^<]+)<\/strong>/)?.[1];
-  });
-  assert.deepEqual(rendered, [
+  const list = latestContactPatch(contactPatches, (patch) => Array.isArray(patch.groups));
+  const rendered = list.groups.flatMap((group) => [
+    `header:${group.label}`,
+    ...group.rows.map((row) => row.name)
+  ]);
+  assert.deepEqual(Array.from(rendered), [
     "header:A",
     "Alpha",
     "header:B",
@@ -212,8 +219,8 @@ test("renderContacts groups bot contacts by alphabetical initial", () => {
   assert.equal(state.activeContactKey, "alpha");
 });
 
-test("renderContacts reuses unchanged contact rows so status badge lotties keep playing", () => {
-  const { manager, window } = loadBotManager();
+test("renderContacts keeps stable React row keys for status badge lotties", () => {
+  const { manager, window, contactPatches } = loadBotManager();
   const contactList = mockEl();
   const contactDetail = mockEl();
   const state = {
@@ -247,16 +254,19 @@ test("renderContacts reuses unchanged contact rows so status badge lotties keep 
   });
 
   manager.renderContacts();
-  const firstRow = contactList.children.find((child) => String(child.className || "").includes("contact-row"));
+  const firstList = latestContactPatch(contactPatches, (patch) => Array.isArray(patch.groups));
   manager.renderContacts();
-  const secondRow = contactList.children.find((child) => String(child.className || "").includes("contact-row"));
+  const secondList = latestContactPatch(contactPatches, (patch) => Array.isArray(patch.groups));
 
-  assert.ok(firstRow, "contact row should render");
-  assert.equal(secondRow, firstRow, "unchanged contact rows should not be rebuilt");
+  const firstRow = firstList.groups[0].rows[0];
+  const secondRow = secondList.groups[0].rows[0];
+  assert.equal(firstRow.key, "alpha");
+  assert.equal(secondRow.key, firstRow.key, "React keeps the row mounted by its stable key");
+  assert.deepEqual(secondRow.badge, { kind: "lottie", assetId: "blue-fire" });
 });
 
 test("contact detail exposes the contact uid", () => {
-  const { manager, window } = loadBotManager();
+  const { manager, window, contactPatches } = loadBotManager();
   const contactList = mockEl();
   const contactDetail = mockEl();
   const state = {
@@ -292,13 +302,13 @@ test("contact detail exposes the contact uid", () => {
 
   manager.renderContacts();
 
-  assert.match(contactDetail.innerHTML, /class="contact-profile-uid"/);
-  assert.match(contactDetail.innerHTML, />UID</);
-  assert.match(contactDetail.innerHTML, /review-bot/);
+  const detail = latestContactPatch(contactPatches, (patch) => patch.detail?.kind === "bot");
+  assert.equal(detail.detail.bot.uid, "review-bot");
+  assert.equal(detail.detail.bot.key, "review-bot");
 });
 
-test("contact detail keeps Core capability rows stable across unchanged renders", async () => {
-  const { manager, window } = loadBotManager({
+test("contact detail publishes normalized Core capability options", async () => {
+  const { manager, window, contactPatches } = loadBotManager({
     mia: {
       social: {
         getBotCapabilityOptions: async () => coreCapabilityOptions({
@@ -352,23 +362,21 @@ test("contact detail keeps Core capability rows stable across unchanged renders"
 
   manager.renderContactDetail(bot);
   await flushAsyncWork();
-  const writes = contactDetail.innerHTMLWrites;
   manager.renderContactDetail(bot);
 
-  assert.equal(contactDetail.innerHTMLWrites, writes);
-  assert.match(contactDetail.innerHTML, /class="capability-row enabled"/);
-  assert.match(contactDetail.innerHTML, />文档编辑</);
-  const enabledListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-enabled">([\s\S]*?)<\/div>/)?.[1] || "";
-  const addListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-add">([\s\S]*?)<\/div>/)?.[1] || "";
-  assert.match(enabledListHtml, />文档编辑</);
-  assert.doesNotMatch(enabledListHtml, />实验报告</);
-  assert.match(addListHtml, />实验报告</);
-  assert.doesNotMatch(enabledListHtml, /Mia 官方库/);
-  assert.doesNotMatch(enabledListHtml, /<small>/);
+  const detail = latestContactPatch(contactPatches, (patch) => patch.detail?.kind === "bot");
+  assert.deepEqual(
+    detail.detail.bot.capabilities.enabled.map((option) => ({ label: option.label, originLabel: option.originLabel })),
+    [{ label: "文档编辑", originLabel: "" }]
+  );
+  assert.deepEqual(
+    detail.detail.bot.capabilities.addable.map((option) => option.label),
+    ["实验报告"]
+  );
 });
 
-test("contact detail renders preset defaults from Core capability options", async () => {
-  const { manager, window } = loadBotManager({
+test("contact detail publishes preset defaults from Core capability options", async () => {
+  const { manager, window, contactPatches } = loadBotManager({
     mia: {
       social: {
         getBotCapabilityOptions: async () => coreCapabilityOptions({
@@ -440,20 +448,18 @@ test("contact detail renders preset defaults from Core capability options", asyn
   manager.renderContactDetail(bot);
   await flushAsyncWork();
 
-  const enabledListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-enabled">([\s\S]*?)<\/div>/)?.[1] || "";
-  const addListHtml = contactDetail.innerHTML.match(/<div class="capability-list capability-list-add">([\s\S]*?)<\/div>/)?.[1] || "";
-  assert.match(contactDetail.innerHTML, />2 个默认技能</);
-  assert.match(enabledListHtml, />表格整理</);
-  assert.match(enabledListHtml, />Excel 文件</);
-  assert.match(enabledListHtml, />助手预设</);
-  assert.match(enabledListHtml, />系统默认</);
-  assert.doesNotMatch(enabledListHtml, />实验报告</);
-  assert.match(addListHtml, />实验报告</);
+  const detail = latestContactPatch(contactPatches, (patch) => patch.detail?.kind === "bot");
+  assert.equal(detail.detail.bot.capabilities.summary, "2 个默认技能");
+  assert.deepEqual(
+    detail.detail.bot.capabilities.enabled.map((option) => [option.label, option.originLabel]),
+    [["表格整理", "助手预设"], ["Excel 文件", "系统默认"]]
+  );
+  assert.deepEqual(detail.detail.bot.capabilities.addable.map((option) => option.label), ["实验报告"]);
 });
 
 test("contact runtime target panel renders Core-owned target options", async () => {
   const calls = [];
-  const { manager, window } = loadBotManager({
+  const { manager, window, contactPatches } = loadBotManager({
     mia: {
       social: {
         getBotRuntimeTargetOptions: async (input) => {
@@ -528,16 +534,19 @@ test("contact runtime target panel renders Core-owned target options", async () 
   });
 
   manager.renderContactDetail(bot);
-  assert.match(contactDetail.innerHTML, />正在同步运行目标/);
-  await Promise.resolve();
-  await Promise.resolve();
+  const pendingDetail = latestContactPatch(contactPatches, (patch) => patch.detail?.kind === "bot");
+  assert.deepEqual(Array.from(pendingDetail.detail.bot.runtime.groups), []);
+  await flushAsyncWork();
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].bot.key, "codex-bot");
   assert.equal(calls[0].runtime.agentInventory.agents[0].id, "codex");
   assert.equal(contactPageMeta.textContent, "本机运行");
-  assert.match(contactDetail.innerHTML, /data-agent-engine="codex"/);
-  assert.match(contactDetail.innerHTML, /runtime-target-option selected/);
+  const detail = latestContactPatch(contactPatches, (patch) => patch.detail?.kind === "bot");
+  assert.deepEqual(Array.from(detail.detail.bot.runtime.groups, (group) => ({
+    label: group.label,
+    options: Array.from(group.options, (option) => [option.engineKind, option.label, option.selected])
+  })), [{ label: "本机", options: [["codex", "Codex", true]] }]);
 });
 
 test("other-device grouping uses the persisted bot target before Core options load", () => {

@@ -13,6 +13,7 @@ const path = require("node:path");
 const yaml = require("js-yaml");
 const { attachDesktopReleaseNotes } = require("./desktop-release-notes.js");
 const { syncDesktopWebDownloads } = require("./publish-desktop-web-downloads.js");
+const { parseKeepVersions, runRemoteReleaseArtifactPrune } = require("./prune-release-artifacts.js");
 
 const root = path.resolve(__dirname, "..");
 if (process.platform !== "win32" && !process.env.SSH_ASKPASS) {
@@ -27,8 +28,22 @@ const stageDir = path.resolve(process.env.MIA_UPDATE_STAGING_DIR || path.join(ro
 const updateUrl = String(process.env.MIA_UPDATE_BASE_URL || pkg.build?.publish?.url || "https://mia.gifgif.cn/updates/").replace(/\/?$/, "/");
 const remote = String(process.env.MIA_UPDATE_REMOTE || process.env.MIA_DEPLOY_REMOTE || "").trim();
 const remoteDir = String(process.env.MIA_UPDATE_REMOTE_DIR || "/var/www/mia-updates/").replace(/\/?$/, "/");
+const webDownloadsDir = String(process.env.MIA_WEB_DOWNLOAD_REMOTE_DIR || "/var/www/mia-web/downloads/").replace(/\/?$/, "/");
 const shouldDeploy = process.env.MIA_UPDATE_DEPLOY === "1";
 const shouldSyncWebDownloads = process.env.MIA_UPDATE_SYNC_WEB_DOWNLOADS !== "0";
+const releaseArtifactKeep = parseKeepVersions(process.env.MIA_RELEASE_ARTIFACT_KEEP || "3", "MIA_RELEASE_ARTIFACT_KEEP");
+
+function pruneRemoteReleaseArtifacts(keepVersions, phase) {
+  console.log(`Applying ${phase} release-artifact retention (keep ${keepVersions} version(s) per platform).`);
+  runRemoteReleaseArtifactPrune({
+    remote,
+    directories: [remoteDir, webDownloadsDir],
+    keepVersions,
+    productName,
+    apply: true,
+    cwd: root,
+  });
+}
 
 function resolveOrThrow(name) {
   const file = path.join(releaseDir, name);
@@ -99,6 +114,9 @@ for (const file of staged) console.log(`  - ${path.basename(file)}`);
 
 if (shouldDeploy) {
   if (!remote) throw new Error("Set MIA_UPDATE_REMOTE or MIA_DEPLOY_REMOTE when MIA_UPDATE_DEPLOY=1.");
+  // Reclaim space before transferring a new multi-hundred-megabyte installer.
+  // The post-publish pass restores the normal current-plus-two-rollbacks window.
+  pruneRemoteReleaseArtifacts(Math.max(1, releaseArtifactKeep - 1), "pre-publish");
   console.log(`Deploying updates to ${remote}:${remoteDir}`);
   execFileSync("ssh", [remote, "mkdir", "-p", remoteDir], { cwd: root, stdio: "inherit" });
   execFileSync("rsync", ["-av", `${stageDir}/`, `${remote}:${remoteDir}`], { cwd: root, stdio: "inherit" });
@@ -117,6 +135,7 @@ if (shouldDeploy) {
       }],
     });
   }
+  pruneRemoteReleaseArtifacts(releaseArtifactKeep, "post-publish");
 }
 
 console.log(`Done. Generic-provider clients will check ${updateUrl}latest.yml.`);
