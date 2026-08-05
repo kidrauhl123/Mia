@@ -15,6 +15,7 @@ const exploreTabs: readonly [Extract<RendererView, "contacts" | "bot-store" | "s
 
 const settingsTabs: readonly [SettingsTab, string][] = [
   ["account", "账号与同步"],
+  ["im", "IM 接入"],
   ["appearance", "外观"],
   ["model", "模型"],
   ["memory", "记忆"]

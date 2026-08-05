@@ -83,6 +83,36 @@ function createSocialApi({ getSettings, normalizeUrl, fetchImpl = fetch, maxConc
     async listBots() {
       return jsonRequest({ ...ctx(), method: "GET", path: "/api/me/bots?compact=1" });
     },
+    async listImChannels() {
+      return jsonRequest({ ...ctx(), method: "GET", path: "/api/me/im-channels" });
+    },
+    async createImChannel(body = {}) {
+      return jsonRequest({ ...ctx(), method: "POST", path: "/api/me/im-channels", body: withOpId(body) });
+    },
+    async updateImChannel(channelId, body = {}) {
+      return jsonRequest({
+        ...ctx(),
+        method: "PATCH",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}`,
+        body: withOpId(body)
+      });
+    },
+    async deleteImChannel(channelId) {
+      return jsonRequest({
+        ...ctx(),
+        method: "DELETE",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}`,
+        body: withOpId({})
+      });
+    },
+    async testImChannel(channelId) {
+      return jsonRequest({
+        ...ctx(),
+        method: "POST",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}/test`,
+        body: withOpId({})
+      });
+    },
     async getBotIdentity(botId) {
       return jsonRequest({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },

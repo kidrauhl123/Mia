@@ -315,6 +315,11 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { bots }, log });
     return replaceResultArray(result, "bots", bots);
   }));
+  ipcMain.handle(IpcChannel.SocialListImChannels, cloudCall(() => socialApi.listImChannels()));
+  ipcMain.handle(IpcChannel.SocialCreateImChannel, cloudCall((body) => socialApi.createImChannel(body)));
+  ipcMain.handle(IpcChannel.SocialUpdateImChannel, cloudCall((channelId, body) => socialApi.updateImChannel(channelId, body)));
+  ipcMain.handle(IpcChannel.SocialDeleteImChannel, cloudCall((channelId) => socialApi.deleteImChannel(channelId)));
+  ipcMain.handle(IpcChannel.SocialTestImChannel, cloudCall((channelId) => socialApi.testImChannel(channelId)));
   ipcMain.handle(IpcChannel.SocialSaveBotIdentity, cloudCall(async (botId, body = {}) => {
     const result = await socialApi.saveBotIdentity(botId, body);
     const fallback = { ...(body || {}), id: botId, key: botId };

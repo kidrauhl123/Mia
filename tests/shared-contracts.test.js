@@ -32,6 +32,17 @@ test("ipc channel contract is available in Node and browser contexts", () => {
   assert.deepEqual(plain(browserContract.IpcChannel), plain(nodeContract.IpcChannel));
 });
 
+test("IM channel contract keeps available and bridge-preview providers explicit", () => {
+  const nodeContract = require("../src/shared/im-channel-contracts.js");
+  const browserContract = loadBrowserGlobal("src/shared/im-channel-contracts.js", "miaImChannelContracts");
+
+  assert.equal(nodeContract.isSupportedImChannelProvider("feishu"), true);
+  assert.equal(nodeContract.isSupportedImChannelProvider("wechat_official_account"), true);
+  assert.equal(nodeContract.isSupportedImChannelProvider("wechat_clawbot"), false);
+  assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").availability, "bridge-preview");
+  assert.deepEqual(plain(browserContract.IM_CHANNEL_PROVIDERS), plain(nodeContract.IM_CHANNEL_PROVIDERS));
+});
+
 test("engine contract normalizes aliases and exposes shared labels", () => {
   const nodeContract = require("../src/shared/engine-contracts");
   const browserContract = loadBrowserGlobal("src/shared/engine-contracts.js", "miaEngineContracts");

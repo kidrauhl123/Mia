@@ -89,6 +89,32 @@ test("run cancellation IPC forwards the active run to socialApi", async () => {
   assert.deepEqual(calls, [{ conversationId: "botc_u_1_mia", runId: "car_run_1" }]);
 });
 
+test("IM channel IPC exposes only the focused channel operations", async () => {
+  const ipcMain = fakeIpcMain();
+  const calls = [];
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      listImChannels: async () => ({ channels: [] }),
+      createImChannel: async (body) => { calls.push(["create", body]); return { channel: { id: "imc_1" } }; },
+      updateImChannel: async (id, body) => { calls.push(["update", id, body]); return { channel: { id } }; },
+      testImChannel: async (id) => { calls.push(["test", id]); return { ok: true }; },
+      deleteImChannel: async (id) => { calls.push(["delete", id]); return { ok: true }; }
+    }
+  });
+  const created = await ipcMain.handlers.get(IpcChannel.SocialCreateImChannel)(null, { provider: "feishu" });
+  await ipcMain.handlers.get(IpcChannel.SocialUpdateImChannel)(null, "imc_1", { enabled: true });
+  await ipcMain.handlers.get(IpcChannel.SocialTestImChannel)(null, "imc_1");
+  await ipcMain.handlers.get(IpcChannel.SocialDeleteImChannel)(null, "imc_1");
+  assert.deepEqual(created, { ok: true, data: { channel: { id: "imc_1" } } });
+  assert.deepEqual(calls, [
+    ["create", { provider: "feishu" }],
+    ["update", "imc_1", { enabled: true }],
+    ["test", "imc_1"],
+    ["delete", "imc_1"]
+  ]);
+});
+
 test("runtime gate allows user message writes but blocks runtime social reads while cached reads stay available", async () => {
   const ipcMain = fakeIpcMain();
   let posted = false;
