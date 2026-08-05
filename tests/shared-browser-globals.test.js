@@ -9,6 +9,7 @@ const SHARED_MODULES = [
   { file: "src/shared/engine-contracts.js", global: "miaEngineContracts" },
   { file: "src/shared/agent-engine-policy.js", global: "miaAgentEnginePolicy" },
   { file: "src/shared/ipc-channels.js", global: "miaIpcChannels" },
+  { file: "src/shared/im-channel-contracts.js", global: "miaImChannelContracts" },
   { file: "packages/shared/contact.js", global: "miaContact" },
   { file: "src/shared/message-spec.js", global: "miaMessageSpec" },
   { file: "src/shared/time-format.js", global: "miaTimeFormat" },

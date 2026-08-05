@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="./styles/bot-store.css">
   <link rel="stylesheet" href="./styles/bot-dialog.css">
   <link rel="stylesheet" href="./styles/contact-memory.css">
+  <link rel="stylesheet" href="./styles/im-channels.css">
   <link rel="stylesheet" href="./styles/conversation-device-groups.css">
   <link rel="stylesheet" href="./styles/hermes-permission-menu.css">
   <link rel="stylesheet" href="./styles/startup.css">
@@ -655,6 +656,10 @@
             </section>
           </section>
 
+          <section class="settings-panel hidden" data-settings-panel="im">
+            <div id="imChannelSettings" class="im-channel-settings" aria-live="polite"></div>
+          </section>
+
           <section class="settings-panel" data-settings-panel="account">
             <div class="runtime-card cloud-account-card">
               <section class="connection-row">
@@ -780,6 +785,7 @@
   <script src="../../packages/shared/group-tiles.js"></script>
   <script src="../../packages/shared/send-pipeline.js"></script>
   <script src="../shared/conversation-message-identity.js"></script>
+  <script src="../shared/im-channel-contracts.js"></script>
   <script src="../shared/bot-runtime-control.js"></script>
   <script src="./app-state.js"></script>
   <!-- Feature modules -->
@@ -796,6 +802,7 @@
   <script src="./settings/settings-remote.js"></script>
   <script src="./settings/cloud-mobile-login-controller.js"></script>
   <script src="./settings/settings-memory.js"></script>
+  <script src="./settings/im-channel-settings.js"></script>
   <script src="./skills/skill-helpers.js"></script>
   <script src="./mcp/mcp-library.js"></script>
   <script src="./skills/skill-library.js"></script>

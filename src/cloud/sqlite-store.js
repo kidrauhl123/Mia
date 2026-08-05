@@ -1029,6 +1029,53 @@ function migrate(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_bots_owner ON bots(owner_user_id);
 
+    -- External IM channels are account-owned delivery endpoints. Credentials are
+    -- encrypted before they reach this table; list APIs never expose the cipher.
+    CREATE TABLE IF NOT EXISTS im_channels (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider           TEXT NOT NULL,
+      bot_id             TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+      name               TEXT NOT NULL,
+      enabled            INTEGER NOT NULL DEFAULT 0,
+      settings_json      TEXT NOT NULL DEFAULT '{}',
+      secrets_ciphertext TEXT NOT NULL DEFAULT '',
+      last_error         TEXT NOT NULL DEFAULT '',
+      last_event_at      TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL,
+      updated_at         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_im_channels_user ON im_channels(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_im_channels_bot ON im_channels(bot_id);
+
+    -- Provider callbacks are at-least-once. The unique event ledger makes their
+    -- hand-off to an Agent idempotent without storing raw callback payloads.
+    CREATE TABLE IF NOT EXISTS im_channel_events (
+      channel_id        TEXT NOT NULL REFERENCES im_channels(id) ON DELETE CASCADE,
+      provider_event_id TEXT NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'received',
+      created_at        TEXT NOT NULL,
+      PRIMARY KEY (channel_id, provider_event_id)
+    );
+
+    -- A delivery links an inbound provider event to the one Bot reply that may
+    -- be sent back out. It also survives a desktop-local Agent hand-off.
+    CREATE TABLE IF NOT EXISTS im_channel_deliveries (
+      id                 TEXT PRIMARY KEY,
+      channel_id         TEXT NOT NULL REFERENCES im_channels(id) ON DELETE CASCADE,
+      conversation_id    TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      trigger_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      reply_ref          TEXT NOT NULL DEFAULT '',
+      recipient_json     TEXT NOT NULL DEFAULT '{}',
+      status             TEXT NOT NULL DEFAULT 'pending',
+      error              TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL,
+      delivered_at       TEXT NOT NULL DEFAULT '',
+      UNIQUE (channel_id, trigger_message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_im_channel_deliveries_trigger
+      ON im_channel_deliveries(conversation_id, trigger_message_id, status);
+
     -- v6: per-user cross-device settings (pin / read marks / appearance).
     -- One row per user, JSON for the small bags so we don't need a
     -- schema migration every time a setting category is added. Read on
@@ -1733,6 +1780,52 @@ function migrate(db) {
     }
     db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (27, ?)").run(nowIso());
   }
+
+  // v28: official external IM channel registry. These CREATE statements are
+  // intentionally repeatable for self-hosted databases that predate the fresh
+  // schema block above.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS im_channels (
+      id                 TEXT PRIMARY KEY,
+      user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider           TEXT NOT NULL,
+      bot_id             TEXT NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+      name               TEXT NOT NULL,
+      enabled            INTEGER NOT NULL DEFAULT 0,
+      settings_json      TEXT NOT NULL DEFAULT '{}',
+      secrets_ciphertext TEXT NOT NULL DEFAULT '',
+      last_error         TEXT NOT NULL DEFAULT '',
+      last_event_at      TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL,
+      updated_at         TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_im_channels_user ON im_channels(user_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_im_channels_bot ON im_channels(bot_id);
+    CREATE TABLE IF NOT EXISTS im_channel_events (
+      channel_id        TEXT NOT NULL REFERENCES im_channels(id) ON DELETE CASCADE,
+      provider_event_id TEXT NOT NULL,
+      status            TEXT NOT NULL DEFAULT 'received',
+      created_at        TEXT NOT NULL,
+      PRIMARY KEY (channel_id, provider_event_id)
+    );
+    CREATE TABLE IF NOT EXISTS im_channel_deliveries (
+      id                 TEXT PRIMARY KEY,
+      channel_id         TEXT NOT NULL REFERENCES im_channels(id) ON DELETE CASCADE,
+      conversation_id    TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      trigger_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+      reply_ref          TEXT NOT NULL DEFAULT '',
+      recipient_json     TEXT NOT NULL DEFAULT '{}',
+      status             TEXT NOT NULL DEFAULT 'pending',
+      error              TEXT NOT NULL DEFAULT '',
+      created_at         TEXT NOT NULL,
+      delivered_at       TEXT NOT NULL DEFAULT '',
+      UNIQUE (channel_id, trigger_message_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_im_channel_deliveries_trigger
+      ON im_channel_deliveries(conversation_id, trigger_message_id, status);
+  `);
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (28, ?)")
+    .run(nowIso());
 
   const insertRateCardSeed = db.prepare(`
     INSERT OR IGNORE INTO model_rate_cards (

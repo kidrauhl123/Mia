@@ -194,6 +194,38 @@ test("postConversationMessageAsBot sends POST to the canonical bot message route
   } finally { await teardown(ctx); }
 });
 
+test("IM channel methods use the authenticated Cloud routes and idempotent writes", async () => {
+  const seen = [];
+  const ctx = await spawnFakeCloud((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      seen.push({ method: req.method, url: req.url, body: body ? JSON.parse(body) : null });
+      res.writeHead(req.method === "POST" && req.url === "/api/me/im-channels" ? 201 : 200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ channels: [], channel: { id: "imc_1" }, ok: true }));
+    });
+  });
+  try {
+    const api = createSocialApi({
+      getSettings: () => ({ enabled: true, token: "t", url: ctx.baseUrl }),
+      normalizeUrl: (url) => url
+    });
+    await api.listImChannels();
+    await api.createImChannel({ provider: "feishu", botId: "bot_1" });
+    await api.updateImChannel("imc_1", { enabled: false });
+    await api.testImChannel("imc_1");
+    await api.deleteImChannel("imc_1");
+    assert.deepEqual(seen.map((entry) => [entry.method, entry.url]), [
+      ["GET", "/api/me/im-channels"],
+      ["POST", "/api/me/im-channels"],
+      ["PATCH", "/api/me/im-channels/imc_1"],
+      ["POST", "/api/me/im-channels/imc_1/test"],
+      ["DELETE", "/api/me/im-channels/imc_1"]
+    ]);
+    for (const write of seen.slice(1)) assert.match(write.body.clientOpId, /^op_/);
+  } finally { await teardown(ctx); }
+});
+
 test("respondRunApproval sends POST to the cloud run approval route", async () => {
   const seen = [];
   const ctx = await spawnFakeCloud((req, res) => {

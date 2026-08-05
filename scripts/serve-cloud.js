@@ -49,6 +49,24 @@ try {
 } catch {
   ({ createBotsStore } = require("./src/cloud/bots-store.js"));
 }
+let createImChannelStore = null;
+try {
+  ({ createImChannelStore } = require("../src/cloud/im-channel-store.js"));
+} catch {
+  ({ createImChannelStore } = require("./src/cloud/im-channel-store.js"));
+}
+let createImChannelService = null;
+try {
+  ({ createImChannelService } = require("../src/cloud/im-channel-service.js"));
+} catch {
+  ({ createImChannelService } = require("./src/cloud/im-channel-service.js"));
+}
+let createImChannelSecretBox = null;
+try {
+  ({ createImChannelSecretBox } = require("../src/cloud/im-channel-crypto.js"));
+} catch {
+  ({ createImChannelSecretBox } = require("./src/cloud/im-channel-crypto.js"));
+}
 let runtimeBindingIntents = null;
 try {
   runtimeBindingIntents = require("../src/shared/runtime-binding-intents.js");
@@ -307,7 +325,8 @@ const cloudFeatures = [
   "cloud.memory-sync",
   "cloud-claude-code-sandbox-agent",
   "cloud-agent-user-isolation",
-  "status-badge-assets"
+  "status-badge-assets",
+  "im-channels"
 ];
 const defaultAllowedOrigins = String(process.env.MIA_CLOUD_ALLOWED_ORIGINS || "")
   .split(",")
@@ -474,6 +493,47 @@ async function handleWechatMpEvents(req, res, context, url) {
     return true;
   }
   writeError(res, 405, "Method not allowed.");
+  return true;
+}
+
+// IM provider callbacks intentionally live outside the account-authenticated API.
+// Each provider verifies its own callback token/signature inside the channel service.
+async function handleImChannelEvents(req, res, context, url) {
+  const feishuMatch = url.pathname.match(/^\/api\/im\/feishu\/([A-Za-z0-9_.-]+)\/events$/);
+  const wechatMatch = url.pathname.match(/^\/api\/im\/wechat\/([A-Za-z0-9_.-]+)\/events$/);
+  if (!feishuMatch && !wechatMatch) return false;
+  if (!context.imChannelsService) {
+    writeError(res, 503, "IM channels are unavailable.");
+    return true;
+  }
+  try {
+    if (feishuMatch) {
+      if (req.method !== "POST") {
+        writeError(res, 405, "Method not allowed.");
+        return true;
+      }
+      const payload = await readJson(req);
+      const result = await context.imChannelsService.receiveFeishuCallback(feishuMatch[1], payload);
+      if (result?.kind === "challenge") {
+        writeJson(res, 200, { challenge: result.challenge || "" });
+      } else {
+        writeJson(res, 200, { code: 0 });
+      }
+      return true;
+    }
+    const result = await context.imChannelsService.receiveWechatCallback(wechatMatch[1], {
+      signature: url.searchParams.get("signature"),
+      timestamp: url.searchParams.get("timestamp"),
+      nonce: url.searchParams.get("nonce"),
+      method: req.method,
+      echostr: url.searchParams.get("echostr"),
+      body: req.method === "POST" ? await readBody(req) : ""
+    });
+    if (result?.kind === "verification") writeText(res, 200, result.echostr || "");
+    else writeText(res, 200, "success");
+  } catch (error) {
+    writeError(res, Number(error?.status) || 500, error?.message || "IM callback failed.");
+  }
   return true;
 }
 
@@ -3472,6 +3532,7 @@ async function handleRequest(req, res, context) {
     return;
   }
   if (await handleWechatMpEvents(req, res, context, url)) return;
+  if (await handleImChannelEvents(req, res, context, url)) return;
   if (req.method === "GET" && url.pathname === "/api/auth/wechat/mp/qr") {
     const record = context.wechatAuth.peek(url.searchParams.get("state"));
     writeText(res, 200, wechatMpQrHtml(record), "text/html; charset=utf-8");
@@ -4143,6 +4204,14 @@ async function handleRequest(req, res, context) {
         }
         pushChatMessageToOfflineMembers(context, conversationId, message, userMemberIds, auth.user.id);
       }
+      // Desktop-local Agents post their reply through this route. If the user
+      // turn originated in an IM callback, this closes the durable delivery
+      // loop without exposing any provider credentials to the desktop client.
+      if (context.imChannelsService) {
+        Promise.resolve(context.imChannelsService.deliverBotReply({ conversationId, message })).catch((error) => {
+          console.warn("[im-channel] reply delivery hand-off failed", error);
+        });
+      }
       if (typeof context.cloudAgentDispatcher?.handleBotMessage === "function") {
         Promise.resolve(context.cloudAgentDispatcher.handleBotMessage({ conversationId, message })).catch((error) => {
           console.warn("[cloud-agent] coordinator synthesis failed:", error?.message || error);
@@ -4216,7 +4285,7 @@ async function handleRequest(req, res, context) {
       let body = {};
       try { body = await readJson(req); } catch { /* empty body is fine */ }
       if (replayIfCached(context, res, auth.user.id, body)) return;
-      if (existing.type === "bot") {
+      if (existing.type === "bot" && existing.decorations?.source !== "im-channel") {
         const botId = botIdForOwnedPrivateConversation(context.socialStore, existing, auth.user.id);
         const bot = botId ? context.botsStore.getBot(botId) : null;
         if (bot && bot.ownerUserId === auth.user.id) {
@@ -4507,6 +4576,48 @@ async function handleRequest(req, res, context) {
       let bots = botsWithRuntimeBindings(context, auth.user.id, context.botsStore.listBots(auth.user.id));
       if (wantsCompactPayload(url)) bots = bots.map(compactBotIdentity);
       return writeJson(res, 200, { bots });
+    }
+
+    // IM channel settings are account-scoped; callback credentials are encrypted
+    // in the channel service and are never included in these responses.
+    if (req.method === "GET" && url.pathname === "/api/me/im-channels") {
+      return writeJson(res, 200, {
+        channels: context.imChannelsService.listChannels(auth.user.id),
+        providers: context.imChannelsService.listProviders()
+      });
+    }
+    if (req.method === "POST" && url.pathname === "/api/me/im-channels") {
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const channel = context.imChannelsService.createChannel(auth.user.id, body);
+      const payload = { channel };
+      rememberOp(context, auth.user.id, body, 201, payload);
+      return writeJson(res, 201, payload);
+    }
+    const imChannelDetailMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)$/);
+    const imChannelTestMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/test$/);
+    if (req.method === "PATCH" && imChannelDetailMatch) {
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const channel = context.imChannelsService.updateChannel(auth.user.id, imChannelDetailMatch[1], body);
+      const payload = { channel };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
+    }
+    if (req.method === "POST" && imChannelTestMatch) {
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const result = await context.imChannelsService.testChannel(auth.user.id, imChannelTestMatch[1]);
+      rememberOp(context, auth.user.id, body, 200, result);
+      return writeJson(res, 200, result);
+    }
+    if (req.method === "DELETE" && imChannelDetailMatch) {
+      let body = {};
+      try { body = await readJson(req); } catch { /* an empty DELETE body is valid */ }
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const payload = context.imChannelsService.deleteChannel(auth.user.id, imChannelDetailMatch[1]);
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
     }
 
     const botRuntimeMatch = url.pathname.match(/^\/api\/me\/bots\/([A-Za-z0-9_.-]+)\/runtime$/);
@@ -5020,7 +5131,7 @@ function createMiaCloudServer(options = {}) {
     agentSessionStore: null,
     cloudAgentWorkerManager: null,
     cloudAgentClient: null,
-    cloudAgentDispatcher: null,
+    cloudAgentDispatcher: options.cloudAgentDispatcher || null,
     cloudAgentRuntime: null,
     modelBillingStore: null,
     modelPointPromotionStore: null,
@@ -5034,6 +5145,8 @@ function createMiaCloudServer(options = {}) {
     wechatMpAppSecret: options.wechatMpAppSecret || process.env.MIA_WECHAT_MP_APP_SECRET || "",
     wechatMpToken: options.wechatMpToken || process.env.MIA_WECHAT_MP_TOKEN || "",
     publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
+    imChannelStore: null,
+    imChannelsService: null,
     wechatAuth: null,
     mobileScanLogin: null,
     chatMcpApi: null
@@ -5121,7 +5234,7 @@ function createMiaCloudServer(options = {}) {
     source: "server",
     updatedAt: new Date().toISOString()
   });
-  if (cloudAgentWorkerManager && cloudAgentClient && createCloudAgentDispatcher) {
+  if (!context.cloudAgentDispatcher && cloudAgentWorkerManager && cloudAgentClient && createCloudAgentDispatcher) {
     context.cloudAgentDispatcher = createCloudAgentDispatcher({
       socialStore: context.socialStore,
       messagesStore: context.messagesStore,
@@ -5189,6 +5302,26 @@ function createMiaCloudServer(options = {}) {
   }, 60 * 60 * 1000);
   if (context.eventLogPurgeTimer.unref) context.eventLogPurgeTimer.unref();
   context.userSettingsStore = createUserSettingsStore(context.cloudStore.getDb());
+  context.imChannelStore = createImChannelStore(context.cloudStore.getDb());
+  context.imChannelsService = createImChannelService({
+    store: context.imChannelStore,
+    socialStore: context.socialStore,
+    messagesStore: context.messagesStore,
+    botsStore: context.botsStore,
+    secretBox: createImChannelSecretBox(options.imEncryptionKey || process.env.MIA_IM_ENCRYPTION_KEY || ""),
+    fetchImpl: options.fetchImpl || fetch,
+    publicOrigin: () => publicOriginFromContext(context),
+    broadcast: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
+    dispatchMessage: ({ userId, conversationId, message }) => {
+      if (context.cloudAgentDispatcher) {
+        return context.cloudAgentDispatcher.handleUserMessage({ userId, conversationId, message });
+      }
+      const invokedBy = context.cloudStore.getUserPublic(userId) || { id: userId };
+      broadcastBotDmDesktopInvocationFallback(context, conversationId, message, invokedBy);
+      return null;
+    },
+    log: (message, error) => console.warn(message, error)
+  });
   context.wechatAuth = createWechatAuthFlow({
     cloudStore: context.cloudStore,
     fetchImpl: options.fetchImpl || fetch,

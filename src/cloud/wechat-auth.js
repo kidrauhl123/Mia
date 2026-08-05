@@ -113,6 +113,8 @@ function parseWechatMpEventXml(xml = "") {
     FromUserName: xmlTag(xml, "FromUserName"),
     CreateTime: xmlTag(xml, "CreateTime"),
     MsgType: xmlTag(xml, "MsgType"),
+    MsgId: xmlTag(xml, "MsgId"),
+    Content: xmlTag(xml, "Content"),
     Event: xmlTag(xml, "Event"),
     EventKey: xmlTag(xml, "EventKey"),
     Ticket: xmlTag(xml, "Ticket")
