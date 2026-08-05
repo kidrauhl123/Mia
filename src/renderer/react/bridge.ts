@@ -1,6 +1,6 @@
 export type RendererView = "chat" | "contacts" | "bot-store" | "skills" | "tasks" | "settings";
 export type PrimaryNavigation = "chat" | "explore" | "tasks" | "me";
-export type SettingsTab = "account" | "appearance" | "memory" | "model";
+export type SettingsTab = "account" | "appearance" | "memory" | "model" | "im";
 export type TaskMode = "active" | "history";
 
 export type RendererShellSnapshot = Readonly<{

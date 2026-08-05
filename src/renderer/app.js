@@ -237,6 +237,7 @@ const els = {
   botStoreSheet: document.getElementById("botStoreSheet"),
   settingsView: document.getElementById("settingsView"),
   settingsMemoryEnabled: document.getElementById("settingsMemoryEnabled"),
+  imChannelSettings: document.getElementById("imChannelSettings"),
   engineStatus: document.getElementById("engineStatus"),
   hermesHome: document.getElementById("hermesHome"),
   manifestPath: document.getElementById("manifestPath"),
@@ -3309,6 +3310,9 @@ function renderViewImpl() {
     closeCloudLoginApproveDialog();
   }
   if (state.activeView === "settings") window.miaSettingsMemory?.renderMemorySettings?.();
+  if (state.activeView === "settings" && state.activeSettingsTab === "im") {
+    window.miaImChannelSettings?.renderImChannelSettings?.();
+  }
   if (state.activeView === "skills") window.miaSkillLibrary.renderSkillLibrary();
   if (state.activeView === "contacts") window.miaBotManager.renderContacts();
   if (state.activeView === "tasks") window.miaTasksPanel?.renderTaskView();
@@ -5085,6 +5089,14 @@ async function initializeRuntime(options = {}) {
       state,
       els,
       reportError: (message) => appendTransientChat("assistant", message),
+    });
+  }
+  if (window.miaImChannelSettings?.initImChannelSettings) {
+    window.miaImChannelSettings.initImChannelSettings({
+      state,
+      els,
+      reportError: (message) => appendTransientChat("assistant", message),
+      render: renderView
     });
   }
   if (window.miaModelHelpers && window.miaModelHelpers.initModelHelpers) {
