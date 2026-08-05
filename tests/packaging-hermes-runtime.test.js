@@ -47,6 +47,26 @@ test("engine backups have an independent pinned archive and manifest builder", (
   assert.match(source, /hermes/);
 });
 
+test("engine backup builder rejects Hermes runtimes whose build metadata is stale", () => {
+  const { validateHermesRuntimeBuild } = require("../scripts/build-engine-backups.js");
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-hermes-build-info-"));
+  try {
+    fs.writeFileSync(path.join(temp, "runtime-build-info.json"), JSON.stringify({
+      target: "mac-x64",
+      hermesVersion: "2026.5.7"
+    }));
+    assert.throws(() => validateHermesRuntimeBuild({
+      id: "hermes",
+      source: temp,
+      target: "mac-x64",
+      version: packageJson().hermes.version,
+      runtimeVersion: packageJson().hermes.packageVersion
+    }), /hermesVersion mismatch/);
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+});
+
 test("Windows engine backups use native PowerShell zip paths instead of Git tar drive syntax", () => {
   const { createZip } = require("../scripts/build-engine-backups.js");
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-win-backup-zip-"));
@@ -54,6 +74,8 @@ test("Windows engine backups use native PowerShell zip paths instead of Git tar 
   try {
     const sourceDir = path.join(temp, "engine's-runtime");
     const archivePath = path.join(temp, "output", "engine.zip");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(path.join(sourceDir, "runtime.txt"), "ready\n");
     createZip(sourceDir, archivePath, "win32", (...args) => calls.push(args));
     assert.equal(calls.length, 1);
     assert.equal(calls[0][0], "powershell");

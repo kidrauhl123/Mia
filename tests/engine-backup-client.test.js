@@ -9,8 +9,10 @@ const AdmZip = require("adm-zip");
 const {
   createEngineBackupClient,
   safeArchivePath,
+  validateArchiveEntries,
   validateEntry
 } = require("../src/main/engine-backup-client.js");
+const { createZip } = require("../scripts/build-engine-backups.js");
 
 const MANIFEST_URL = "https://mia.example/engine-backups/manifest.json";
 const ARCHIVE_URL = "https://mia.example/engine-backups/codex.zip";
@@ -120,4 +122,41 @@ test("backup manifests are pinned and archive paths cannot escape extraction", (
   assert.equal(safeArchivePath("../outside"), "");
   assert.equal(safeArchivePath("C:\\outside"), "");
   assert.equal(safeArchivePath("/outside"), "");
+});
+
+test("engine backup builder materializes in-tree symlinks before publishing", (t) => {
+  if (process.platform === "win32") return t.skip("Windows symlink creation requires elevated privileges.");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-backup-links-"));
+  const source = path.join(root, "runtime");
+  const archive = path.join(root, "runtime.zip");
+  try {
+    fs.mkdirSync(path.join(source, "python", "bin"), { recursive: true });
+    const target = path.join(source, "python", "bin", "python3.11");
+    fs.writeFileSync(target, "python runtime\n", { mode: 0o755 });
+    fs.symlinkSync("python3.11", path.join(source, "python", "bin", "python3"));
+
+    createZip(source, archive);
+    const zip = new AdmZip(archive);
+    assert.doesNotThrow(() => validateArchiveEntries(zip));
+    const entry = zip.getEntry("runtime/python/bin/python3");
+    assert.ok(entry);
+    assert.equal(entry.getData().toString("utf8"), "python runtime\n");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("engine backup builder refuses symlinks that leave the prepared runtime", (t) => {
+  if (process.platform === "win32") return t.skip("Windows symlink creation requires elevated privileges.");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mia-engine-backup-unsafe-link-"));
+  const source = path.join(root, "runtime");
+  const outside = path.join(root, "outside.txt");
+  try {
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(outside, "must not be archived\n");
+    fs.symlinkSync(outside, path.join(source, "outside-link"));
+    assert.throws(() => createZip(source, path.join(root, "runtime.zip")), /outside source/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
