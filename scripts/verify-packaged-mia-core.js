@@ -7,7 +7,11 @@ const os = require("node:os");
 const path = require("node:path");
 
 const root = path.join(__dirname, "..");
-const DEFAULT_TIMEOUT_MS = Number(process.env.MIA_PACKAGED_CORE_VERIFY_TIMEOUT_MS || 10000);
+// A freshly unpacked desktop Core can spend several seconds initializing its
+// managed resources. Keep the release verifier strict, but avoid treating a
+// healthy Core as a broken package solely because a busy build machine takes
+// longer than the former ten-second probe window.
+const DEFAULT_TIMEOUT_MS = Number(process.env.MIA_PACKAGED_CORE_VERIFY_TIMEOUT_MS || 45000);
 const MANAGED_ACP_RESOURCE_SPECS = [
   { toolId: "claude-agent-acp", version: "0.59.0" },
   { toolId: "codex-acp", version: "1.1.4" }
