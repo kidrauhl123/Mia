@@ -51,6 +51,7 @@ const { setMacNativeControlsVisible } = require("./main/mac-window-controls.js")
 const { createChatAttachments } = require("./main/chat-attachments.js");
 const { createBotManifest } = require("./main/bot-manifest.js");
 const { createRuntimePaths } = require("./main/runtime-paths.js");
+const { createOnboardingState } = require("./main/onboarding-state.js");
 const {
   applyPrelaunchLocalDataReset,
   MIA_LOCAL_DATA_RESET_EPOCH
@@ -270,6 +271,7 @@ const {
   buildPythonPath: baseBuildPythonPath,
   engineMarkerPath,
 } = runtimePathsModule;
+const legacyInstallDetectedAtLaunch = fs.existsSync(runtimePaths().runtime);
 let engineInstallService = null;
 function buildPythonPath() {
   return baseBuildPythonPath({ includeBundledHermes: engineInstallService?.engineSource?.() === "mia-managed" });
@@ -278,6 +280,10 @@ const localDataResetResult = applyPrelaunchLocalDataReset({
   app,
   runtimePaths,
   epoch: MIA_LOCAL_DATA_RESET_EPOCH
+});
+const onboardingState = createOnboardingState({
+  filePath: runtimePaths().onboardingState,
+  legacyInstallDetected: legacyInstallDetectedAtLaunch
 });
 if (localDataResetResult.applied) {
   console.log(`[MiaReset] Applied local data reset ${localDataResetResult.epoch}; removed ${localDataResetResult.removed.length} paths.`);
@@ -1051,6 +1057,7 @@ function getRuntimeStatus(created = [], options = {}) {
     auth: codexAuth,
     user: settingsStore.userProfile(),
     appearance: settingsStore.appearanceSettings(),
+    onboarding: onboardingState.snapshot(),
     memory: memorySettingsSnapshot(),
     agentInventory,
     agentEngines,
@@ -2124,9 +2131,13 @@ function createWindow() {
     startupTimer.mark("renderer:did-finish-load");
     showWhenReady();
   });
-  win.loadFile(onboarding
+  const initialPage = onboarding
     ? path.join(__dirname, "renderer", "onboarding", "onboarding.html")
-    : path.join(__dirname, "renderer", "index.html"));
+    : path.join(__dirname, "renderer", "index.html");
+  const initialPageOptions = onboarding
+    ? { query: { firstRun: onboardingState.isFirstRunPending() ? "1" : "0" } }
+    : undefined;
+  win.loadFile(initialPage, initialPageOptions);
   startupTimer.mark("window:load-file");
   return win;
 }
@@ -2259,7 +2270,9 @@ function showSignedOutOnboardingWindow(win) {
   target.center();
   target.miaSkipAutomaticBackgroundStartup = true;
   target.miaSignedOutOnboarding = true;
-  target.loadFile(path.join(__dirname, "renderer", "onboarding", "onboarding.html"));
+  target.loadFile(path.join(__dirname, "renderer", "onboarding", "onboarding.html"), {
+    query: { firstRun: onboardingState.isFirstRunPending() ? "1" : "0" }
+  });
   if (!target.isVisible()) target.show();
 }
 
@@ -2615,12 +2628,13 @@ ipcMain.handle(IpcChannel.EngineInstall, async (event, engineId) => {
     throw error;
   }
 });
-ipcMain.handle(IpcChannel.OnboardingComplete, async (event) => {
+ipcMain.handle(IpcChannel.OnboardingComplete, async (event, input = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!cloudStatus(false).enabled) {
     showSignedOutOnboardingWindow(win);
     return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
   }
+  onboardingState.complete(input);
   promoteOnboardingWindowToMain(win);
   return runtimeStatusWithCoreModelProviders(getRuntimeStatus());
 });

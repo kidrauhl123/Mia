@@ -2194,7 +2194,7 @@ test("main window accepts the first mouse click after regaining focus", () => {
   assert.match(mainSource, /ipcMain\.handle\(IpcChannel\.WindowSignedOutOnboarding,[\s\S]*?showSignedOutOnboardingWindow/);
   assert.match(mainSource, /if\s*\(!cloudStatus\(false\)\.enabled\)\s*\{[\s\S]*?showSignedOutOnboardingWindow\(win\)/);
   assert.match(ipcSource, /OnboardingComplete:\s*"onboarding:complete"/);
-  assert.match(preloadSource, /onboardingComplete:\s*\(\)\s*=>/);
+  assert.match(preloadSource, /onboardingComplete:\s*\(input = \{\}\)\s*=>/);
   assert.match(mainSource, /const minWindowWidth = onboarding \? onboardingWindowBounds\.minWidth : 360;/);
   assert.match(mainSource, /const minWindowHeight = onboarding \? onboardingWindowBounds\.minHeight : 560;/);
   assert.match(mainSource, /getRuntimeStatus\(created,\s*\{\s*scanAgents:\s*false\s*\}\)/);
@@ -2264,7 +2264,7 @@ test("first-run onboarding cannot enter Mia while an engine install is running",
 
   assert.match(standaloneSource, /function hasActiveInstall\(\)/);
   assert.match(standaloneSource, /data-action="finish"[^`]*\$\{hasActiveInstall\(\) \? " disabled" : ""\}/);
-  assert.match(standaloneSource, /else if\s*\(action === "finish"\)\s*\{[\s\S]*?if\s*\(hasActiveInstall\(\)\)\s*return;[\s\S]*?mia\.onboardingComplete\?\.\(\);[\s\S]*?\}/);
+  assert.match(standaloneSource, /else if\s*\(action === "finish"\)\s*\{[\s\S]*?if\s*\(hasActiveInstall\(\)\)\s*return;[\s\S]*?completeOnboarding\(\);[\s\S]*?\}/);
 
   assert.match(appSource, /state\.agentSetupInstallInFlight = true;/);
   assert.match(appSource, /state\.agentSetupInstallInFlight = false;/);
@@ -2313,6 +2313,25 @@ test("first-run onboarding clears install failure state when rescan finds the ag
   assert.match(standaloneSource, /function isAgentReady\(id\)/);
   assert.match(installSource, /if\s*\(isAgentReady\(id\)\)\s*delete installStates\[id\];/);
   assert.match(installSource, /catch\s*\(error\)\s*\{[\s\S]*?scanAgents\?\.\(\)[\s\S]*?if\s*\(isAgentReady\(id\)\)\s*delete installStates\[id\];[\s\S]*?else installStates\[id\] = \{ status: "error"/);
+});
+
+test("empty first-run inventory provisions Claude Code without showing the result list", () => {
+  const standaloneSource = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding-window.js"), "utf8");
+  const standaloneStyles = fs.readFileSync(path.join(root, "src/renderer/onboarding/onboarding.css"), "utf8");
+  const scanSource = extractFunctionSource(standaloneSource, "startScan");
+  const configureSource = extractFunctionSource(standaloneSource, "configureHtml");
+
+  assert.match(standaloneSource, /function allLocalAgentsMissing\(\)/);
+  assert.match(standaloneSource, /const firstRun = new URLSearchParams\(window\.location\.search\)\.get\("firstRun"\) === "1";/);
+  assert.match(scanSource, /if \(firstRun && allLocalAgentsMissing\(\)\) \{[\s\S]*?step = "configure";[\s\S]*?installAgent\("claude-code"\);[\s\S]*?return;/);
+  assert.match(standaloneSource, /function completeOnboarding\([\s\S]*?defaultMiaRuntime[\s\S]*?firstRun && !useCloud && isAgentReady\("claude-code"\)/);
+  assert.match(configureSource, /配置 Mia 本机引擎/);
+  assert.match(configureSource, /aria-label="Claude Code 配置进度"/);
+  assert.match(configureSource, /data-action="retry-claude"/);
+  assert.match(configureSource, /data-action="finish-cloud"/);
+  assert.doesNotMatch(configureSource, /doneRowsHtml\(\)/);
+  assert.match(standaloneStyles, /\.onb\[data-step="configure"\]/);
+  assert.match(standaloneStyles, /\.onb-configure-status/);
 });
 
 test("chat code blocks use a right-aligned language copy button without code frame borders", () => {

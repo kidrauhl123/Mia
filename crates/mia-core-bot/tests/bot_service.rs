@@ -1790,6 +1790,193 @@ async fn bot_service_owns_starter_bot_materialization_and_marker() {
 }
 
 #[tokio::test]
+async fn fresh_starter_uses_local_claude_code_for_mia_when_available() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: json!({
+                "onboarding": { "defaultMiaRuntime": "desktop-local" },
+                "cloud": {
+                    "enabled": true,
+                    "agentRuntime": {
+                        "runtimeKind": "cloud-claude-code",
+                        "agentEngine": "claude-code",
+                        "label": "Claude Code",
+                        "available": true
+                    }
+                },
+                "localDevice": { "id": "win-1", "name": "Mia PC" },
+                "agentInventory": {
+                    "agents": [
+                        { "id": "claude-code", "label": "Claude Code", "usableInMia": true }
+                    ]
+                }
+            }),
+            user_id: Some("u_local".to_string()),
+            now: Some("2026-08-06T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert!(!response.skipped);
+    assert_eq!(response.created.len(), 1);
+    assert_eq!(response.created[0].engine_id, "claude-code");
+    assert_eq!(response.created[0].key, "starter_u_local_claude_code");
+    assert_eq!(response.created[0].bot.display_name, "Mia");
+    assert_eq!(
+        response.created[0].bot.identity["avatarImage"],
+        "./assets/mia-logo.png"
+    );
+    assert_eq!(
+        response.created[0].bot.identity["runtimeKind"],
+        "desktop-local"
+    );
+    assert_eq!(
+        response.settings["starterEngineBots"],
+        json!({
+            "seededAt": "2026-08-06T08:00:00.000Z",
+            "engineIds": ["claude-code"],
+            "defaultMiaRuntime": "desktop-local"
+        })
+    );
+    assert!(
+        response.settings["tags"]["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let runtime = service
+        .get_runtime("starter_u_local_claude_code", "desktop-local")
+        .await
+        .unwrap();
+    assert_eq!(runtime.binding["agentEngine"], "claude-code");
+    assert_eq!(runtime.binding["targetDeviceId"], "win-1");
+
+    service
+        .update_bot(
+            "starter_u_local_claude_code",
+            UpdateBotRequest {
+                display_name: Some("我的助手".to_string()),
+                identity: Some(json!({
+                    "name": "我的助手",
+                    "avatarImage": "./custom-avatar.png",
+                    "agentEngine": "codex",
+                    "runtimeKind": "desktop-local"
+                })),
+                capabilities: None,
+            },
+        )
+        .await
+        .unwrap();
+    service
+        .save_runtime(
+            "starter_u_local_claude_code",
+            SaveBotRuntimeRequest {
+                runtime_kind: "desktop-local".to_string(),
+                provider_connection_id: None,
+                model_profile_id: None,
+                model: None,
+                target_intent: Some(BotRuntimeTargetIntent {
+                    device_id: Some("win-1".to_string()),
+                    device_name: Some("Mia PC".to_string()),
+                    agent_engine: Some("codex".to_string()),
+                }),
+                sync_intent: None,
+                control_intent: None,
+                config: json!({}),
+            },
+        )
+        .await
+        .unwrap();
+
+    let ensured_again = service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: json!({
+                "onboarding": { "defaultMiaRuntime": "desktop-local" },
+                "cloud": {
+                    "enabled": true,
+                    "agentRuntime": {
+                        "runtimeKind": "cloud-claude-code",
+                        "agentEngine": "claude-code",
+                        "available": true
+                    }
+                },
+                "localDevice": { "id": "win-1", "name": "Mia PC" },
+                "agentInventory": {
+                    "agents": [{ "id": "claude-code", "usableInMia": true }]
+                }
+            }),
+            user_id: Some("u_local".to_string()),
+            now: Some("2026-08-07T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+    assert!(ensured_again.skipped);
+    let customized = service
+        .get_bot("starter_u_local_claude_code")
+        .await
+        .unwrap()
+        .bot;
+    assert_eq!(customized.display_name, "我的助手");
+    assert_eq!(customized.identity["avatarImage"], "./custom-avatar.png");
+    assert_eq!(customized.identity["agentEngine"], "codex");
+    let customized_runtime = service
+        .get_runtime("starter_u_local_claude_code", "desktop-local")
+        .await
+        .unwrap();
+    assert_eq!(customized_runtime.binding["agentEngine"], "codex");
+}
+
+#[tokio::test]
+async fn existing_cloud_mia_is_not_silently_rebound_when_local_claude_appears() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let cloud = json!({
+        "enabled": true,
+        "agentRuntime": {
+            "runtimeKind": "cloud-claude-code",
+            "agentEngine": "claude-code",
+            "available": true
+        }
+    });
+
+    service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: json!({ "cloud": cloud.clone() }),
+            user_id: Some("u_existing".to_string()),
+            now: Some("2026-08-05T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+
+    let response = service
+        .ensure_starter_bots(StarterBotEnsureRequest {
+            runtime: json!({
+                "cloud": cloud,
+                "localDevice": { "id": "win-1", "name": "Mia PC" },
+                "agentInventory": {
+                    "agents": [{ "id": "claude-code", "usableInMia": true }]
+                }
+            }),
+            user_id: Some("u_existing".to_string()),
+            now: Some("2026-08-06T08:00:00.000Z".to_string()),
+        })
+        .await
+        .unwrap();
+
+    assert!(response.skipped);
+    assert_eq!(service.list_bots().await.unwrap().bots.len(), 1);
+    let runtime = service
+        .get_runtime("starter_u_existing_mia", "cloud-claude-code")
+        .await
+        .unwrap();
+    assert_eq!(runtime.binding["agentEngine"], "claude-code");
+}
+
+#[tokio::test]
 async fn starter_conversation_memory_mode_survives_repairs_and_upgrades_legacy_metadata() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());

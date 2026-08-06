@@ -64,6 +64,7 @@ function createRuntimePaths(deps = {}) {
       coreToken: path.join(home, "mia-core.key"),
       deviceIdentity: path.join(home, "mia-device.json"),
       cloudSettings: path.join(home, "mia-cloud.json"),
+      onboardingState: path.join(root, "mia-onboarding.json"),
       cloudWorkspace: path.join(home, "mia-cloud-workspace.json"),
       mcpServers: path.join(home, "mia-mcp-servers.json"),
       petRemoteSettings: path.join(home, "mia-pet-remote.json"),

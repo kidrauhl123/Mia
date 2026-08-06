@@ -47,6 +47,7 @@ test("runtime paths default to the Electron userData profile", () => {
   assert.equal(paths.config, path.join("/Users/alice", ".hermes", "config.yaml"));
   assert.equal(paths.mcpServers, path.join(expectedRoot, "runtime", "engine-home", "mia-mcp-servers.json"));
   assert.equal(paths.coreSettings, path.join(expectedRoot, "runtime", "engine-home", "mia-core.json"));
+  assert.equal(paths.onboardingState, path.join(expectedRoot, "mia-onboarding.json"));
   assert.equal(paths.engineBackups, path.join(paths.home, "engine-backups"));
   assert.equal(paths.managedResources, path.join(paths.home, "managed-resources"));
   assert.equal(paths.daemonSettings, paths.coreSettings);

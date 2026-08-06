@@ -435,25 +435,30 @@ body.window-blurred .onb-window-control:not(:hover) {
 
 .onb-link:hover { color: var(--onb-text); }
 
-/* Done state must fit the compact 400x520 onboarding window without scrolling. */
-.onb[data-step="done"] {
+/* Final setup states must fit the compact 400x520 onboarding window without scrolling. */
+.onb[data-step="done"],
+.onb[data-step="configure"] {
   padding: 30px 28px 18px;
 }
 
-.onb[data-step="done"] .onb-dots {
+.onb[data-step="done"] .onb-dots,
+.onb[data-step="configure"] .onb-dots {
   margin-top: 7px;
 }
 
-.onb[data-step="done"] .onb-hero {
+.onb[data-step="done"] .onb-hero,
+.onb[data-step="configure"] .onb-hero {
   gap: 8px;
   padding: 18px 0 18px;
 }
 
-.onb[data-step="done"] .onb-title {
+.onb[data-step="done"] .onb-title,
+.onb[data-step="configure"] .onb-title {
   font-size: var(--ui-text-max-size, 14px);
 }
 
-.onb[data-step="done"] .onb-tagline {
+.onb[data-step="done"] .onb-tagline,
+.onb[data-step="configure"] .onb-tagline {
   max-width: 310px;
   font-size: 12.5px;
   line-height: 1.42;
@@ -486,6 +491,63 @@ body.window-blurred .onb-window-control:not(:hover) {
 
 .onb[data-step="done"] .onb-cta {
   min-height: 44px;
+}
+
+.onb-configure-hero .onb-logo {
+  width: 68px;
+  height: 68px;
+}
+
+.onb-configure {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 112px;
+  padding: 18px;
+  border-radius: 15px;
+  background: #f4f3f1;
+  -webkit-app-region: no-drag;
+}
+
+.onb-configure.error {
+  background: #fff7f7;
+  box-shadow: inset 0 0 0 1px #ffd1d1;
+}
+
+.onb-configure-main {
+  min-width: 0;
+}
+
+.onb-configure-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.onb-configure-heading strong {
+  font-weight: var(--ui-text-max-weight, 500);
+}
+
+.onb-configure-heading span,
+.onb-configure-status {
+  color: var(--onb-muted);
+  font-size: 11.5px;
+}
+
+.onb-configure-status {
+  margin: 9px 0 0;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.onb-configure.error .onb-configure-status {
+  color: #d92d20;
 }
 
 /* Scan / loading */

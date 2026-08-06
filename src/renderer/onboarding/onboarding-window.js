@@ -2,13 +2,15 @@
 // modules) so the window stays lightweight and opens instantly. Talks to main
 // only through the preload bridge (window.mia).
 //
-// Flow: login/register (required) -> async agent scan (progress) -> review/enter.
+// Flow: login/register (required) -> async agent scan (progress) ->
+// auto-provision Claude Code when the machine has no Agent -> review/enter.
 // On finish it asks main to swap this window over to the full app.
 (function () {
   "use strict";
 
   const root = document.getElementById("onb-root");
   const mia = window.mia || {};
+  const firstRun = new URLSearchParams(window.location.search).get("firstRun") === "1";
   const rendererPlatform = String(mia.platform || "unknown");
   document.body.classList.toggle("platform-win32", rendererPlatform === "win32");
   document.body.classList.toggle("platform-darwin", rendererPlatform === "darwin");
@@ -25,7 +27,7 @@
   };
   const INSTALL_MESSAGE_MAX = 72;
 
-  let step = "login"; // login | scan | done
+  let step = "login"; // login | scan | configure | done
   let hint = "";
   let loginFlow = null;
   let loginAttempt = 0;
@@ -42,6 +44,15 @@
   function isAgentReady(id) {
     const agent = ((inventory && inventory.agents) || []).find((item) => item.id === id);
     return Boolean(agent && (agent.usableInMia || (agent.installed && agent.detectionOnly)));
+  }
+
+  function allLocalAgentsMissing() {
+    const agents = Array.isArray(inventory?.agents) ? inventory.agents : [];
+    if (agents.length < AGENTS.length) return false;
+    return AGENTS.every((def) => {
+      const agent = agents.find((item) => item.id === def.id);
+      return agent && !agent.installed && !agent.usableInMia;
+    });
   }
 
   function esc(value) {
@@ -217,10 +228,57 @@
     `;
   }
 
+  function configureHtml() {
+    const install = installStates["claude-code"];
+    const ready = isAgentReady("claude-code");
+    const failed = install?.status === "error";
+    const installing = install?.status === "installing";
+    const percentValue = Number(install?.percent);
+    const percent = ready ? 100 : Number.isFinite(percentValue)
+      ? Math.max(0, Math.min(100, Math.round(percentValue)))
+      : 0;
+    const message = ready
+      ? "本机 Claude Code 已准备完成"
+      : install?.message || "正在准备 Mia 稳定版…";
+    const footer = ready
+      ? `<button class="onb-cta" type="button" data-action="finish">进入 Mia</button>`
+      : failed
+        ? `<button class="onb-cta" type="button" data-action="retry-claude">重新配置</button>
+          <button class="onb-link" type="button" data-action="finish-cloud">暂时使用云端 Mia</button>`
+        : `<button class="onb-cta" type="button" disabled>${installing ? `配置中 ${percent}%` : "正在配置"}</button>`;
+    return `
+      <p class="onb-step">第 2 / 2 步 · 准备</p>
+      ${dotsHtml("prepare")}
+      <div class="onb-hero onb-configure-hero">
+        <img class="onb-logo" src="../assets/mia-logo.png" alt="Mia" draggable="false">
+        <h1 class="onb-title">配置 Mia 本机引擎</h1>
+        <p class="onb-tagline">正在下载并启用 Claude Code，首次准备需要一点时间。</p>
+      </div>
+      <section class="onb-configure ${failed ? "error" : ""}" aria-live="polite">
+        ${agentIcon(AGENTS.find((agent) => agent.id === "claude-code"))}
+        <div class="onb-configure-main">
+          <div class="onb-configure-heading"><strong>Claude Code</strong><span>${esc(`${percent}%`)}</span></div>
+          <div class="onb-bar" role="progressbar" aria-label="Claude Code 配置进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">
+            <div class="onb-bar-fill" style="width:${percent}%"></div>
+          </div>
+          <p class="onb-configure-status" title="${esc(message)}">${esc(shortMessage(message))}</p>
+        </div>
+      </section>
+      <div class="onb-spacer"></div>
+      <div class="onb-footer">${footer}</div>
+    `;
+  }
+
   function render() {
     if (!root) return;
     root.dataset.step = step;
-    root.innerHTML = step === "login" ? loginHtml() : step === "scan" ? scanHtml() : doneHtml();
+    root.innerHTML = step === "login"
+      ? loginHtml()
+      : step === "scan"
+        ? scanHtml()
+        : step === "configure"
+          ? configureHtml()
+          : doneHtml();
     syncNativeControls();
     bind();
   }
@@ -369,12 +427,21 @@
       if (result && result.inventory) inventory = result.inventory;
     } catch { /* fall through to done */ }
     if (typeof unsubscribe === "function") unsubscribe();
+    if (firstRun && allLocalAgentsMissing()) {
+      step = "configure";
+      installAgent("claude-code");
+      return;
+    }
     step = "done";
     render();
   }
 
-  async function installAgent(id, button) {
-    if (!mia.installEngine) return;
+  async function installAgent(id) {
+    if (!mia.installEngine) {
+      installStates[id] = { status: "error", message: "当前版本无法配置本机引擎，请更新 Mia 后重试。", percent: 0 };
+      render();
+      return;
+    }
     installStates[id] = { status: "installing", message: "正在准备 Mia 稳定版...", percent: 0 };
     render();
     try {
@@ -409,8 +476,15 @@
     } else {
       installStates[id] = { status: "installing", message: payload.message || "正在启用...", percent };
     }
-    if (step === "done") scheduleRender();
+    if (step === "done" || step === "configure") scheduleRender();
   });
+
+  function completeOnboarding({ useCloud = false } = {}) {
+    const defaultMiaRuntime = firstRun && !useCloud && isAgentReady("claude-code")
+      ? "desktop-local"
+      : "";
+    mia.onboardingComplete?.({ defaultMiaRuntime });
+  }
 
   function bind() {
     if (step === "login") {
@@ -428,12 +502,17 @@
         }
         else if (action === "finish") {
           if (hasActiveInstall()) return;
-          mia.onboardingComplete?.();
+          completeOnboarding();
+        }
+        else if (action === "retry-claude") installAgent("claude-code");
+        else if (action === "finish-cloud") {
+          if (hasActiveInstall()) return;
+          completeOnboarding({ useCloud: true });
         }
       });
     });
     root.querySelectorAll("[data-install]").forEach((el) => {
-      el.addEventListener("click", () => installAgent(el.dataset.install, el));
+      el.addEventListener("click", () => installAgent(el.dataset.install));
     });
   }
 

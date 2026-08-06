@@ -136,7 +136,9 @@ impl BotService {
         let mut settings = self.read_user_settings().await?;
         let marker = starter_marker(&settings);
         let seeded_ids = seeded_starter_engine_ids(&marker);
-        let all_specs = starter_bot_specs(&runtime);
+        let prefer_local_mia = starter_prefers_local_mia(&marker, &runtime);
+        let local_mia_is_user_owned = starter_marker_seeded(&marker) && prefer_local_mia;
+        let all_specs = starter_bot_specs(&runtime, prefer_local_mia);
         let specs = if starter_marker_seeded(&marker) {
             all_specs
                 .iter()
@@ -193,6 +195,10 @@ impl BotService {
         for spec in &all_specs {
             let key = starter_bot_key(&user_id, spec.key_suffix());
             if self.bot_exists(&key).await? {
+                if local_mia_is_user_owned && spec.engine_id == "claude-code" && spec.name == "Mia"
+                {
+                    continue;
+                }
                 if !self.starter_bot_needs_repair(&key, spec).await? {
                     self.ensure_starter_conversation(&key, spec, default_mode)
                         .await?;
@@ -790,10 +796,10 @@ fn starter_runtime_request(
     }
 }
 
-fn starter_bot_specs(runtime: &Map<String, Value>) -> Vec<StarterBotSpec> {
+fn starter_bot_specs(runtime: &Map<String, Value>, prefer_local_mia: bool) -> Vec<StarterBotSpec> {
     let mut specs = Vec::new();
     let cloud_runtime = cloud_agent_runtime(runtime);
-    if nested_bool(runtime, &["cloud"], "enabled") && cloud_runtime.available {
+    if !prefer_local_mia && nested_bool(runtime, &["cloud"], "enabled") && cloud_runtime.available {
         let cloud_label = cloud_agent_runtime_label(runtime)
             .filter(|label| !label.is_empty())
             .unwrap_or_else(|| engine_label(&cloud_runtime.agent_engine));
@@ -819,9 +825,32 @@ fn starter_bot_specs(runtime: &Map<String, Value>) -> Vec<StarterBotSpec> {
         if !(inventory_engine_usable(runtime, engine) || legacy_engine_available(runtime, engine)) {
             continue;
         }
-        specs.push(local_starter_spec(engine));
+        specs.push(if engine == "claude-code" && prefer_local_mia {
+            local_mia_starter_spec()
+        } else {
+            local_starter_spec(engine)
+        });
     }
     specs
+}
+
+fn local_mia_starter_spec() -> StarterBotSpec {
+    StarterBotSpec {
+        engine_id: "claude-code".to_string(),
+        runtime_kind: "desktop-local".to_string(),
+        agent_engine: "claude-code".to_string(),
+        name: "Mia".to_string(),
+        color: "#16a34a".to_string(),
+        avatar_image: "./assets/mia-logo.png".to_string(),
+        avatar_crop: Value::Null,
+        bio: "使用本机 Claude Code，在这台电脑上随时协助你。".to_string(),
+        description: "Mia 本机助手，默认使用本机 Claude Code。".to_string(),
+        persona_text:
+            "你是 Mia。使用本机 Claude Code 简洁、可靠地帮助用户处理日常问题、创作、信息整理和自动化请求。"
+                .to_string(),
+        status_badge: starter_status_badge("cloud-claude-code"),
+        tag_names: Vec::new(),
+    }
 }
 
 fn local_starter_spec(engine: &str) -> StarterBotSpec {
@@ -1010,6 +1039,26 @@ fn seeded_starter_engine_ids(marker: &Map<String, Value>) -> Vec<String> {
         })
 }
 
+fn starter_prefers_local_mia(marker: &Map<String, Value>, runtime: &Map<String, Value>) -> bool {
+    let saved_runtime = marker
+        .get("defaultMiaRuntime")
+        .and_then(Value::as_str)
+        .map(normalize_runtime_kind)
+        .unwrap_or_default();
+    if saved_runtime == "desktop-local" {
+        return true;
+    }
+    if starter_marker_seeded(marker) {
+        return false;
+    }
+    let requested_runtime = nested_string(runtime, &["onboarding"], &["defaultMiaRuntime"])
+        .map(|value| normalize_runtime_kind(&value))
+        .unwrap_or_default();
+    requested_runtime == "desktop-local"
+        && (inventory_engine_usable(runtime, "claude-code")
+            || legacy_engine_available(runtime, "claude-code"))
+}
+
 fn normalize_agent_or_cloud_engine(value: &str) -> String {
     let id = value.trim().to_ascii_lowercase().replace('_', "-");
     if matches!(id.as_str(), "cloud-claude-code" | "mia-cloud" | "miacloud") {
@@ -1037,7 +1086,7 @@ fn starter_marker_value(
             engine_ids.push(spec.engine_id.clone());
         }
     }
-    json!({
+    let mut value = json!({
         "seededAt": existing_marker
             .get("seededAt")
             .and_then(Value::as_str)
@@ -1045,7 +1094,24 @@ fn starter_marker_value(
             .filter(|value| !value.is_empty())
             .unwrap_or(now),
         "engineIds": engine_ids
-    })
+    });
+    let default_mia_runtime = all_specs
+        .iter()
+        .find(|spec| spec.name == "Mia" && spec.runtime_kind == "desktop-local")
+        .map(|spec| spec.runtime_kind.as_str())
+        .or_else(|| {
+            existing_marker
+                .get("defaultMiaRuntime")
+                .and_then(Value::as_str)
+        });
+    if let Some(runtime_kind) = default_mia_runtime {
+        set_object_field(
+            &mut value,
+            "defaultMiaRuntime",
+            Value::String(runtime_kind.to_string()),
+        );
+    }
+    value
 }
 
 fn default_user_settings() -> Value {
