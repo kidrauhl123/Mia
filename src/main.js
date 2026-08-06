@@ -2765,7 +2765,6 @@ const autoUpdateService = createAutoUpdateService({
   cancelUpdateInstallQuit: () => {
     explicitMiaQuitInProgress = false;
   },
-  quitApp: () => app.quit(),
 });
 
 ipcMain.handle(IpcChannel.UpdateCheck, () => autoUpdateService.checkForUpdates());

@@ -143,7 +143,6 @@ test("available updates wait for user approval before downloading and installing
   const events = [];
   const calls = [];
   const scheduled = [];
-  let quitFallbackCalled = false;
   let updater;
   updater = new FakeUpdater(() => {
     updater.emit("update-available", { version: "0.1.12" });
@@ -165,9 +164,6 @@ test("available updates wait for user approval before downloading and installing
     getMainWindows: () => [win],
     sendUpdateEvent: (payload) => events.push(payload),
     forceInstallDelayMs: 25,
-    installRetryDelayMs: 50,
-    installQuitFallbackDelayMs: 75,
-    quitApp: () => { quitFallbackCalled = true; },
     setTimeoutFn: (fn, ms) => {
       scheduled.push({ fn, ms });
       return scheduled.length;
@@ -220,14 +216,7 @@ test("available updates wait for user approval before downloading and installing
     ["minimizable", true],
     ["maximizable", true],
   ]);
-  assert.equal(scheduled[1].ms, 50);
-  assert.equal(scheduled[2].ms, 75);
-
-  scheduled[1].fn();
-  assert.equal(updater.quitCalled, true);
-
-  scheduled[2].fn();
-  assert.equal(quitFallbackCalled, true);
+  assert.equal(scheduled.length, 1);
 });
 
 test("users can defer an available update without downloading, locking, or quitting", async () => {
@@ -401,9 +390,8 @@ test("approved update reports preparation failures without quitting to install",
   });
 });
 
-test("update install watchdog stops after before-quit-for-update", async () => {
+test("macOS-style updater handoff does not require a forwarded quit event", async () => {
   const scheduled = [];
-  let quitFallbackCalled = false;
   let updater;
   updater = new FakeUpdater(() => {
     updater.emit("update-available", { version: "0.1.12" });
@@ -414,9 +402,6 @@ test("update install watchdog stops after before-quit-for-update", async () => {
   });
   const service = createService(updater, {
     forceInstallDelayMs: 1,
-    installRetryDelayMs: 2,
-    installQuitFallbackDelayMs: 3,
-    quitApp: () => { quitFallbackCalled = true; },
     setTimeoutFn: (fn, ms) => {
       scheduled.push({ fn, ms });
       return scheduled.length;
@@ -426,12 +411,41 @@ test("update install watchdog stops after before-quit-for-update", async () => {
   await service.checkForUpdates();
   service.downloadUpdate();
   updater.emit("update-downloaded", { version: "0.1.12" });
+  // electron-updater's MacUpdater owns this native handoff and does not
+  // re-emit before-quit-for-update on its own EventEmitter.
   scheduled[0].fn();
-  updater.emit("before-quit-for-update");
+  assert.equal(updater.quitCalled, true);
+  assert.equal(updater.quitArgs.length, 2);
+  assert.equal(scheduled.length, 1);
+});
 
-  scheduled[1].fn();
-  scheduled[2].fn();
-  assert.equal(quitFallbackCalled, false);
+test("asynchronous update errors restore the application quit state", async () => {
+  const events = [];
+  const quitStateCalls = [];
+  const updater = new FakeUpdater(() => Promise.resolve({
+    updateInfo: { version: "0.1.12" },
+    downloadPromise: Promise.resolve(),
+  }));
+  const service = createService(updater, {
+    beginUpdateInstallQuit: () => quitStateCalls.push("begin"),
+    cancelUpdateInstallQuit: () => quitStateCalls.push("cancel"),
+    sendUpdateEvent: (payload) => events.push(payload),
+    forceInstallDelayMs: 1,
+    setTimeoutFn: (fn) => {
+      fn();
+      return 1;
+    },
+  });
+
+  await service.checkForUpdates();
+  updater.emit("update-available", { version: "0.1.12" });
+  service.downloadUpdate();
+  updater.emit("update-downloaded", { version: "0.1.12" });
+  updater.emit("error", Object.assign(new Error("native handoff failed"), { code: "EUPDATE" }));
+
+  assert.deepEqual(quitStateCalls, ["begin", "cancel"]);
+  assert.equal(events.at(-1).status, "error");
+  assert.deepEqual(events.at(-1).error, { message: "native handoff failed", code: "EUPDATE" });
 });
 
 test("update errors unlock the app and notify the renderer", async () => {

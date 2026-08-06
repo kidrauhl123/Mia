@@ -94,12 +94,9 @@ function createAutoUpdateService(deps = {}) {
     // catches long-running sessions.
     checkIntervalMs = 6 * 60 * 60 * 1000,
     forceInstallDelayMs = 1200,
-    installRetryDelayMs = 4000,
-    installQuitFallbackDelayMs = 9000,
     prepareForUpdateInstall = null,
     beginUpdateInstallQuit = null,
     cancelUpdateInstallQuit = null,
-    quitApp = null,
     setTimeoutFn = setTimeout,
     setIntervalFn = setInterval,
   } = deps;
@@ -108,7 +105,6 @@ function createAutoUpdateService(deps = {}) {
   let configured = false;
   let checkingPromise = null;
   let installScheduled = false;
-  let quitForUpdateStarted = false;
   let windowInteractionLocked = false;
   let updateApproved = false;
   let updateDownloadPromise = null;
@@ -179,10 +175,12 @@ function createAutoUpdateService(deps = {}) {
     return payload;
   }
 
-  function quitAndInstall(info, reason = "initial") {
+  function quitAndInstall(info) {
     // Keep the renderer overlay locked, but release native window close guards.
     // On macOS the Squirrel quit/install path needs the app to close its
     // windows; keeping setClosable(false) can leave the UI stuck at 100%.
+    // Do not add an app.quit watchdog here: MacUpdater owns the native
+    // Squirrel.Mac handoff and does not forward before-quit-for-update.
     setWindowInteractionLocked(false);
     try {
       beginUpdateInstallQuit?.(info);
@@ -194,33 +192,11 @@ function createAutoUpdateService(deps = {}) {
         logger.warn?.(`${TAG} update quit state rollback failed`, cancelError);
       }
       installScheduled = false;
-      logger.warn?.(`${TAG} quitAndInstall failed (${reason})`, error);
+      logger.warn?.(`${TAG} quitAndInstall failed`, error);
       emitUpdate("error", info, { error: serializeError(error) });
       return false;
     }
     return true;
-  }
-
-  function scheduleInstallWatchdog(info) {
-    setTimeoutFn(() => {
-      if (quitForUpdateStarted) return;
-      logger.warn?.(`${TAG} quitAndInstall did not start quitting; retrying`);
-      quitAndInstall(info, "retry");
-    }, installRetryDelayMs);
-
-    if (typeof quitApp === "function") {
-      setTimeoutFn(() => {
-        if (quitForUpdateStarted) return;
-        logger.warn?.(`${TAG} quitAndInstall still did not start quitting; falling back to app.quit()`);
-        setWindowInteractionLocked(false);
-        try {
-          quitApp();
-        } catch (error) {
-          logger.warn?.(`${TAG} app.quit fallback failed`, error);
-          emitUpdate("error", info, { error: serializeError(error) });
-        }
-      }, installQuitFallbackDelayMs);
-    }
   }
 
   function installDownloadedUpdate(info) {
@@ -229,7 +205,7 @@ function createAutoUpdateService(deps = {}) {
     setTimeoutFn(() => {
       const install = () => {
         emitUpdate("installing", info, { progress: normalizeProgress({ percent: 100 }) });
-        if (quitAndInstall(info)) scheduleInstallWatchdog(info);
+        quitAndInstall(info);
       };
       if (typeof prepareForUpdateInstall !== "function") {
         install();
@@ -255,14 +231,15 @@ function createAutoUpdateService(deps = {}) {
     autoUpdater.on("checking-for-update", () => {
       emitUpdate("checking");
     });
-    autoUpdater.on("before-quit-for-update", () => {
-      quitForUpdateStarted = true;
-      setWindowInteractionLocked(false);
-    });
     autoUpdater.on("error", (error) => {
       updateApproved = false;
       downloadedUpdateInfo = null;
       installScheduled = false;
+      try {
+        cancelUpdateInstallQuit?.();
+      } catch (cancelError) {
+        logger.warn?.(`${TAG} update quit state rollback failed`, cancelError);
+      }
       logger.warn?.(`${TAG} update check failed`, error);
       emitUpdate("error", null, { error: serializeError(error) });
     });
