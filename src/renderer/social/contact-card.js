@@ -205,7 +205,7 @@
     return {
       runtimeKind,
       bot,
-      runtime,
+      runtime: global.miaBotRuntimeControl?.runtimeSnapshotForControls?.(runtime) || {},
       binding: bindingForBot(botKey, runtimeKind) || {},
       ...runtimeControlStateSnapshot(appState)
     };

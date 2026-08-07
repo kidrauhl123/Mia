@@ -9,6 +9,7 @@
   let providerLabels = {};
   let runtimeOptionsCacheKey = "";
   let runtimeOptionsCache = null;
+  let runtimeOptionsRequestMemo = null;
   const runtimeOptionsInFlight = new Set();
   const runtimeOptionsBackoff = window.miaRequestBackoff?.createRequestBackoff?.({
     baseDelayMs: 1_000,
@@ -31,23 +32,61 @@
   }
 
   function runtimeControlOptionsRequest(runtime = state?.runtime) {
-    return {
-      activeAgentEngine: window.miaEngineOptions?.activeAgentEngine?.() || "hermes",
-      runtime: runtime || {},
-      engineConfig: window.miaEngineOptions?.engineConfigForPersona?.() || {},
-      modelCatalog: window.miaModelHelpers?.catalogEntries?.() || [],
-      platformModels: Array.isArray(state?.platformModels) ? state.platformModels : [],
-      engineCapabilities: state?.engineCapabilities || {},
-      codexModels: state?.codexModels || []
+    const runtimeSource = runtime && typeof runtime === "object" ? runtime : {};
+    const activeAgentEngine = window.miaEngineOptions?.activeAgentEngine?.() || "hermes";
+    const engineConfig = window.miaEngineOptions?.engineConfigForPersona?.() || {};
+    const modelCatalog = window.miaModelHelpers?.catalogEntries?.() || [];
+    const platformModels = Array.isArray(state?.platformModels) ? state.platformModels : [];
+    const engineCapabilities = state?.engineCapabilities || {};
+    const codexModels = state?.codexModels || [];
+    const memo = runtimeOptionsRequestMemo;
+    if (
+      memo
+      && memo.runtimeSource === runtimeSource
+      && memo.activeAgentEngine === activeAgentEngine
+      && memo.engineConfig === engineConfig
+      && memo.modelCatalog === modelCatalog
+      && memo.platformModels === platformModels
+      && memo.engineCapabilities === engineCapabilities
+      && memo.codexModels === codexModels
+    ) {
+      return memo.request;
+    }
+    const request = {
+      activeAgentEngine,
+      runtime: window.miaBotRuntimeControl?.runtimeSnapshotForControls?.(runtimeSource) || {},
+      engineConfig,
+      modelCatalog,
+      platformModels,
+      engineCapabilities,
+      codexModels
     };
+    runtimeOptionsRequestMemo = {
+      runtimeSource,
+      activeAgentEngine,
+      engineConfig,
+      modelCatalog,
+      platformModels,
+      engineCapabilities,
+      codexModels,
+      request,
+      key: null
+    };
+    return request;
   }
 
   function runtimeControlOptionsKey(request) {
-    try {
-      return JSON.stringify(request);
-    } catch (_error) {
-      return `${request.activeAgentEngine || "hermes"}:${Date.now()}`;
+    if (runtimeOptionsRequestMemo?.request === request && runtimeOptionsRequestMemo.key !== null) {
+      return runtimeOptionsRequestMemo.key;
     }
+    let key;
+    try {
+      key = JSON.stringify(request);
+    } catch (_error) {
+      key = `${request.activeAgentEngine || "hermes"}:${Date.now()}`;
+    }
+    if (runtimeOptionsRequestMemo?.request === request) runtimeOptionsRequestMemo.key = key;
+    return key;
   }
 
   function runtimeControlOptionsPayload(result) {

@@ -22,6 +22,12 @@
     return `${String(botKey || "").trim()}:${normalizeRuntimeKind(runtimeKind)}`;
   }
 
+  function runtimeSnapshotForControls(runtime = {}) {
+    if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) return {};
+    const { user: _displayOnlyUser, ...snapshot } = runtime;
+    return snapshot;
+  }
+
   function responsePayload(response) {
     if (response && response.ok === false) throw new Error(response.error || response.message || response.data?.error || "Bot runtime request failed");
     return response?.data || response || {};
@@ -135,6 +141,7 @@
 
   return {
     runtimeCacheKey,
+    runtimeSnapshotForControls,
     getBotRuntimeBinding,
     saveBotRuntimeControl,
     normalizeRuntimeKind

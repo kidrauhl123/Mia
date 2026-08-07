@@ -88,6 +88,8 @@ test("renderer bot runtime controls send state snapshots instead of UI-owned opt
 
   assert.match(combined, /getBotRuntimeControlOptions/);
   assert.match(combined, /runtimeControlStateSnapshot/);
+  assert.match(app, /runtime:\s*window\.miaBotRuntimeControl\?\.runtimeSnapshotForControls\?\.\(state\.runtime\)/);
+  assert.match(contactCard, /runtime:\s*global\.miaBotRuntimeControl\?\.runtimeSnapshotForControls\?\.\(runtime\)/);
   assert.match(combined, /modelCatalog/);
   assert.match(combined, /platformModels/);
   assert.match(combined, /engineCapabilities/);

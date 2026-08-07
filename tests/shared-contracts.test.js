@@ -290,6 +290,28 @@ test("bot runtime control accepts botId for runtime reads", async () => {
   assert.equal(binding.botId, "mia");
 });
 
+test("runtime control snapshots omit display-only user media", () => {
+  const contract = require("../src/shared/bot-runtime-control");
+  const runtime = {
+    user: {
+      displayName: "Mia User",
+      avatarImage: `data:image/png;base64,${"a".repeat(2_640_000)}`
+    },
+    model: { provider: "openai-codex", model: "gpt-5" },
+    permissions: { engines: { codex: ":danger-full-access" } },
+    cloud: { enabled: true }
+  };
+
+  const snapshot = contract.runtimeSnapshotForControls(runtime);
+
+  assert.equal(Object.hasOwn(snapshot, "user"), false);
+  assert.deepEqual(snapshot.model, runtime.model);
+  assert.deepEqual(snapshot.permissions, runtime.permissions);
+  assert.deepEqual(snapshot.cloud, runtime.cloud);
+  assert.equal(runtime.user.avatarImage.length > 2_000_000, true, "the source runtime must remain untouched");
+  assert.equal(JSON.stringify(snapshot).length < 1_000, true, "display media must not enter the Core request");
+});
+
 test("bot runtime control does not expose direct config saves", () => {
   const contract = require("../src/shared/bot-runtime-control");
   assert.equal(contract.saveBotRuntimeConfig, undefined);

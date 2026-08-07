@@ -4222,7 +4222,7 @@ function runtimeControlOptionsRequest(context = activeBotRuntimeControlContext()
   return {
     runtimeKind: context?.runtimeKind || "cloud-claude-code",
     bot: context?.bot || {},
-    runtime: state.runtime || {},
+    runtime: window.miaBotRuntimeControl?.runtimeSnapshotForControls?.(state.runtime) || {},
     binding: binding || {},
     ...runtimeControlStateSnapshot()
   };
