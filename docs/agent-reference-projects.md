@@ -1,12 +1,10 @@
 # Agent 参考项目
 
-这份文档只放参考项目和 UX 研究指针，不作为强制规则。真正约束写在根目录和各子目录 `AGENTS.md`。
+这份文档只放参考项目和 UX 研究指针，不作为强制规则。真正约束写在根目录和各子目录 `AGENTS.md`。参考 checkout 的本地路径由各开发环境管理，不是 Mia 的构建依赖，也不在这里记录某一台机器的绝对路径。
 
 ## 开源代码参考
 
 ### AionUi
-
-本地路径：`~/github/Alkaka-reference/AionUi`
 
 同类 Electron 多引擎 AI 客户端。适合参考：
 
@@ -18,11 +16,9 @@
 
 ### LobsterAI
 
-本地路径：`~/github/Alkaka-reference/lobsterai`
-
 Electron + React 个人助理 Agent 客户端。适合参考：
 
-- `src/main/libs/openclawEngineManager.ts`：engine 状态机、自动重启、runtime 探测。
+- 引擎管理相关模块：engine 状态机、自动重启、runtime 探测。
 - `src/main/libs/pythonRuntime.ts`：运行时寻路、进程启动、健康检查。
 - `src/scheduledTask/`：Cron 调度和迁移。
 - `src/main/libs/mcpServerManager.ts`：MCP 生命周期管理。
@@ -30,24 +26,13 @@ Electron + React 个人助理 Agent 客户端。适合参考：
 
 ### Cherry Studio
 
-本地路径：`~/github/Alkaka-reference/cherry-studio`
-
 适合参考多 provider 流式架构、统一 chunk schema、thinking/reasoning UI、MCP tool 渲染、Electron IPC abort 流程。
 
 ### ClaudeCodeUI
 
-本地路径：`~/github/Alkaka-reference/claudecodeui`
-
 适合参考 one-file-per-CLI provider 布局、`normalizeMessage` 适配器、agent 状态栏和 tool renderer 路由。
 
 ### Telegram 开源端
-
-本地路径：
-
-- `~/github/tdesktop`
-- `~/github/telegram-android`
-- `~/github/telegram-ios`
-- `~/github/telegram-macos`
 
 适合参考聊天 UX：typing/recording 状态、消息列表虚拟化、reply/quote/forward、动态贴纸、窄窗导航和长列表细节。
 

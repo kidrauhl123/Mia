@@ -2,22 +2,23 @@
 
 Mia 是一个桌面优先的多 Agent 聊天平台。
 
-它把 Bot 身份统一存到 Cloud，再把 Hermes、Claude Code、Codex、OpenClaw 这类桌面 Agent 运行目标和 `cloud-claude-code` 这类云端运行目标，放进同一套聊天、联系人、群聊、权限、同步和发布体系里。用户不需要记每个 CLI 的命令，也不需要在一堆工具窗口之间来回切换。打开 Mia，像找同事一样找一个 AI Bot，说清楚要做什么，然后让它在受控权限下执行。
+它把 Bot 身份统一存到 Cloud，再把 Hermes、Claude Code、Codex 这类桌面 Agent 运行目标和 `cloud-claude-code` 这类云端运行目标，放进同一套聊天、联系人、群聊、权限、同步和发布体系里。用户不需要记每个 CLI 的命令，也不需要在一堆工具窗口之间来回切换。打开 Mia，像找同事一样找一个 AI Bot，说清楚要做什么，然后让它在受控权限下执行。
 
 一句话：**聊天是入口，Bot 是 AI 同事，桌面端是执行现场，Cloud/Web/移动端是同步和远程入口。**
 
 ## 当前状态
 
 - 桌面端是主产品形态，基于 Electron。
-- macOS 优先面向 Apple Silicon；Intel 保留独立兼容包，Windows 脚本按实际验证结果发布。
+- macOS 优先面向 Apple Silicon；Intel 保留独立兼容包，Windows 已提供 x64 安装包和更新通道。
 - Web/Cloud 已有账号、好友、群聊、Bot、文件、实时同步和桌面 Bridge 能力。
 - `apps/mobile-rn/` 下有 React Native 移动端工程，但当前 README 以桌面端和 Cloud/Web 为主。
 - 版本号以 `package.json` 为准。
 
 公开入口：
 
-- macOS Apple Silicon DMG：<https://mia.gifgif.cn/downloads/mia-macos-arm64-latest.dmg>
+- macOS Apple Silicon DMG：<https://mia.gifgif.cn/downloads/mia-macos-apple-silicon-latest.dmg>
 - macOS Intel DMG：<https://mia.gifgif.cn/downloads/mia-macos-intel-latest.dmg>
+- Windows x64 安装包：<https://mia.gifgif.cn/downloads/mia-windows-latest.exe>
 - Web：<https://mia.gifgif.cn>
 
 线上是否已经部署到最新提交，以 `npm run cloud:doctor -- https://mia.gifgif.cn` 和 `npm run cloud:prod:verify -- https://mia.gifgif.cn` 的结果为准。
@@ -30,7 +31,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 - **把任务放回聊天上下文**：私聊、群聊、@ 提及、回复、附件、历史消息都是一等对象。
 - **把本地执行纳入权限系统**：读文件、跑命令、写代码、使用工具都要经过明确的 Agent 权限模式。
 - **把多端当作同一个产品**：Cloud 负责账号、Bot 身份、同步和远程触发；桌面端和云端运行目标负责具体 Agent run。
-- **把多引擎接进同一个界面**：Hermes、Claude Code、Codex、OpenClaw 走各自 adapter，但用户看到的是统一聊天体验。
+- **把多引擎接进同一个界面**：Hermes、Claude Code、Codex 走各自 adapter，但用户看到的是统一聊天体验。
 
 ## 主要能力
 
@@ -46,8 +47,8 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 - Bot 身份统一由 Cloud 持久化：名字、头像、简介、人设、颜色、技能能力等都是同一个账号级对象。
 - 运行目标通过 runtime binding 记录：`desktop-local`、`cloud-claude-code` 等只是执行位置/引擎目标，不是两套 Bot 身份。
-- Agent 引擎：Hermes、Claude Code、Codex、OpenClaw。
-- Claude Code / Codex 优先复用用户本机 CLI；桌面包自带固定版本的 ACP bridge，Core 启动时自动校验和准备，不要求用户手动配置 ACP。缺少本机 CLI 时仍可启用 Mia 私有稳定版。OpenClaw 仍只使用用户本机 CLI 或 ACP 后端兼容入口。
+- Agent 引擎：Hermes、Claude Code、Codex。
+- Claude Code / Codex 优先复用用户本机 CLI；桌面包自带固定版本的 ACP bridge，Core 启动时自动校验和准备，不要求用户手动配置 ACP。缺少本机 CLI 时仍可启用 Mia 私有稳定版。
 - Hermes 同样优先复用 PATH 上的用户安装；缺失时可从 Mia 备份源按需下载固定 Python + Hermes runtime。
 - Bot 可以挂载技能，技能来源包括内置 skill、官方库和本地 skill 目录。
 - Bot 可绑定 `cloud-claude-code` 运行目标，在云端隔离沙箱中运行，由平台统一提供 Claude Code 兼容运行时。
@@ -70,7 +71,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 ### 打包与发布
 
-- 桌面包携带 Claude/Codex 的固定 ACP bridge 资源，但不携带用户 CLI、登录态或 Hermes。Core 启动时自动校验/准备托管资源；Hermes 和缺失的本机主 CLI 仍按现有流程按需启用固定稳定备份；OpenClaw 不提供备份分发。
+- 桌面包携带 Claude/Codex 的固定 ACP bridge 资源，但不携带用户 CLI、登录态或 Hermes。Core 启动时自动校验/准备托管资源；Hermes 和缺失的本机主 CLI 仍按现有流程按需启用固定稳定备份。
 - release 输出目录是 `release/`，构建前后会通过 `scripts/clean-release.js` 做清理和归档整理。
 - 桌面自动更新：`npm run release:mac` / `npm run release:win` 把 feed + 产物暂存/发布到 `https://mia.gifgif.cn/updates/`（发版要先 bump `package.json` 版本）。客户端检查到新版本后会锁定界面、显示下载进度并强制安装。历史 GitHub feed 只用于把旧包迁到新更新源，细节见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 的"桌面自动更新"。
 - Cloud release 输出在 `dist/`，由 `scripts/build-cloud-release.js`、handoff、doctor、smoke、deploy 脚本串起来。
@@ -117,19 +118,19 @@ npm run open
 
 ### 本地 Agent 前提
 
-Mia 会先扫描系统中的 Claude Code / Codex。系统版本可用时直接复用；Claude/Codex 的 ACP bridge 已随桌面包携带，并由 Core 在启动时自动校验/准备。若本机主 CLI 缺失，本机引擎区仍会提供“启用 Mia 稳定版”，从 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json` 按需下载所选引擎，校验固定版本和 SHA-256 后放进 Mia 私有目录；不会执行全局 npm 安装，也不修改 PATH：
+Mia 会先扫描系统中的 Hermes、Claude Code 和 Codex。系统版本可用时直接复用；Claude/Codex 的 ACP bridge 已随桌面包携带，并由 Core 在启动时自动校验/准备。若这是首次启动且三个本机引擎都不可用，Mia 会显示进度并自动准备私有目录中的固定 Claude Code 稳定版；不会执行全局 npm 安装、不修改 PATH，也不覆盖用户 CLI。其他缺失引擎仍可在本机引擎区点击“启用 Mia 稳定版”，从 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json` 按需下载所选引擎，校验固定版本和 SHA-256 后放进 Mia 私有目录：
 
 ```bash
+hermes --version
 claude --version
 codex --version
-openclaw --version
 ```
 
 Hermes 也遵循同一规则：优先复用用户按官方方式安装的 PATH 版本；缺失时可按需下载固定的 Hermes + Python runtime。
 
 当前桌面稳定资源固定为：Hermes `2026.7.7.2` / PyPI `0.18.2`（Python `3.11.13`）、Claude Code CLI `2.1.211` + ACP `0.59.0`、Codex CLI `0.144.5` + ACP `1.1.4`。Claude/Codex ACP 资源在打包前进入对应 Rust Core bundle；升级时需同步更新 Core pin、打包资源校验和 `npm run engine-backups:build -- <platform>-<arch>` 的独立备份清单。
 
-Mia 复用用户本机 Agent 时，优先保证稳定可用并遵循上游成熟配置路径。Codex 使用用户原生 `~/.codex`，Hermes 使用用户原生 `~/.hermes`，Claude Code / OpenClaw 使用各自原生默认用户环境。每个伙伴的模型、推理强度由 Mia 按本次运行显式传入；权限按引擎级保存，同一引擎下所有伙伴共享。用户在 Mia 中修改权限时，Mia 只对需要用户级配置的引擎做一次 apply，例如 Codex 会更新 `~/.codex/config.toml`，Hermes 会合并更新 `~/.hermes/config.yaml`；不会在每次发消息前做配置 sync。
+Mia 复用用户本机 Agent 时，优先保证稳定可用并遵循上游成熟配置路径。Codex 使用用户原生 `~/.codex`，Hermes 使用用户原生 `~/.hermes`，Claude Code 使用原生默认用户环境。每个伙伴的模型、推理强度由 Mia 按本次运行显式传入；权限按引擎级保存，同一引擎下所有伙伴共享。用户在 Mia 中修改权限时，Mia 只对需要用户级配置的引擎做一次 apply，例如 Codex 会更新 `~/.codex/config.toml`，Hermes 会合并更新 `~/.hermes/config.yaml`；不会在每次发消息前做配置 sync。
 
 ### 打包桌面端
 
@@ -241,7 +242,7 @@ Cloud 负责账号、社交关系、Cloud conversation、文件、Bot identity�
 
 ### Runtime packaging
 
-Claude Code / Codex 使用“系统 CLI 优先、随包 ACP bridge、Mia 固定私有主 CLI 兜底”。OpenClaw 按最新 AionUi 的方向作为 ACP backend（`agent_type: acp`, `backend: openclaw`）对待；Mia 通过用户安装的 OpenClaw CLI 启动 `openclaw acp`，并用稳定 sessionKey 续接 OpenClaw Gateway 会话。OpenClaw Gateway 需要已配置且可连接；Mia 只探测和调用，不分发。
+Claude Code / Codex 使用“系统 CLI 优先、随包 ACP bridge、Mia 固定私有主 CLI 兜底”。当前桌面端支持的本地引擎只有 Hermes、Claude Code 和 Codex；不要为已移除的 OpenClaw 运行时新增配置或文档入口。
 
 Hermes 也是上游 runtime：Mia 先从 PATH 探测复用（`src/main/system-hermes-service.js`）；用户点击后才从 Mia 备份源下载并启用固定 runtime。两种来源都继续使用用户原生 `~/.hermes`。云端托管 runtime 现在只保留 `cloud-claude-code`。
 

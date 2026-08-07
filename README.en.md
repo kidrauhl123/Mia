@@ -21,12 +21,12 @@ Bot identities are Cloud-backed account objects. Runtime labels such as `desktop
 
 ## Get started
 
-- macOS (Apple Silicon): [Download DMG](https://mia.gifgif.cn/downloads/mia-macos-arm64-latest.dmg)
+- macOS (Apple Silicon): [Download DMG](https://mia.gifgif.cn/downloads/mia-macos-apple-silicon-latest.dmg)
 - macOS Intel: [Download DMG](https://mia.gifgif.cn/downloads/mia-macos-intel-latest.dmg)
-- Windows: coming soon
+- Windows x64: [Download installer](https://mia.gifgif.cn/downloads/mia-windows-latest.exe)
 - Web: <https://mia.gifgif.cn>
 
-Open Mia, sign in, and your first Bot is already waiting.
+On first launch, Mia scans Hermes, Claude Code and Codex. If none is available, it automatically prepares a managed Claude Code runtime in Mia's private app-data directory; it does not overwrite your global CLI or change your PATH. Then choose a local or cloud setup and start chatting with your first Bot.
 
 ## FAQ
 
@@ -37,7 +37,7 @@ Mia isn't a single-model client. It brings multiple AIs into one chat surface so
 Accounts, friends, groups, Bot identities and conversations sync through the cloud so you can switch devices. When an AI runtime reads your local files or runs commands through `desktop-local`, that execution stays on your machine.
 
 **Do I need to know how to code?**
-No. Mia provides the chat, identity, sync and permission layer. Claude Code and Codex run through your local CLI installs, and Hermes can be installed or bundled through the explicit Hermes runtime flow.
+No. Mia provides the chat, identity, sync and permission layer. Claude Code and Codex reuse local CLIs when present, while Hermes remains an explicit runtime setup. On a first run with no local engine, Mia can prepare its private managed Claude Code runtime without changing global system configuration.
 
 ---
 
