@@ -5,6 +5,7 @@ use crate::cloud_bridge::{AppCloudBridgeRunner, MiaRuntimeProxyRegistry};
 use crate::config::AppConfig;
 use crate::memory_runtime::AppMemoryInitialPromptProvider;
 use crate::runtime::RuntimeRegistry;
+use crate::wechat_clawbot::WechatClawbotService;
 use mia_core_bot::BotService;
 use mia_core_cloud::{CloudBridgeManager, CloudEventsManager, CloudService};
 use mia_core_conversation::{ConversationService, CurrentSkillService};
@@ -37,6 +38,7 @@ pub struct AppServices {
     pub cloud: CloudService,
     pub cloud_bridge: CloudBridgeManager,
     pub cloud_events: CloudEventsManager,
+    pub wechat_clawbot: WechatClawbotService,
     pub realtime: EventBus,
     pub runtime: RuntimeRegistry,
     pub runtime_sessions: RuntimeSessionManager,
@@ -102,6 +104,8 @@ impl AppServices {
             mia_runtime_proxies.clone(),
         ));
         let cloud_bridge = CloudBridgeManager::new(cloud.clone(), cloud_bridge_runner.clone());
+        let wechat_clawbot =
+            WechatClawbotService::new(config.data_dir.clone(), cloud.clone(), cloud_bridge.clone());
         let cloud_events_realtime = realtime.clone();
         let cloud_events = CloudEventsManager::new_with_desktop_runner(
             cloud.clone(),
@@ -109,7 +113,8 @@ impl AppServices {
                 cloud_events_realtime.emit(name, data);
             }),
             cloud_bridge_runner.clone(),
-        );
+        )
+        .with_domain_event_handler(Arc::new(wechat_clawbot.clone()));
         Self {
             data_dir: config.data_dir.clone(),
             workspace_dir: config.workspace_dir.clone(),
@@ -127,6 +132,7 @@ impl AppServices {
             cloud,
             cloud_bridge,
             cloud_events,
+            wechat_clawbot,
             realtime,
             runtime,
             runtime_sessions,

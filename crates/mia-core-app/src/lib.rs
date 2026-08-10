@@ -11,6 +11,7 @@ pub mod runtime;
 pub mod scheduler;
 pub mod services;
 pub mod turn_execution;
+pub mod wechat_clawbot;
 
 pub use config::AppConfig;
 pub use router::create_router;

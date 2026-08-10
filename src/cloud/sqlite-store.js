@@ -1054,6 +1054,7 @@ function migrate(db) {
       channel_id        TEXT NOT NULL REFERENCES im_channels(id) ON DELETE CASCADE,
       provider_event_id TEXT NOT NULL,
       status            TEXT NOT NULL DEFAULT 'received',
+      delivery_id       TEXT NOT NULL DEFAULT '',
       created_at        TEXT NOT NULL,
       PRIMARY KEY (channel_id, provider_event_id)
     );
@@ -1069,6 +1070,8 @@ function migrate(db) {
       recipient_json     TEXT NOT NULL DEFAULT '{}',
       status             TEXT NOT NULL DEFAULT 'pending',
       error              TEXT NOT NULL DEFAULT '',
+      attempt_count      INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at    TEXT NOT NULL DEFAULT '',
       created_at         TEXT NOT NULL,
       delivered_at       TEXT NOT NULL DEFAULT '',
       UNIQUE (channel_id, trigger_message_id)
@@ -1815,6 +1818,7 @@ function migrate(db) {
       channel_id        TEXT NOT NULL REFERENCES im_channels(id) ON DELETE CASCADE,
       provider_event_id TEXT NOT NULL,
       status            TEXT NOT NULL DEFAULT 'received',
+      delivery_id       TEXT NOT NULL DEFAULT '',
       created_at        TEXT NOT NULL,
       PRIMARY KEY (channel_id, provider_event_id)
     );
@@ -1827,6 +1831,8 @@ function migrate(db) {
       recipient_json     TEXT NOT NULL DEFAULT '{}',
       status             TEXT NOT NULL DEFAULT 'pending',
       error              TEXT NOT NULL DEFAULT '',
+      attempt_count      INTEGER NOT NULL DEFAULT 0,
+      last_attempt_at    TEXT NOT NULL DEFAULT '',
       created_at         TEXT NOT NULL,
       delivered_at       TEXT NOT NULL DEFAULT '',
       UNIQUE (channel_id, trigger_message_id)
@@ -1835,6 +1841,27 @@ function migrate(db) {
       ON im_channel_deliveries(conversation_id, trigger_message_id, status);
   `);
   db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (29, ?)")
+    .run(nowIso());
+
+  // v29: local-device relays may need to survive a Core reconnect.  Keep only
+  // retry metadata in Cloud; provider session tokens and reply context tokens
+  // remain in the local Core private state.
+  if (!hasColumn(db, "im_channel_deliveries", "attempt_count")) {
+    db.exec("ALTER TABLE im_channel_deliveries ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasColumn(db, "im_channel_deliveries", "last_attempt_at")) {
+    db.exec("ALTER TABLE im_channel_deliveries ADD COLUMN last_attempt_at TEXT NOT NULL DEFAULT ''");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (29, ?)")
+    .run(nowIso());
+
+  // v30: connect a deduplicated inbound provider event to its delivery.  A
+  // local ClawBot relay can safely retry after a network blip and recover the
+  // same delivery ID without sending private provider context to Cloud.
+  if (!hasColumn(db, "im_channel_events", "delivery_id")) {
+    db.exec("ALTER TABLE im_channel_events ADD COLUMN delivery_id TEXT NOT NULL DEFAULT ''");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (30, ?)")
     .run(nowIso());
 
   const insertRateCardSeed = db.prepare(`

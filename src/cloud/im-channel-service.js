@@ -16,6 +16,7 @@ const WECHAT_CUSTOM_MESSAGE_URL = "https://api.weixin.qq.com/cgi-bin/message/cus
 const MAX_ALLOWED_SENDERS = 100;
 const MAX_TEXT_LENGTH = 12000;
 const MAX_OUTBOUND_TEXT_LENGTH = 1900;
+const MAX_RELAY_DEVICE_ID_LENGTH = 160;
 
 function serviceError(message, status = 400, code = "MIA_IM_CHANNEL_ERROR") {
   const error = new Error(message);
@@ -57,8 +58,19 @@ function normalizeSettings(value = {}) {
   return {
     allowedSenderIds: normalizeIdList(raw.allowedSenderIds || raw.allowed_sender_ids),
     allowAllSenders: bool(raw.allowAllSenders ?? raw.allow_all_senders),
-    allowGroupMessages: bool(raw.allowGroupMessages ?? raw.allow_group_messages)
+    allowGroupMessages: bool(raw.allowGroupMessages ?? raw.allow_group_messages),
+    // This is a public device routing identifier, never an authentication
+    // credential.  Be deliberately conservative so it is safe to place in a
+    // durable Cloud event without creating an injection surface.
+    relayDeviceId: normalizeRelayDeviceId(raw.relayDeviceId || raw.relay_device_id)
   };
+}
+
+function normalizeRelayDeviceId(value) {
+  const deviceId = trim(value);
+  return /^[A-Za-z0-9_.:-]+$/.test(deviceId) && deviceId.length <= MAX_RELAY_DEVICE_ID_LENGTH
+    ? deviceId
+    : "";
 }
 
 function normalizeCredentials(provider, value = {}) {
@@ -86,8 +98,13 @@ function requiredCredentialKeys(provider) {
   return [];
 }
 
+function providerRequiresCloudCredentials(provider) {
+  return requiredCredentialKeys(provider).length > 0;
+}
+
 function hasCompleteCredentials(provider, credentials = {}) {
-  return requiredCredentialKeys(provider).every((key) => trim(credentials[key]));
+  const keys = requiredCredentialKeys(provider);
+  return keys.length > 0 && keys.every((key) => trim(credentials[key]));
 }
 
 function constantTimeEqual(left, right) {
@@ -204,10 +221,17 @@ function createImChannelService({
 
   function validateEnabledChannel({ provider, enabled, settings, credentials, hasCredentials }) {
     if (!enabled) return;
-    if (!settings.allowAllSenders && !settings.allowedSenderIds.length) {
+    // ClawBot learns its one default sender from the official QR confirmation
+    // and enforces it inside the bound Core. Asking people to discover and
+    // paste an opaque WeChat ID is both error-prone and weaker than that
+    // local proof of possession.
+    if (provider !== "wechat_clawbot" && !settings.allowAllSenders && !settings.allowedSenderIds.length) {
       throw serviceError("启用 IM 通道前，请至少填写一个可信发送者，或明确允许所有发送者。", 400, "MIA_IM_CHANNEL_SENDER_REQUIRED");
     }
-    if (!hasCredentials && !hasCompleteCredentials(provider, credentials)) {
+    if (provider === "wechat_clawbot" && !settings.relayDeviceId) {
+      throw serviceError("启用微信 ClawBot 前，请选择当前设备作为本机桥接设备。", 400, "MIA_IM_CHANNEL_RELAY_DEVICE_REQUIRED");
+    }
+    if (providerRequiresCloudCredentials(provider) && !hasCredentials && !hasCompleteCredentials(provider, credentials)) {
       throw serviceError("启用 IM 通道前，请完整填写应用凭据。", 400, "MIA_IM_CHANNEL_CREDENTIALS_REQUIRED");
     }
   }
@@ -236,6 +260,14 @@ function createImChannelService({
     const provider = validateProvider(input.provider);
     const bot = ownedBot(userId, input.botId);
     const settings = normalizeSettings(input.settings || input);
+    // The official ClawBot relay implementation currently accepts only text
+    // direct messages. Keep the stored policy honest even if an older client
+    // submits a group flag.
+    if (provider === "wechat_clawbot") {
+      settings.allowGroupMessages = false;
+      settings.allowAllSenders = false;
+      settings.allowedSenderIds = [];
+    }
     const credentials = incomingCredentials(input, provider);
     const credentialsPresent = credentialsWereProvided(input, provider);
     const enabled = bool(input.enabled);
@@ -272,8 +304,13 @@ function createImChannelService({
       : existing.botId;
     const bot = ownedBot(userId, botId);
     const settings = own(input, "settings")
-      ? normalizeSettings(input.settings)
+      ? normalizeSettings({ ...existing.settings, ...(input.settings || {}) })
       : normalizeSettings({ ...existing.settings, ...input });
+    if (provider === "wechat_clawbot") {
+      settings.allowGroupMessages = false;
+      settings.allowAllSenders = false;
+      settings.allowedSenderIds = [];
+    }
     const enabled = own(input, "enabled") ? bool(input.enabled) : existing.enabled;
     const changingProvider = provider !== existing.provider;
     const suppliedCredentials = incomingCredentials(input, provider);
@@ -331,10 +368,26 @@ function createImChannelService({
     return channel;
   }
 
+  function relayChannel(userId, channelId, deviceId) {
+    const channel = store.getChannelForUser(userId, channelId, { includeSecrets: false });
+    if (!channel || channel.provider !== "wechat_clawbot") {
+      throw serviceError("微信 ClawBot 通道不存在。", 404, "MIA_IM_CHANNEL_RELAY_NOT_FOUND");
+    }
+    const expectedDeviceId = normalizeSettings(channel.settings).relayDeviceId;
+    if (!expectedDeviceId || expectedDeviceId !== normalizeRelayDeviceId(deviceId)) {
+      throw serviceError("当前设备无权使用这个微信 ClawBot 通道。", 403, "MIA_IM_CHANNEL_RELAY_DEVICE_FORBIDDEN");
+    }
+    return channel;
+  }
+
   function inboundPolicy(channel, senderId, chatType = "p2p") {
     const settings = normalizeSettings(channel.settings);
     if (!channel.enabled) return { ok: false, reason: "disabled" };
     if (chatType !== "p2p" && !settings.allowGroupMessages) return { ok: false, reason: "group_disabled" };
+    // The authenticated relay Core has already matched this sender against
+    // the local QR-authorizing WeChat account. Do not duplicate that opaque
+    // identifier in Cloud settings or make users type it during setup.
+    if (channel.provider === "wechat_clawbot") return { ok: true };
     if (!settings.allowAllSenders && !settings.allowedSenderIds.includes(trim(senderId))) {
       return { ok: false, reason: "sender_not_allowed" };
     }
@@ -384,6 +437,17 @@ function createImChannelService({
     return promise;
   }
 
+  function scheduleInboundDispatch({ channel, conversationId, message, conversation }) {
+    schedule(async () => {
+      try {
+        const reply = await dispatchMessage({ userId: channel.userId, conversationId, message, conversation });
+        if (reply) await deliverBotReply({ conversationId, message: reply });
+      } catch (_error) {
+        store.recordChannelStatus(channel.id, { lastError: "Bot 执行失败，请检查运行时是否在线。" });
+      }
+    });
+  }
+
   function acceptInbound(channel, incoming = {}) {
     const senderId = trim(incoming.senderId);
     const text = safeText(incoming.text);
@@ -392,7 +456,14 @@ function createImChannelService({
     store.recordChannelStatus(channel.id, { lastEventAt: new Date().toISOString() });
     if (!policy.ok) return { accepted: false, ignored: policy.reason };
     if (!senderId || !text) return { accepted: false, ignored: "empty_message" };
-    if (!store.claimInboundEvent(channel.id, eventId)) return { accepted: true, duplicate: true };
+    if (!store.claimInboundEvent(channel.id, eventId)) {
+      const prior = store.getInboundEvent(channel.id, eventId);
+      return {
+        accepted: true,
+        duplicate: true,
+        ...(prior?.deliveryId ? { deliveryId: prior.deliveryId } : {})
+      };
+    }
     try {
       const { conversation, conversationId } = ensureInboundConversation(channel, incoming);
       const message = messagesStore.appendMessage({
@@ -405,23 +476,24 @@ function createImChannelService({
       if (!message._alreadyExisted) {
         broadcast(channel.userId, { type: "conversation.message_appended", conversationId, message });
       }
-      store.createDelivery({
+      const delivery = store.createDelivery({
         channelId: channel.id,
         conversationId,
         triggerMessageId: message.id,
         replyRef: trim(incoming.replyRef),
-        recipient: incoming.recipient && typeof incoming.recipient === "object" ? incoming.recipient : {}
+        recipient: incoming.recipient && typeof incoming.recipient === "object" ? incoming.recipient : {},
+        status: incoming.deferDispatch === true ? "awaiting_relay_activation" : "pending"
       });
-      store.markInboundEvent(channel.id, eventId, "accepted");
-      schedule(async () => {
-        try {
-          const reply = await dispatchMessage({ userId: channel.userId, conversationId, message, conversation });
-          if (reply) await deliverBotReply({ conversationId, message: reply });
-        } catch (_error) {
-          store.recordChannelStatus(channel.id, { lastError: "Bot 执行失败，请检查运行时是否在线。" });
-        }
-      });
-      return { accepted: true, conversationId, messageId: message.id };
+      store.markInboundEvent(channel.id, eventId, "accepted", delivery?.id);
+      if (incoming.deferDispatch !== true) {
+        scheduleInboundDispatch({ channel, conversationId, message, conversation });
+      }
+      return {
+        accepted: true,
+        conversationId,
+        messageId: message.id,
+        deliveryId: delivery?.id || ""
+      };
     } catch (error) {
       store.markInboundEvent(channel.id, eventId, "failed");
       throw error;
@@ -487,6 +559,84 @@ function createImChannelService({
     });
   }
 
+  // The official WeChat ClawBot connection lives only in a signed-in Mia Core.
+  // In particular, this method never accepts or persists the Bot token or the
+  // per-message context token required for a reply.  Cloud receives a small,
+  // authenticated text envelope and schedules the already-existing Bot route.
+  function receiveWechatClawbotRelay(userId, channelId, input = {}) {
+    const channel = relayChannel(userId, channelId, input.deviceId || input.device_id);
+    const senderId = trim(input.senderId || input.sender_id);
+    const externalChatId = trim(input.externalChatId || input.external_chat_id || senderId);
+    const chatType = trim(input.chatType || input.chat_type || "p2p").toLowerCase() || "p2p";
+    const eventId = trim(input.eventId || input.event_id);
+    const result = acceptInbound(channel, {
+      eventId,
+      senderId,
+      senderLabel: safeText(input.senderLabel || input.sender_label || senderId, 60),
+      externalChatId,
+      chatType,
+      text: input.text,
+      // Context is intentionally held by the local relay, keyed by the
+      // returned delivery ID.  Do not add provider data to this record.
+      replyRef: "",
+      recipient: {},
+      // Do not let a fast local Agent reply before Core has persisted the
+      // per-message WeChat context. Core explicitly activates this delivery
+      // only after that private write succeeds.
+      deferDispatch: true
+    });
+    return {
+      ...result,
+      channelId: channel.id
+    };
+  }
+
+  function activateWechatClawbotRelay(userId, channelId, input = {}) {
+    const channel = relayChannel(userId, channelId, input.deviceId || input.device_id);
+    const deliveryId = trim(input.deliveryId || input.delivery_id);
+    const existing = store.getDelivery(deliveryId);
+    if (!existing || existing.channelId !== channel.id) {
+      throw serviceError("待处理消息不存在。", 404, "MIA_IM_CHANNEL_RELAY_DELIVERY_NOT_FOUND");
+    }
+    const delivery = store.activateRelayDelivery(deliveryId);
+    if (!delivery) {
+      return { ok: true, activated: false, deliveryId: existing.id, status: existing.status };
+    }
+    const message = messagesStore.getMessage(delivery.triggerMessageId);
+    const conversation = socialStore.getConversation(delivery.conversationId);
+    if (!message || !conversation) {
+      store.markDeliveryFailed(delivery.id, "微信 ClawBot 消息已无法处理。");
+      throw serviceError("待处理消息已不存在。", 410, "MIA_IM_CHANNEL_RELAY_MESSAGE_GONE");
+    }
+    scheduleInboundDispatch({
+      channel,
+      conversationId: delivery.conversationId,
+      message,
+      conversation
+    });
+    return { ok: true, activated: true, deliveryId: delivery.id, status: delivery.status };
+  }
+
+  function acknowledgeWechatClawbotRelay(userId, channelId, input = {}) {
+    const channel = relayChannel(userId, channelId, input.deviceId || input.device_id);
+    const deliveryId = trim(input.deliveryId || input.delivery_id);
+    const delivery = store.getDelivery(deliveryId);
+    if (!delivery || delivery.channelId !== channel.id) {
+      throw serviceError("待投递回复不存在。", 404, "MIA_IM_CHANNEL_RELAY_DELIVERY_NOT_FOUND");
+    }
+    if (delivery.status === "delivered") return { ok: true, deliveryId: delivery.id, status: delivery.status };
+    if (bool(input.ok ?? input.delivered ?? input.success)) {
+      const delivered = store.markDeliveryDelivered(delivery.id);
+      store.recordChannelStatus(channel.id, { lastError: "", lastEventAt: new Date().toISOString() });
+      return { ok: true, deliveryId: delivery.id, status: delivered?.status || "delivered" };
+    }
+    // A local transport error may contain WeChat internals.  Keep the Cloud
+    // status actionable without accepting that untrusted text into logs/UI.
+    const failed = store.markDeliveryFailed(delivery.id, "本机微信桥接未能投递回复。");
+    store.recordChannelStatus(channel.id, { lastError: "本机微信桥接未能投递回复。" });
+    return { ok: false, deliveryId: delivery.id, status: failed?.status || "failed" };
+  }
+
   async function fetchJson(url, options = {}) {
     const response = await fetchImpl(url, options);
     let data = {};
@@ -534,6 +684,7 @@ function createImChannelService({
   }
 
   async function verifyChannelCredentials(channel) {
+    if (channel.provider === "wechat_clawbot") return;
     const credentials = normalizeCredentials(channel.provider, decodedCredentials(channel));
     if (!hasCompleteCredentials(channel.provider, credentials)) {
       throw serviceError("通道缺少完整应用凭据。", 400, "MIA_IM_CHANNEL_CREDENTIALS_REQUIRED");
@@ -586,6 +737,30 @@ function createImChannelService({
     throw serviceError("当前版本尚不支持这个 IM 通道。", 400, "MIA_IM_CHANNEL_PROVIDER_UNSUPPORTED");
   }
 
+  function requestWechatClawbotReply(channel, delivery, message) {
+    const relayDeviceId = normalizeSettings(channel.settings).relayDeviceId;
+    if (!relayDeviceId) {
+      throw serviceError("微信 ClawBot 通道缺少本机桥接设备。", 400, "MIA_IM_CHANNEL_RELAY_DEVICE_REQUIRED");
+    }
+    const claimed = store.claimRelayDelivery(delivery.id);
+    if (!claimed) return { requested: false, ignored: "already_claimed" };
+    const persisted = broadcast(channel.userId, {
+      type: "im_channel.delivery_requested",
+      channelId: channel.id,
+      deliveryId: claimed.id,
+      conversationId: claimed.conversationId,
+      triggerMessageId: claimed.triggerMessageId,
+      targetDeviceId: relayDeviceId,
+      text: outboundText(message?.body_md || message?.bodyMd)
+    });
+    // The production broadcaster returns null only when its durable event-log
+    // write failed.  Undefined remains supported for narrow unit-test fakes.
+    if (persisted === null) {
+      throw serviceError("微信 ClawBot 回复任务未能写入事件队列。", 503, "MIA_IM_CHANNEL_RELAY_EVENT_FAILED");
+    }
+    return { requested: true, deliveryId: claimed.id };
+  }
+
   async function deliverBotReply({ conversationId, message } = {}) {
     const triggerMessageId = trim(message?.trigger_message_id || message?.triggerMessageId);
     if (!trim(conversationId) || !triggerMessageId) return { delivered: false, ignored: "no_trigger" };
@@ -594,6 +769,12 @@ function createImChannelService({
     const channel = store.getChannel(delivery.channelId, { includeSecrets: true });
     if (!channel || !channel.enabled) return { delivered: false, ignored: "channel_disabled" };
     try {
+      if (channel.provider === "wechat_clawbot") {
+        const requested = requestWechatClawbotReply(channel, delivery, message);
+        if (!requested.requested) return { delivered: false, deliveryId: delivery.id, ignored: requested.ignored };
+        store.recordChannelStatus(channel.id, { lastError: "" });
+        return { delivered: false, queued: true, deliveryId: delivery.id };
+      }
       await sendProviderReply(channel, delivery, message);
       store.markDeliveryDelivered(delivery.id);
       store.recordChannelStatus(channel.id, { lastError: "" });
@@ -608,6 +789,17 @@ function createImChannelService({
   async function testChannel(userId, channelId) {
     const channel = store.getChannelForUser(userId, channelId, { includeSecrets: true });
     if (!channel) throw serviceError("IM 通道不存在。", 404, "MIA_IM_CHANNEL_NOT_FOUND");
+    if (channel.provider === "wechat_clawbot") {
+      const relayDeviceId = normalizeSettings(channel.settings).relayDeviceId;
+      if (!relayDeviceId) {
+        throw serviceError("请先选择本机桥接设备，再连接微信 ClawBot。", 400, "MIA_IM_CHANNEL_RELAY_DEVICE_REQUIRED");
+      }
+      return {
+        ok: true,
+        message: "通道已保存。请在绑定设备上的 Mia 中扫码连接微信 ClawBot。",
+        channel: publicChannel(store.getChannel(channel.id))
+      };
+    }
     try {
       await verifyChannelCredentials(channel);
       store.recordChannelStatus(channel.id, { lastError: "" });
@@ -631,6 +823,9 @@ function createImChannelService({
     testChannel,
     receiveFeishuCallback,
     receiveWechatCallback,
+    receiveWechatClawbotRelay,
+    activateWechatClawbotRelay,
+    acknowledgeWechatClawbotRelay,
     deliverBotReply,
     idle,
     publicChannel

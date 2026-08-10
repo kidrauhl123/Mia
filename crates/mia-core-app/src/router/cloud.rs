@@ -41,12 +41,16 @@ pub async fn connect_cloud(
     State(states): State<ModuleStates>,
     Json(request): Json<CloudConnectRequest>,
 ) -> Result<Json<CloudConnectResponse>, StatusCode> {
-    states
+    let response = states
         .cloud
         .connect(request)
         .await
-        .map(Json)
-        .map_err(map_cloud_status)
+        .map_err(map_cloud_status)?;
+    // A WeChat ClawBot session is strictly device-local.  Resume it only after
+    // the Cloud bearer session is available; failures are reflected by the
+    // local relay status and must not invalidate a successful Cloud login.
+    let _ = states.wechat_clawbot.resume().await;
+    Ok(Json(response))
 }
 
 pub async fn disconnect_cloud(
@@ -54,6 +58,7 @@ pub async fn disconnect_cloud(
 ) -> Result<Json<CloudStatusResponse>, StatusCode> {
     let _ = states.cloud_events.stop().await;
     let _ = states.cloud_bridge.stop().await;
+    states.wechat_clawbot.pause().await;
     states
         .cloud
         .disconnect()
@@ -906,12 +911,16 @@ pub async fn start_cloud_events(
     State(states): State<ModuleStates>,
     Json(_request): Json<CloudEventsStartRequest>,
 ) -> Result<Json<CloudEventsLifecycleResponse>, StatusCode> {
-    states
+    let response = states
         .cloud_events
         .start()
         .await
-        .map(Json)
-        .map_err(map_cloud_status)
+        .map_err(map_cloud_status)?;
+    // Core restarts do not necessarily run the interactive Cloud-connect
+    // route again. Once the event socket is ready, resume only the sessions
+    // stored on this device so queued replies and long polling recover.
+    let _ = states.wechat_clawbot.resume().await;
+    Ok(Json(response))
 }
 
 pub async fn stop_cloud_events(

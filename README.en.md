@@ -12,6 +12,7 @@ Bot identities are Cloud-backed account objects. Runtime labels such as `desktop
 - **AIs as coworkers, not black boxes.** Each Bot has a name, avatar, persona, skills and permissions. @-mention whoever you need.
 - **AIs that actually touch your machine.** Writing code, reading files, running commands, generating images — they always ask first. If you don't approve, they don't move.
 - **Synced across devices.** Desktop, web and phone all work. Pick up wherever you left off.
+- **Official IM entry points.** Publish an existing Bot to Feishu, a WeChat Official Account, or WeChat ClawBot. The WeChat account that completes ClawBot QR login becomes the sole permitted direct-message sender automatically; users never have to find or type an opaque WeChat ID. QR login, tokens, cursors, and reply context remain in the bound desktop Core; the cloud stores the conversation plus routing and durable delivery state, but never those credentials. The first release supports text direct messages.
 
 ## Who it's for
 

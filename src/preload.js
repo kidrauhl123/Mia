@@ -1280,6 +1280,30 @@ async function updateCoreTaskJob(id, partial) {
   return legacyTaskFromCoreJob(response?.job || {});
 }
 
+function wechatClawbotCorePath(channelId, suffix) {
+  const id = String(channelId || "").trim();
+  if (!id) throw new Error("channelId is required");
+  return `/api/im-channels/wechat-clawbot/${encodeURIComponent(id)}/${suffix}`;
+}
+
+function getWechatClawbotStatus(channelId) {
+  return coreOk(miaCoreGet(wechatClawbotCorePath(channelId, "status")));
+}
+
+function startWechatClawbotLink(channelId, input = {}) {
+  const deviceId = String(input?.deviceId || input?.device_id || "").trim();
+  return coreOk(miaCorePost(wechatClawbotCorePath(channelId, "link"), { deviceId }));
+}
+
+function submitWechatClawbotPairingCode(channelId, input = {}) {
+  const code = String(input?.code || "").trim();
+  return coreOk(miaCorePost(wechatClawbotCorePath(channelId, "pairing-code"), { code }));
+}
+
+function disconnectWechatClawbot(channelId) {
+  return coreOk(miaCorePost(wechatClawbotCorePath(channelId, "disconnect"), {}));
+}
+
 contextBridge.exposeInMainWorld("__miaCorePort", Number(miaCoreStartupState.port || 0));
 contextBridge.exposeInMainWorld("__miaCoreStartupFailed", Boolean(miaCoreStartupState.failed));
 contextBridge.exposeInMainWorld("__miaCoreVersion", miaCoreStartupState.version || null);
@@ -1461,6 +1485,10 @@ contextBridge.exposeInMainWorld("mia", {
     updateImChannel: (channelId, body) => ipcRenderer.invoke(IpcChannel.SocialUpdateImChannel, channelId, body),
     deleteImChannel: (channelId) => ipcRenderer.invoke(IpcChannel.SocialDeleteImChannel, channelId),
     testImChannel: (channelId) => ipcRenderer.invoke(IpcChannel.SocialTestImChannel, channelId),
+    getWechatClawbotStatus: (channelId) => getWechatClawbotStatus(channelId),
+    startWechatClawbotLink: (channelId, input) => startWechatClawbotLink(channelId, input),
+    submitWechatClawbotPairingCode: (channelId, input) => submitWechatClawbotPairingCode(channelId, input),
+    disconnectWechatClawbot: (channelId) => disconnectWechatClawbot(channelId),
     getBotIdentity: (botId) => getBotIdentityCompat(botId),
     saveBotIdentity: (botId, body) => saveBotIdentityCompat(botId, body),
     deleteBot: (botId) => ipcRenderer.invoke(IpcChannel.SocialDeleteBot, botId),

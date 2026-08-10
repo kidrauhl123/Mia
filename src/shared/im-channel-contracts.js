@@ -20,7 +20,12 @@
       id: "wechat_clawbot",
       label: "微信 ClawBot",
       callbackPath: "",
-      availability: "bridge-preview"
+      // ClawBot is intentionally a device relay: the Cloud never receives the
+      // WeChat Bot token or a message context token.  A signed-in Mia Core on
+      // the user's own device owns that connection and receives delivery work
+      // through the durable Cloud event stream.
+      availability: "available",
+      transport: "device-relay"
     })
   });
 

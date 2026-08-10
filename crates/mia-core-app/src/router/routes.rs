@@ -52,6 +52,10 @@ use super::tasks::{
     list_task_jobs, pause_cloud_task, resume_cloud_task, run_cloud_task_now, run_task_job,
     update_cloud_task, update_scheduler_job, update_task_job,
 };
+use super::wechat_clawbot::{
+    disconnect_wechat_clawbot, get_wechat_clawbot_status, start_wechat_clawbot_link,
+    submit_wechat_clawbot_pairing_code,
+};
 
 pub fn create_router(services: &AppServices) -> Router {
     let states = build_module_states(services);
@@ -260,6 +264,22 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route("/api/cloud/events/start", post(start_cloud_events))
         .route("/api/cloud/events/stop", post(stop_cloud_events))
         .route(
+            "/api/im-channels/wechat-clawbot/{channel_id}/status",
+            get(get_wechat_clawbot_status),
+        )
+        .route(
+            "/api/im-channels/wechat-clawbot/{channel_id}/link",
+            post(start_wechat_clawbot_link),
+        )
+        .route(
+            "/api/im-channels/wechat-clawbot/{channel_id}/pairing-code",
+            post(submit_wechat_clawbot_pairing_code),
+        )
+        .route(
+            "/api/im-channels/wechat-clawbot/{channel_id}/disconnect",
+            post(disconnect_wechat_clawbot),
+        )
+        .route(
             "/api/cloud/settings",
             get(get_cloud_settings).put(put_cloud_settings),
         )
@@ -331,6 +351,72 @@ mod tests {
         assert_eq!(json["daemonTarget"]["kind"], "rust-core");
         assert_eq!(json["daemonTarget"]["usesGuiAppIdentity"], false);
         assert_eq!(json["daemonTarget"]["parentPid"], 4321);
+    }
+
+    #[tokio::test]
+    async fn wechat_clawbot_status_is_local_and_never_serializes_session_credentials() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let response = create_router(&services)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/im-channels/wechat-clawbot/imc_local/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["channelId"], "imc_local");
+        assert_eq!(json["linked"], false);
+        assert!(json.get("token").is_none());
+        assert!(json.get("contextToken").is_none());
+    }
+
+    #[tokio::test]
+    async fn wechat_clawbot_link_returns_a_safe_actionable_error_when_bridge_is_not_ready() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let response = create_router(&services)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/im-channels/wechat-clawbot/imc_local/link")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"deviceId":"device_local"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            json["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("Mia Cloud")
+        );
+        assert!(
+            !body
+                .windows(b"Bearer".len())
+                .any(|window| window == b"Bearer")
+        );
+        assert!(
+            !body
+                .windows(b"token".len())
+                .any(|window| window == b"token")
+        );
     }
 
     #[tokio::test]
