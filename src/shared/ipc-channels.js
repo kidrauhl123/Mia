@@ -130,6 +130,7 @@
     SocialUpdateImChannel: "social:update-im-channel",
     SocialDeleteImChannel: "social:delete-im-channel",
     SocialTestImChannel: "social:test-im-channel",
+    SocialEncodeWechatClawbotQr: "social:encode-wechat-clawbot-qr",
     SocialGetBotIdentity: "social:get-bot-identity",
     SocialSaveBotIdentity: "social:save-bot-identity",
     SocialDeleteBot: "social:delete-bot",

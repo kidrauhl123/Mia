@@ -115,6 +115,22 @@ test("IM channel IPC exposes only the focused channel operations", async () => {
   ]);
 });
 
+test("WeChat ClawBot QR IPC encodes the login link locally", async () => {
+  const ipcMain = fakeIpcMain();
+  registerSocialIpc({ ipcMain, socialApi: {} });
+
+  const result = await ipcMain.handlers.get(IpcChannel.SocialEncodeWechatClawbotQr)(
+    null,
+    "https://ilinkai.weixin.qq.com/qr/login"
+  );
+
+  assert.equal(result.ok, true);
+  assert.match(result.data.dataUrl, /^data:image\/png;base64,/);
+  const rejected = await ipcMain.handlers.get(IpcChannel.SocialEncodeWechatClawbotQr)(null, "not-a-qr-link");
+  assert.equal(rejected.ok, false);
+  assert.equal(rejected.status, 400);
+});
+
 test("runtime gate allows user message writes but blocks runtime social reads while cached reads stay available", async () => {
   const ipcMain = fakeIpcMain();
   let posted = false;
@@ -154,6 +170,30 @@ test("runtime gate allows user message writes but blocks runtime social reads wh
     status: 503
   });
   assert.deepEqual(cached, { ok: true, data: { messages: [{ id: "m_cached", seq: 1 }] } });
+});
+
+test("IM configuration remains available while the Core event bridge is starting", async () => {
+  const ipcMain = fakeIpcMain();
+  const calls = [];
+  registerSocialIpc({
+    ipcMain,
+    socialApi: {
+      listBots: async () => { calls.push("bots"); return { bots: [] }; },
+      listImChannels: async () => { calls.push("channels"); return { channels: [] }; }
+    },
+    ensureRuntimeAvailable: () => {
+      const error = new Error("Mia Core 未运行，Mia 暂不可用。");
+      error.status = 503;
+      throw error;
+    }
+  });
+
+  const bots = await ipcMain.handlers.get(IpcChannel.SocialListBots)(null);
+  const channels = await ipcMain.handlers.get(IpcChannel.SocialListImChannels)(null);
+
+  assert.deepEqual(bots, { ok: true, data: { bots: [] } });
+  assert.deepEqual(channels, { ok: true, data: { channels: [] } });
+  assert.deepEqual(calls, ["bots", "channels"]);
 });
 
 test("listing conversation messages writes through to the local cache; cached read returns them", async () => {

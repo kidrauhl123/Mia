@@ -6,7 +6,6 @@ const path = require("node:path");
 
 const { createMiaCloudServer } = require("../scripts/serve-cloud.js");
 const { loginCloudUser } = require("./helpers/cloud-auth.js");
-const { wechatMpSignature } = require("../src/cloud/wechat-auth.js");
 
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -79,12 +78,6 @@ function createFixture() {
       }
       if (target.includes("/im/v1/messages/") && target.endsWith("/reply")) {
         return fakeResponse({ code: 0, data: { message_id: "om_reply" } });
-      }
-      if (target.includes("cgi-bin/token")) {
-        return fakeResponse({ access_token: "wechat-token", expires_in: 7200 });
-      }
-      if (target.includes("message/custom/send")) {
-        return fakeResponse({ errcode: 0 });
       }
       throw new Error(`Unexpected provider request ${target}`);
     }
@@ -207,7 +200,7 @@ test("飞书 IM 通道保存凭据但 API 不泄露，并把 Bot 回复回投一
   }
 });
 
-test("微信公众号 IM 通道验证签名，并用客服消息 API 回投", async () => {
+test("移除的旧 IM provider 不再可创建或接收回调", async () => {
   const fixture = createFixture();
   const baseUrl = await listen(fixture.server);
   try {
@@ -216,40 +209,15 @@ test("微信公众号 IM 通道验证签名，并用客服消息 API 回投", as
       token: fixture.account.token,
       body: {
         provider: "wechat_official_account",
-        botId: fixture.bot.id,
-        enabled: true,
-        settings: { allowedSenderIds: ["wx_openid_allowed"] },
-        credentials: {
-          appId: "wx_test",
-          appSecret: "wechat-super-secret",
-          token: "verify-wechat"
-        }
+        botId: fixture.bot.id
       }
     });
-    assert.equal(created.status, 201, JSON.stringify(created.data));
-    const channel = created.data.channel;
-    const timestamp = "1710000000";
-    const nonce = "nonce-1";
-    const signature = wechatMpSignature({ token: "verify-wechat", timestamp, nonce });
-
-    const verification = await fetch(`${baseUrl}/api/im/wechat/${channel.id}/events?signature=${signature}&timestamp=${timestamp}&nonce=${nonce}&echostr=hello-wechat`);
-    assert.equal(verification.status, 200);
-    assert.equal(await verification.text(), "hello-wechat");
-
-    const xml = "<xml><ToUserName><![CDATA[gh_test]]></ToUserName><FromUserName><![CDATA[wx_openid_allowed]]></FromUserName><CreateTime>1710000000</CreateTime><MsgType><![CDATA[text]]></MsgType><Content><![CDATA[你好公众号]]></Content><MsgId>123456789</MsgId></xml>";
-    const callback = await fetch(`${baseUrl}/api/im/wechat/${channel.id}/events?signature=${signature}&timestamp=${timestamp}&nonce=${nonce}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/xml" },
-      body: xml
+    assert.equal(created.status, 400);
+    assert.match(created.data.error, /尚不支持/);
+    const callback = await fetch(`${baseUrl}/api/im/wechat/imc_legacy/events`, {
+      headers: { Authorization: `Bearer ${fixture.account.token}` }
     });
-    assert.equal(callback.status, 200);
-    assert.equal(await callback.text(), "success");
-    await fixture.server.mia.imChannelsService.idle();
-    const customerServiceRequests = fixture.outbound.filter((item) => item.target.includes("message/custom/send"));
-    assert.equal(customerServiceRequests.length, 1);
-    const payload = JSON.parse(customerServiceRequests[0].options.body);
-    assert.equal(payload.touser, "wx_openid_allowed");
-    assert.equal(payload.text.content, "这是来自 Mia 的回复");
+    assert.equal(callback.status, 404);
   } finally {
     await destroyFixture(fixture);
   }
@@ -276,7 +244,7 @@ test("IM 通道默认拒绝未知发送者，且启用时要求发送者策略",
   }
 });
 
-test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回复上下文", async () => {
+test("微信通过受控本机中继投递，Cloud 不保存微信回复上下文", async () => {
   const fixture = createFixture();
   const baseUrl = await listen(fixture.server);
   try {
@@ -289,8 +257,6 @@ test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回�
         enabled: true,
         settings: {
           relayDeviceId: "device_local_1",
-          // Stale clients cannot turn a scanner-only ClawBot into a public
-          // endpoint. Sender identity is instead verified in the bound Core.
           allowedSenderIds: ["stale_manual_id"],
           allowAllSenders: true,
           allowGroupMessages: true
@@ -315,7 +281,7 @@ test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回�
         senderId: "wx_clawbot_sender",
         externalChatId: "wx_clawbot_sender",
         chatType: "p2p",
-        text: "你好 ClawBot"
+        text: "你好微信"
       }
     });
     assert.equal(forbidden.status, 403);
@@ -330,7 +296,7 @@ test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回�
         senderLabel: "微信测试用户",
         externalChatId: "wx_clawbot_sender",
         chatType: "p2p",
-        text: "你好 ClawBot"
+        text: "你好微信"
       }
     });
     assert.equal(inbound.status, 202, JSON.stringify(inbound.data));
@@ -377,7 +343,7 @@ test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回�
         senderId: "wx_clawbot_sender",
         externalChatId: "wx_clawbot_sender",
         chatType: "p2p",
-        text: "你好 ClawBot"
+        text: "你好微信"
       }
     });
     assert.equal(duplicate.status, 202);
@@ -391,6 +357,65 @@ test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回�
     });
     assert.equal(ack.status, 200, JSON.stringify(ack.data));
     assert.equal(ack.data.status, "delivered");
+
+    const originalReply = fixture.server.mia.messagesStore
+      .listMessagesSince(inbound.data.conversationId, 0, 20)
+      .find((message) => message.trigger_message_id === inbound.data.messageId);
+    assert.ok(originalReply, "expected the original IM-triggered reply");
+    const replay = await fixture.server.mia.imChannelsService.deliverBotReply({
+      conversationId: inbound.data.conversationId,
+      message: originalReply
+    });
+    assert.equal(replay.ignored, "already_handled");
+
+    const desktopReply = fixture.server.mia.messagesStore.appendMessage({
+      conversationId: inbound.data.conversationId,
+      senderKind: "bot",
+      senderRef: fixture.bot.id,
+      senderOwnerId: fixture.account.user.id,
+      bodyMd: "桌面端回复",
+      triggerMessageId: "desktop_prompt_1",
+      status: "complete"
+    });
+    const desktopDelivery = await fixture.server.mia.imChannelsService.deliverBotReply({
+      conversationId: inbound.data.conversationId,
+      message: desktopReply
+    });
+    assert.equal(desktopDelivery.queued, true);
+
+    const scheduledReply = fixture.server.mia.messagesStore.appendMessage({
+      conversationId: inbound.data.conversationId,
+      senderKind: "bot",
+      senderRef: fixture.bot.id,
+      senderOwnerId: fixture.account.user.id,
+      bodyMd: "定时任务结果",
+      status: "complete"
+    });
+    const scheduledDelivery = await fixture.server.mia.imChannelsService.deliverBotReply({
+      conversationId: inbound.data.conversationId,
+      message: scheduledReply
+    });
+    assert.equal(scheduledDelivery.queued, true);
+
+    const relayEvents = fixture.server.mia.eventLog
+      .listEventsSince(fixture.account.user.id, 0)
+      .filter((event) => event.payload?.type === "im_channel.delivery_requested");
+    assert.equal(relayEvents.length, 3);
+    for (const event of relayEvents.slice(1)) {
+      assert.equal(event.payload.deliveryMode, "conversation_output");
+      assert.equal(event.payload.conversationId, inbound.data.conversationId);
+      assert.equal(JSON.stringify(event.payload).includes("context_token"), false);
+    }
+    assert.equal(relayEvents[1].payload.triggerMessageId, desktopReply.id);
+    assert.equal(relayEvents[2].payload.triggerMessageId, scheduledReply.id);
+    const outputDeliveries = fixture.server.mia.cloudStore.getDb()
+      .prepare("SELECT trigger_message_id, recipient_json, status FROM im_channel_deliveries WHERE conversation_id = ? AND trigger_message_id IN (?, ?) ORDER BY trigger_message_id ASC")
+      .all(inbound.data.conversationId, desktopReply.id, scheduledReply.id);
+    assert.equal(outputDeliveries.length, 2);
+    for (const delivery of outputDeliveries) {
+      assert.deepEqual(JSON.parse(delivery.recipient_json), { relayMode: "conversation_output" });
+      assert.equal(delivery.status, "relay_requested");
+    }
   } finally {
     await destroyFixture(fixture);
   }

@@ -946,6 +946,10 @@ function activeViewHasDetail(view = state.activeView) {
 }
 
 function normalizeNarrowPaneForView(view = state.activeView) {
+  if (view === "chat" && document.body.classList.contains("onboarding-window")) {
+    state.narrowPane = "content";
+    return;
+  }
   if (!viewHasIndexPane(view)) {
     state.narrowPane = "content";
     return;
@@ -2772,12 +2776,14 @@ let onboardingWindowState = null;
 // the unreliable create-time heuristic.
 function setOnboardingWindow(active) {
   const on = Boolean(active);
+  if (on) showNarrowContent();
   document.body.classList.toggle("onboarding-window", on);
-  if (onboardingWindowState === on) return;
+  if (onboardingWindowState === on) return Promise.resolve();
   const wasOnboarding = onboardingWindowState;
   onboardingWindowState = on;
-  if (on) window.mia.window?.onboarding?.();
-  else if (wasOnboarding === true) window.mia.window?.showMain?.();
+  if (on) return window.mia.window?.onboarding?.() || Promise.resolve();
+  if (wasOnboarding === true) return window.mia.window?.showMain?.() || Promise.resolve();
+  return Promise.resolve();
 }
 
 function focusedSidebarTagInput() {
@@ -4919,6 +4925,7 @@ window.miaOpenBotConversation = openBotConversation;
 
 let runtimeRefreshScheduler = null;
 let runtimeFallbackRefreshTimer = 0;
+let agentInventoryRefreshTimer = 0;
 let rendererModulesReady = false;
 
 async function performRefreshRuntime() {
@@ -4949,6 +4956,7 @@ async function performRefreshRuntime() {
     };
   }
   state.runtime = runtime;
+  scheduleAgentInventoryRefresh(runtime);
   const nextRuntimeControlInventory = runtimeControlInventorySignature(runtime);
   if (nextRuntimeControlInventory !== previousRuntimeControlInventory) {
     botRuntimeControlOptionsCache.clear();
@@ -4978,6 +4986,22 @@ async function performRefreshRuntime() {
 function refreshRuntime() {
   if (runtimeRefreshScheduler) return runtimeRefreshScheduler.runNow();
   return performRefreshRuntime();
+}
+
+function scheduleAgentInventoryRefresh(runtime = state.runtime, delayMs = 900) {
+  const isScanning = Boolean(runtime?.agentInventory?.summary?.scanning);
+  if (!isScanning) {
+    if (agentInventoryRefreshTimer) window.clearTimeout(agentInventoryRefreshTimer);
+    agentInventoryRefreshTimer = 0;
+    return;
+  }
+  if (agentInventoryRefreshTimer) return;
+  agentInventoryRefreshTimer = window.setTimeout(() => {
+    agentInventoryRefreshTimer = 0;
+    refreshRuntime().catch((error) => {
+      console.warn("Failed to refresh pending agent inventory", error);
+    });
+  }, delayMs);
 }
 
 function renderCloudAccountFromState() {
@@ -5315,7 +5339,7 @@ async function initializeRuntime(options = {}) {
   rendererModulesReady = true;
   render();
   if (state.runtime?.agentInventory?.summary?.scanning) {
-    setTimeout(refreshRuntime, 120);
+    scheduleAgentInventoryRefresh(state.runtime, 120);
   }
   if (blockStartup) {
     const backgroundStartup = await runFirstRunBackgroundServices();
@@ -6912,7 +6936,8 @@ async function completeAgentSetup(engine, options = {}) {
     localStorage.setItem(SETUP_GUIDE_DISMISSED_KEY, "1");
   } catch { /* ignore */ }
   advanceOnboarding("done");
-  await window.mia.window?.showMain?.();
+  await setOnboardingWindow(false);
+  render();
 }
 
 function afterEnginePicked(engine) {
@@ -7112,6 +7137,8 @@ window.addEventListener("pagehide", () => {
   runtimeRefreshScheduler?.stop?.();
   if (runtimeFallbackRefreshTimer) window.clearInterval(runtimeFallbackRefreshTimer);
   runtimeFallbackRefreshTimer = 0;
+  if (agentInventoryRefreshTimer) window.clearTimeout(agentInventoryRefreshTimer);
+  agentInventoryRefreshTimer = 0;
   rendererPerformance.stop();
   window.miaSocial?.setLifecycleState?.({ active: false, visible: false });
   window.miaLottieIcons?.destroy?.();

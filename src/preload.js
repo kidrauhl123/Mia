@@ -1485,6 +1485,7 @@ contextBridge.exposeInMainWorld("mia", {
     updateImChannel: (channelId, body) => ipcRenderer.invoke(IpcChannel.SocialUpdateImChannel, channelId, body),
     deleteImChannel: (channelId) => ipcRenderer.invoke(IpcChannel.SocialDeleteImChannel, channelId),
     testImChannel: (channelId) => ipcRenderer.invoke(IpcChannel.SocialTestImChannel, channelId),
+    encodeWechatClawbotQr: (content) => ipcRenderer.invoke(IpcChannel.SocialEncodeWechatClawbotQr, content),
     getWechatClawbotStatus: (channelId) => getWechatClawbotStatus(channelId),
     startWechatClawbotLink: (channelId, input) => startWechatClawbotLink(channelId, input),
     submitWechatClawbotPairingCode: (channelId, input) => submitWechatClawbotPairingCode(channelId, input),

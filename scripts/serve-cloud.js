@@ -496,12 +496,9 @@ async function handleWechatMpEvents(req, res, context, url) {
   return true;
 }
 
-// IM provider callbacks intentionally live outside the account-authenticated API.
-// Each provider verifies its own callback token/signature inside the channel service.
 async function handleImChannelEvents(req, res, context, url) {
   const feishuMatch = url.pathname.match(/^\/api\/im\/feishu\/([A-Za-z0-9_.-]+)\/events$/);
-  const wechatMatch = url.pathname.match(/^\/api\/im\/wechat\/([A-Za-z0-9_.-]+)\/events$/);
-  if (!feishuMatch && !wechatMatch) return false;
+  if (!feishuMatch) return false;
   if (!context.imChannelsService) {
     writeError(res, 503, "IM channels are unavailable.");
     return true;
@@ -521,16 +518,6 @@ async function handleImChannelEvents(req, res, context, url) {
       }
       return true;
     }
-    const result = await context.imChannelsService.receiveWechatCallback(wechatMatch[1], {
-      signature: url.searchParams.get("signature"),
-      timestamp: url.searchParams.get("timestamp"),
-      nonce: url.searchParams.get("nonce"),
-      method: req.method,
-      echostr: url.searchParams.get("echostr"),
-      body: req.method === "POST" ? await readBody(req) : ""
-    });
-    if (result?.kind === "verification") writeText(res, 200, result.echostr || "");
-    else writeText(res, 200, "success");
   } catch (error) {
     writeError(res, Number(error?.status) || 500, error?.message || "IM callback failed.");
   }
@@ -4945,6 +4932,9 @@ async function handleRequest(req, res, context) {
           if (!message._alreadyExisted) {
             broadcastPersistedEvent(context, auth.user.id, { type: "conversation.message_appended", conversationId: conversationId, message });
           }
+          if (context.imChannelsService) {
+            Promise.resolve(context.imChannelsService.deliverBotReply({ conversationId, message })).catch(() => {});
+          }
         }
         return writeJson(res, 200, { run: completed, message });
       } catch (error) {
@@ -5289,6 +5279,7 @@ function createMiaCloudServer(options = {}) {
         : null,
       broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
       broadcastTransientEvent: (userId, payload) => broadcastTransientEvent(context.eventHub, userId, payload),
+      deliverBotReply: ({ conversationId, message }) => context.imChannelsService?.deliverBotReply?.({ conversationId, message }),
       getUserPublic: (userId) => context.cloudStore.getUserPublic(userId),
       memoryStore: context.memoryStore,
       memoryDocumentStore: context.memoryDocumentStore,
@@ -5326,6 +5317,7 @@ function createMiaCloudServer(options = {}) {
   }
   context.cloudTasksService = createCloudTasksService({
     ...context,
+    deliverBotReply: ({ conversationId, message }) => context.imChannelsService?.deliverBotReply?.({ conversationId, message }),
     broadcastPersistedEvent: (userId, payload) => broadcastPersistedEvent(context, userId, payload)
   });
   context.cloudTasksService.start();

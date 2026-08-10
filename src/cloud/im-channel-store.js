@@ -109,6 +109,11 @@ function createImChannelStore(db) {
     WHERE conversation_id = ? AND trigger_message_id = ?
     ORDER BY created_at ASC LIMIT 1
   `);
+  const selectLatestDeliveryForConversation = db.prepare(`
+    SELECT * FROM im_channel_deliveries
+    WHERE conversation_id = ?
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `);
   const selectDeliveryById = db.prepare("SELECT * FROM im_channel_deliveries WHERE id = ?");
   const markDelivered = db.prepare(`
     UPDATE im_channel_deliveries
@@ -234,6 +239,14 @@ function createImChannelStore(db) {
     return deliveryFromRow(selectDeliveryForTrigger.get(String(conversationId || ""), String(triggerMessageId || "")));
   }
 
+  function findDeliveryForTrigger(conversationId, triggerMessageId) {
+    return deliveryFromRow(selectAnyDeliveryForTrigger.get(String(conversationId || ""), String(triggerMessageId || "")));
+  }
+
+  function findLatestDeliveryForConversation(conversationId) {
+    return deliveryFromRow(selectLatestDeliveryForConversation.get(String(conversationId || "")));
+  }
+
   function getDelivery(id) {
     return deliveryFromRow(selectDeliveryById.get(String(id || "")));
   }
@@ -274,6 +287,8 @@ function createImChannelStore(db) {
     createDelivery,
     getDelivery,
     findPendingDelivery,
+    findDeliveryForTrigger,
+    findLatestDeliveryForConversation,
     claimRelayDelivery,
     activateRelayDelivery,
     markDeliveryDelivered,

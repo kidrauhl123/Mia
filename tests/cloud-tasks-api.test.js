@@ -280,6 +280,7 @@ test("cloud task fire does not append a visible user trigger message", async () 
 test("direct delivery tasks append a bot message without running Hermes", async () => {
   const dataDir = tempDataDir();
   const hermesCalls = [];
+  const imReplyDeliveries = [];
   const server = createMiaCloudServer({
     dataDir,
     cloudAgentWorkerManager: {
@@ -296,6 +297,10 @@ test("direct delivery tasks append a bot message without running Hermes", async 
   });
   const baseUrl = await listen(server);
   try {
+    server.mia.imChannelsService.deliverBotReply = async (input) => {
+      imReplyDeliveries.push(input);
+      return { queued: true };
+    };
     const account = loginCloudUser(server.mia.cloudStore, "task_direct_user");
     const { conversation } = setupTaskOwner(server, account);
     const created = await jsonFetch(baseUrl, "/api/tasks", account.token, {
@@ -329,6 +334,9 @@ test("direct delivery tasks append a bot message without running Hermes", async 
     assert.equal(after.task.runs[0].status, "ok");
     assert.equal(after.task.runs[0].outputMessageId, messages[0].id);
     assert.equal(after.task.runs[0].outputText, "该发布新版本了");
+    assert.equal(imReplyDeliveries.length, 1);
+    assert.equal(imReplyDeliveries[0].conversationId, conversation.id);
+    assert.equal(imReplyDeliveries[0].message.id, messages[0].id);
     const events = server.mia.eventLog.listEventsSince(account.user.id, 0, 20);
     assert.equal(
       events.some((event) => event.kind === "conversation.message_appended" && event.payload?.message?.id === messages[0].id),

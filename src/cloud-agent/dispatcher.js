@@ -232,6 +232,7 @@ function createCloudAgentDispatcher(deps = {}) {
   const broadcastTransientEvent = typeof deps.broadcastTransientEvent === "function"
     ? deps.broadcastTransientEvent
     : () => {};
+  const deliverBotReply = typeof deps.deliverBotReply === "function" ? deps.deliverBotReply : null;
   const getUserPublic = typeof deps.getUserPublic === "function" ? deps.getUserPublic : () => null;
   const skillsCatalog = Array.isArray(deps.skillsCatalog) ? deps.skillsCatalog : [];
   const memoryStore = deps.memoryStore || null;
@@ -279,6 +280,11 @@ function createCloudAgentDispatcher(deps = {}) {
       botId: run.botId,
       event: { type }
     });
+  }
+
+  function handoffImBotReply(conversationId, message) {
+    if (!deliverBotReply || !message) return;
+    Promise.resolve(deliverBotReply({ conversationId, message })).catch(() => {});
   }
 
   function nativeSessionDescriptor({ runtimeKind = CLOUD_CLAUDE_CODE_RUNTIME_KIND, botId = "", conversationId = "", worker = {} } = {}) {
@@ -436,6 +442,7 @@ function createCloudAgentDispatcher(deps = {}) {
         }
       }
     }
+    handoffImBotReply(conversationId, reply);
     return reply;
   }
 
@@ -459,6 +466,7 @@ function createCloudAgentDispatcher(deps = {}) {
         }
       }
     }
+    handoffImBotReply(conversationId, reply);
     return reply;
   }
 
@@ -789,6 +797,7 @@ function createCloudAgentDispatcher(deps = {}) {
           }
         }
       }
+      handoffImBotReply(conversationId, reply);
       return reply;
     } catch (error) {
       const currentRun = cloudAgentRunsStore.getRun(run.id);
@@ -1014,6 +1023,7 @@ function createCloudAgentDispatcher(deps = {}) {
       status: "complete"
     });
     broadcastConversationMessage(conversationId, message);
+    handoffImBotReply(conversationId, message);
     return message;
   }
 

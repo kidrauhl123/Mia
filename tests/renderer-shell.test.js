@@ -1175,6 +1175,32 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(appSource, /setOnboardingWindow\(false\)/);
   assert.match(appSource, /classList\.toggle\("onboarding-window", on\)/);
   assert.match(appSource, /window\.mia\.window\?\.onboarding\?\.\(\)/);
+  const onboardingWindowSource = extractFunctionSource(appSource, "setOnboardingWindow");
+  assert.match(
+    onboardingWindowSource,
+    /if \(on\) showNarrowContent\(\);[\s\S]*?classList\.toggle\("onboarding-window", on\)/,
+    "the compact setup window must select the content pane before hiding the message index"
+  );
+  const narrowPaneSource = extractFunctionSource(appSource, "normalizeNarrowPaneForView");
+  assert.match(
+    narrowPaneSource,
+    /view === "chat" && document\.body\.classList\.contains\("onboarding-window"\)[\s\S]*?state\.narrowPane = "content"/,
+    "a resize-triggered full render must preserve the onboarding content pane"
+  );
+  const completeSetupSource = extractFunctionSource(appSource, "completeAgentSetup");
+  assert.match(
+    completeSetupSource,
+    /await setOnboardingWindow\(false\);[\s\S]*?render\(\);/,
+    "finishing setup must restore both the main window and its chat shell"
+  );
+  const agentInventoryRefreshSource = extractFunctionSource(appSource, "scheduleAgentInventoryRefresh");
+  assert.match(agentInventoryRefreshSource, /runtime\?\.agentInventory\?\.summary\?\.scanning/);
+  assert.match(agentInventoryRefreshSource, /refreshRuntime\(\)\.catch/);
+  assert.match(
+    appSource,
+    /if \(state\.runtime\?\.agentInventory\?\.summary\?\.scanning\) \{\s*scheduleAgentInventoryRefresh\(state\.runtime, 120\);/,
+    "the first pending inventory refresh must use the retry scheduler rather than a one-shot poll"
+  );
   assert.match(appSource, /window\.miaLottieIcons\?\.init\?\.\(els\.chat\)/);
   assert.match(appSource, /renderNoAgentGuide/);
   assert.match(appSource, /finish-agent-scan/);
@@ -1194,7 +1220,6 @@ test("renderer chat uses setup guide and supports no-agent continuation", () => 
   assert.match(stylesSource, /\.setup-scan-lottie/);
   assert.match(stylesSource, /body\.onboarding-window \.setup-engine-row \{[\s\S]*?grid-template-columns:\s*28px minmax\(0,\s*1fr\);/);
   assert.match(stylesSource, /\.setup-engine-row\.unavailable \{[\s\S]*?opacity:\s*1;/);
-  assert.match(appSource, /setTimeout\(refreshRuntime,\s*120\)/);
 });
 
 test("chat rail icon keeps playback without the thicker forum animation asset", () => {

@@ -1,5 +1,3 @@
-// Settings - publish a Mia Bot to an official IM callback without exposing
-// cloud credentials to the renderer after they have been saved.
 (function () {
   "use strict";
 
@@ -17,14 +15,15 @@
   let providers = [];
   let draft = null;
   let clawbotStatuses = {};
+  const clawbotQrDataUrls = new Map();
   const clawbotStatusTimers = new Map();
   const busyActions = new Set();
 
   const fallbackProviders = [
     { id: "feishu", label: "飞书", availability: "available" },
-    { id: "wechat_official_account", label: "微信公众号", availability: "available" },
-    { id: "wechat_clawbot", label: "微信 ClawBot", availability: "available", transport: "device-relay" }
+    { id: "wechat_clawbot", label: "微信", availability: "available", transport: "device-relay" }
   ];
+  const supportedProviderIds = new Set(fallbackProviders.map((provider) => provider.id));
 
   function escapeHtml(value) {
     return String(value || "")
@@ -36,12 +35,24 @@
   }
 
   function resultData(result) {
-    if (result?.ok === false) throw new Error(result.error || result.message || "操作失败。");
+    if (result?.ok === false) {
+      const error = new Error(result.error || result.message || "操作失败。");
+      error.status = Number(result.status) || 0;
+      throw error;
+    }
     return result?.data && typeof result.data === "object" ? result.data : (result || {});
   }
 
   function isCloudSignedIn() {
     return Boolean(state?.runtime?.cloud?.enabled);
+  }
+
+  function imReadErrorMessage(error) {
+    const message = String(error?.message || "").trim();
+    if (Number(error?.status) === 404 || /\b404\b/.test(message)) {
+      return "当前 Mia Cloud 尚未提供 IM 接入服务，请升级云端后重试。";
+    }
+    return message || "IM 通道读取失败。";
   }
 
   function resetForChangedCloudAccount() {
@@ -60,31 +71,53 @@
     providers = [];
     draft = null;
     clawbotStatuses = {};
+    clawbotQrDataUrls.clear();
     clearClawbotStatusPolling();
     busyActions.clear();
   }
 
   function getAvailableProviders() {
     const remote = Array.isArray(providers) && providers.length ? providers : fallbackProviders;
-    return remote.filter((provider) => provider?.availability === "available");
+    const available = remote.filter((provider) => (
+      supportedProviderIds.has(String(provider?.id || "")) && provider?.availability === "available"
+    ));
+    return available.length ? available : fallbackProviders;
   }
 
   function providerFor(id) {
-    return [...providers, ...fallbackProviders].find((provider) => provider?.id === id)
+    const providerId = String(id || "");
+    return getAvailableProviders().find((provider) => provider.id === providerId)
+      || fallbackProviders.find((provider) => provider.id === providerId)
       || fallbackProviders[0];
   }
 
-  function defaultDraft() {
+  function isWechatClawbot(provider) {
+    return String(provider || "") === "wechat_clawbot";
+  }
+
+  function localRelayDeviceId() {
+    return String(
+      state?.runtime?.cloud?.deviceId
+      || state?.runtime?.cloud?.device_id
+      || state?.runtime?.localDevice?.id
+      || state?.runtime?.localDevice?.deviceId
+      || ""
+    ).trim();
+  }
+
+  function defaultDraft(provider = "feishu") {
+    const selectedProvider = supportedProviderIds.has(String(provider)) ? String(provider) : "feishu";
     return {
       id: "",
-      provider: "feishu",
+      provider: selectedProvider,
       botId: String(bots[0]?.id || bots[0]?.key || ""),
       name: "",
-      enabled: false,
+      enabled: isWechatClawbot(selectedProvider),
       allowedSenderIds: "",
       allowAllSenders: false,
       allowGroupMessages: false,
       relayDeviceId: localRelayDeviceId(),
+      callbackUrl: "",
       credentials: {},
       hasCredentials: false
     };
@@ -104,6 +137,7 @@
       allowAllSenders: settings.allowAllSenders === true || settings.allow_all_senders === true,
       allowGroupMessages: settings.allowGroupMessages === true || settings.allow_group_messages === true,
       relayDeviceId: String(settings.relayDeviceId || settings.relay_device_id || localRelayDeviceId()),
+      callbackUrl: String(channel?.callbackUrl || ""),
       credentials: {},
       hasCredentials: channel?.hasCredentials === true
     };
@@ -114,23 +148,30 @@
     else busyActions.delete(key);
   }
 
-  function isWechatClawbot(provider) {
-    return String(provider || "") === "wechat_clawbot";
-  }
-
-  function localRelayDeviceId() {
-    return String(
-      state?.runtime?.cloud?.deviceId
-      || state?.runtime?.cloud?.device_id
-      || state?.runtime?.localDevice?.id
-      || state?.runtime?.localDevice?.deviceId
-      || ""
-    ).trim();
+  async function displayableClawbotStatus(status) {
+    const qrContent = String(status?.qrUrl || status?.qr_url || "").trim();
+    if (!qrContent || /^data:image\//i.test(qrContent)) return status;
+    const cached = clawbotQrDataUrls.get(qrContent);
+    if (cached) return { ...status, qrUrl: cached, qr_url: cached };
+    if (!window.mia?.social?.encodeWechatClawbotQr) {
+      return { ...status, qrUrl: "", qr_url: "", message: "微信二维码暂时无法显示，请重新连接。" };
+    }
+    try {
+      const encoded = resultData(await window.mia.social.encodeWechatClawbotQr(qrContent));
+      const dataUrl = String(encoded?.dataUrl || encoded?.data_url || "").trim();
+      if (!/^data:image\/(png|jpeg|webp|gif);base64,/i.test(dataUrl)) throw new Error("invalid QR image");
+      clawbotQrDataUrls.set(qrContent, dataUrl);
+      return { ...status, qrUrl: dataUrl, qr_url: dataUrl };
+    } catch {
+      return { ...status, qrUrl: "", qr_url: "", message: "微信二维码生成失败，请重新连接。" };
+    }
   }
 
   async function refreshClawbotStatus(channelId) {
     if (!window.mia?.social?.getWechatClawbotStatus) return null;
-    const result = resultData(await window.mia.social.getWechatClawbotStatus(channelId));
+    const result = await displayableClawbotStatus(
+      resultData(await window.mia.social.getWechatClawbotStatus(channelId))
+    );
     clawbotStatuses = { ...clawbotStatuses, [channelId]: result };
     return result;
   }
@@ -158,10 +199,7 @@
       clawbotStatusTimers.delete(channelId);
       try {
         await refreshClawbotStatus(channelId);
-      } catch {
-        // The visible status retains its last safe state. A transient loopback
-        // error should not erase a QR code that the user is currently scanning.
-      }
+      } catch {}
       requestRender?.();
       scheduleClawbotStatusPolling(channelId);
     }, 1500);
@@ -193,8 +231,12 @@
       ]);
       const channelPayload = resultData(channelResult);
       const botPayload = resultData(botResult);
-      channels = Array.isArray(channelPayload.channels) ? channelPayload.channels : [];
-      providers = Array.isArray(channelPayload.providers) ? channelPayload.providers : fallbackProviders;
+      channels = (Array.isArray(channelPayload.channels) ? channelPayload.channels : []).filter((channel) => (
+        supportedProviderIds.has(String(channel?.provider || ""))
+      ));
+      providers = (Array.isArray(channelPayload.providers) ? channelPayload.providers : []).filter((provider) => (
+        supportedProviderIds.has(String(provider?.id || ""))
+      ));
       bots = Array.isArray(botPayload.bots) ? botPayload.bots : [];
       clawbotStatuses = {};
       await refreshClawbotStatuses();
@@ -202,7 +244,8 @@
         .forEach((channel) => scheduleClawbotStatusPolling(String(channel.id || "")));
       loaded = true;
     } catch (error) {
-      errorText = error?.message || "IM 通道读取失败。";
+      loaded = true;
+      errorText = imReadErrorMessage(error);
     } finally {
       loading = false;
       requestRender?.();
@@ -213,17 +256,34 @@
     return `
       <div class="settings-section-label">IM 接入</div>
       <section class="im-channel-empty settings-row settings-group-start settings-group-end">
-        <div>
-          <strong>登录 Mia Cloud 后连接 IM</strong>
-          <p>登录后可把已有 Bot 发布到飞书、微信公众号或微信 ClawBot。</p>
-        </div>
+        <div><strong>登录 Mia Cloud 后连接飞书或微信</strong></div>
       </section>`;
   }
 
-  function statusLabel(channel) {
-    if (!channel.enabled) return "未启用";
-    if (channel.lastError) return "需要处理";
-    return "已启用";
+  function botName(channel) {
+    const bot = bots.find((item) => String(item?.id || item?.key || "") === String(channel?.botId || ""));
+    return String(bot?.displayName || bot?.name || channel?.botId || "Bot");
+  }
+
+  function channelStatus(channel) {
+    const error = String(channel?.lastError || "");
+    if (error) return { label: "需要处理", warning: true };
+    if (isWechatClawbot(channel?.provider)) {
+      const relay = clawbotStatuses[channel.id] || {};
+      if (relay.linked) return { label: "已连接" };
+      if (clawbotStatusNeedsPolling(relay)) return { label: "等待扫码" };
+      return { label: channel.enabled ? "未连接" : "已暂停" };
+    }
+    return { label: channel.enabled ? "已启用" : "已暂停" };
+  }
+
+  function providerStatus(provider, providerChannels) {
+    if (!providerChannels.length) return { label: "未连接" };
+    if (providerChannels.some((channel) => channelStatus(channel).warning)) return { label: "需要处理", warning: true };
+    if (isWechatClawbot(provider.id) && providerChannels.some((channel) => !clawbotStatuses[channel.id]?.linked)) {
+      return { label: "待连接" };
+    }
+    return { label: "已连接" };
   }
 
   function safeQrImageUrl(value) {
@@ -233,153 +293,155 @@
     return "";
   }
 
+  function callbackMarkup(callback) {
+    const value = String(callback || "");
+    if (!value) return "";
+    return `
+      <div class="im-channel-callback">
+        <code title="${escapeHtml(value)}">${escapeHtml(value)}</code>
+        <button class="settings-secondary-button" type="button" data-im-action="copy" data-callback="${escapeHtml(value)}">复制</button>
+      </div>`;
+  }
+
   function clawbotStatusMarkup(channel) {
     const status = clawbotStatuses[channel.id];
-    if (!status) return '<p class="im-channel-clawbot-status">正在读取本机微信连接状态…</p>';
-    const state = String(status.state || "");
+    if (!status) return "";
+    const statusName = String(status.state || "");
     const message = String(status.message || "");
     const qrUrl = safeQrImageUrl(status.qrUrl || status.qr_url);
     return `
-      <div class="im-channel-clawbot-status" data-clawbot-state="${escapeHtml(state)}">
-        <p>${escapeHtml(message || "微信 ClawBot 状态未知。")}</p>
-        ${qrUrl ? `<img class="im-channel-clawbot-qr" src="${escapeHtml(qrUrl)}" alt="微信 ClawBot 登录二维码">` : ""}
-        ${state === "pairing_code_required" ? `
+      <div class="im-channel-clawbot-status" data-clawbot-state="${escapeHtml(statusName)}">
+        ${message ? `<p>${escapeHtml(message)}</p>` : ""}
+        ${qrUrl ? `<img class="im-channel-clawbot-qr" src="${escapeHtml(qrUrl)}" alt="微信二维码">` : ""}
+        ${statusName === "pairing_code_required" ? `
           <form class="im-channel-pairing" data-im-pairing-form data-channel-id="${escapeHtml(channel.id)}">
-            <input name="pairingCode" inputmode="numeric" autocomplete="one-time-code" maxlength="32" placeholder="输入手机微信显示的数字">
-            <button class="settings-secondary-button" type="submit">提交配对码</button>
+            <input name="pairingCode" inputmode="numeric" autocomplete="one-time-code" maxlength="32" placeholder="配对码">
+            <button class="settings-secondary-button" type="submit">确认</button>
           </form>` : ""}
       </div>`;
   }
 
-  function channelItem(channel) {
-    const provider = providerFor(channel.provider);
+  function channelConnection(channel) {
+    const isWechat = isWechatClawbot(channel.provider);
+    const relay = clawbotStatuses[channel.id] || {};
+    const status = channelStatus(channel);
     const busy = busyActions.has(channel.id);
-    const callback = String(channel.callbackUrl || "");
     const error = String(channel.lastError || "");
-    const bot = bots.find((item) => String(item?.id || item?.key || "") === String(channel.botId || ""));
-    const botName = bot?.displayName || bot?.name || channel.botId || "Bot";
-    const isClawbot = isWechatClawbot(channel.provider);
-    const clawbotStatus = clawbotStatuses[channel.id] || {};
     return `
-      <article class="im-channel-card${channel.enabled ? "" : " im-channel-card-disabled"}">
-        <div class="im-channel-card-head">
-          <div>
-            <strong>${escapeHtml(channel.name || provider.label)}</strong>
-            <p>${escapeHtml(provider.label)} · ${escapeHtml(botName)}</p>
-          </div>
-          <span class="im-channel-status${error ? " warning" : ""}">${statusLabel(channel)}</span>
+      <div class="im-channel-connection">
+        <div class="im-channel-connection-head">
+          <strong>${escapeHtml(botName(channel))}</strong>
+          <span class="im-channel-status${status.warning ? " warning" : ""}">${escapeHtml(status.label)}</span>
         </div>
-        ${callback ? `<div class="im-channel-callback"><code>${escapeHtml(callback)}</code><button class="settings-secondary-button" type="button" data-im-action="copy" data-callback="${escapeHtml(callback)}">复制</button></div>` : ""}
-        ${isClawbot ? clawbotStatusMarkup(channel) : ""}
+        ${!isWechat ? callbackMarkup(channel.callbackUrl) : ""}
+        ${isWechat ? clawbotStatusMarkup(channel) : ""}
         ${error ? `<p class="im-channel-error">${escapeHtml(error)}</p>` : ""}
         <div class="im-channel-actions">
-          ${isClawbot ? `
-            <button class="settings-secondary-button" type="button" data-im-action="clawbot-connect" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>${clawbotStatus.linked ? "重新连接微信" : "连接微信"}</button>
-            <button class="settings-secondary-button" type="button" data-im-action="clawbot-status" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>刷新状态</button>
-            <button class="settings-secondary-button danger" type="button" data-im-action="clawbot-disconnect" data-channel-id="${escapeHtml(channel.id)}" ${busy || !clawbotStatus.linked ? "disabled" : ""}>断开微信</button>` : `
-            <button class="settings-secondary-button" type="button" data-im-action="test" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>验证凭据</button>`}
-          <button class="settings-secondary-button" type="button" data-im-action="edit" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>编辑</button>
-          <button class="settings-secondary-button danger" type="button" data-im-action="delete" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>删除</button>
+          ${isWechat
+            ? `<button class="primary" type="button" data-im-action="clawbot-connect" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>${relay.linked ? "重新连接微信" : "连接微信"}</button>`
+            : `<button class="settings-secondary-button" type="button" data-im-action="test" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>检查</button>`}
+          <button class="settings-secondary-button" type="button" data-im-action="edit" data-channel-id="${escapeHtml(channel.id)}" ${busy ? "disabled" : ""}>管理</button>
+        </div>
+      </div>`;
+  }
+
+  function providerDescription(providerId) {
+    return providerId === "feishu" ? "通过飞书应用收发消息" : "扫码连接当前设备的微信";
+  }
+
+  function providerCard(provider) {
+    const providerChannels = channels.filter((channel) => channel.provider === provider.id);
+    const status = providerStatus(provider, providerChannels);
+    const actionLabel = providerChannels.length ? `添加${provider.label}` : `连接${provider.label}`;
+    return `
+      <article class="im-channel-provider-card">
+        <div class="im-channel-card-head">
+          <div>
+            <strong>${escapeHtml(provider.label)}</strong>
+            <p>${escapeHtml(providerDescription(provider.id))}</p>
+          </div>
+          <span class="im-channel-status${status.warning ? " warning" : ""}">${escapeHtml(status.label)}</span>
+        </div>
+        ${providerChannels.length ? `<div class="im-channel-connections">${providerChannels.map(channelConnection).join("")}</div>` : ""}
+        <div class="im-channel-actions im-channel-provider-actions">
+          <button class="${providerChannels.length ? "settings-secondary-button" : "primary"}" type="button" data-im-action="create" data-provider-id="${escapeHtml(provider.id)}">${escapeHtml(actionLabel)}</button>
         </div>
       </article>`;
   }
 
   function credentialFields(current) {
     if (isWechatClawbot(current.provider)) {
-      const deviceId = current.relayDeviceId || localRelayDeviceId();
-      return `
-        <div class="im-channel-form-grid">
-          <label class="wide"><span>本机桥接设备</span><input name="relayDeviceId" readonly value="${escapeHtml(deviceId)}" placeholder="正在读取当前设备"></label>
-          <p class="im-channel-field-note">扫码的微信号会自动授权为唯一可用的私聊账号。扫码凭据、微信 Bot Token 与单条消息的回复上下文只保存在这台设备的 Mia Core；不会上传到 Mia Cloud。</p>
-        </div>`;
+      return `<input name="relayDeviceId" type="hidden" value="${escapeHtml(current.relayDeviceId || localRelayDeviceId())}">`;
     }
-    const isFeishu = current.provider === "feishu";
-    const tokenLabel = isFeishu ? "Verification Token" : "服务器 Token";
-    const tokenName = isFeishu ? "verificationToken" : "token";
     return `
       <div class="im-channel-form-grid">
-        <label><span>App ID</span><input name="appId" autocomplete="off" value="${escapeHtml(current.credentials.appId || "")}" placeholder="${isFeishu ? "cli_..." : "wx..."}"></label>
-        <label><span>App Secret</span><input name="appSecret" type="password" autocomplete="new-password" value="" placeholder="${current.hasCredentials ? "留空则保留已保存的密钥" : "应用密钥"}"></label>
-        <label class="wide"><span>${tokenLabel}</span><input name="${tokenName}" type="password" autocomplete="new-password" value="" placeholder="${current.hasCredentials ? "留空则保留已保存的 Token" : "回调验证 Token"}"></label>
+        <label><span>App ID</span><input name="appId" autocomplete="off" value="${escapeHtml(current.credentials.appId || "")}" placeholder="cli_..."></label>
+        <label><span>App Secret</span><input name="appSecret" type="password" autocomplete="new-password" value="" placeholder="${current.hasCredentials ? "留空则不修改" : "应用密钥"}"></label>
+        <label class="wide"><span>Verification Token</span><input name="verificationToken" type="password" autocomplete="new-password" value="" placeholder="${current.hasCredentials ? "留空则不修改" : "回调验证 Token"}"></label>
       </div>`;
+  }
+
+  function accessFields(current) {
+    if (isWechatClawbot(current.provider)) return "";
+    const open = current.enabled && !current.allowAllSenders && !current.allowedSenderIds ? " open" : "";
+    return `
+      <details class="im-channel-access"${open}>
+        <summary>访问范围</summary>
+        <label class="im-channel-toggle"><input name="allowAllSenders" type="checkbox"${current.allowAllSenders ? " checked" : ""}><span>允许所有发送者</span></label>
+        <label class="im-channel-senders"><span>允许的飞书 open_id</span><textarea name="allowedSenderIds" rows="3" placeholder="每行一个 open_id">${escapeHtml(current.allowedSenderIds)}</textarea></label>
+        <label class="im-channel-toggle"><input name="allowGroupMessages" type="checkbox"${current.allowGroupMessages ? " checked" : ""}><span>接收群消息</span></label>
+      </details>`;
   }
 
   function editor() {
     const current = draft || defaultDraft();
     const isNew = !current.id;
-    const providersHtml = getAvailableProviders().map((provider) => (
-      `<option value="${escapeHtml(provider.id)}"${provider.id === current.provider ? " selected" : ""}>${escapeHtml(provider.label)}</option>`
-    )).join("");
+    const provider = providerFor(current.provider);
+    const isWechat = isWechatClawbot(current.provider);
     const botOptions = bots.map((bot) => {
       const id = String(bot?.id || bot?.key || "");
       const name = String(bot?.displayName || bot?.name || id);
       return `<option value="${escapeHtml(id)}"${id === current.botId ? " selected" : ""}>${escapeHtml(name)}</option>`;
     }).join("");
-    const provider = providerFor(current.provider);
-    const isClawbot = isWechatClawbot(current.provider);
     const saveDisabled = !bots.length || busyActions.has("save");
     return `
       <section class="im-channel-editor">
         <div class="im-channel-editor-head">
-          <strong>${isNew ? "新建 IM 通道" : `编辑 ${escapeHtml(current.name || provider.label)}`}</strong>
+          <strong>${isNew ? `连接${escapeHtml(provider.label)}` : `${escapeHtml(provider.label)}设置`}</strong>
           <button class="icon-button" type="button" data-im-action="cancel" aria-label="关闭 IM 通道编辑">×</button>
         </div>
-        ${bots.length ? "" : '<p class="im-channel-error">请先创建一个 Bot，再连接 IM。</p>'}
+        ${bots.length ? "" : '<p class="im-channel-error">请先创建一个 Bot。</p>'}
         <form data-im-form>
           <div class="im-channel-form-grid">
-            <label><span>通道名称</span><input name="name" maxlength="80" value="${escapeHtml(current.name)}" placeholder="例如：团队飞书助手"></label>
-            <label><span>平台</span><select name="provider">${providersHtml}</select></label>
             <label class="wide"><span>绑定 Bot</span><select name="botId" ${bots.length ? "" : "disabled"}><option value="">选择 Bot</option>${botOptions}</select></label>
           </div>
           ${credentialFields(current)}
+          ${current.callbackUrl ? `<label class="im-channel-callback-field"><span>回调地址</span>${callbackMarkup(current.callbackUrl)}</label>` : ""}
+          ${isWechat ? '<p class="im-channel-field-note">保存后扫码连接微信。</p>' : ""}
           <label class="im-channel-toggle"><input name="enabled" type="checkbox"${current.enabled ? " checked" : ""}><span>启用通道</span></label>
-          ${isClawbot
-            ? '<p class="im-channel-field-note">扫码的微信号会自动成为唯一可用的私聊账号，无需填写微信用户 ID。首版仅支持文本私聊，群消息和媒体消息不会触发 Bot。</p>'
-            : `
-              <label class="im-channel-toggle"><input name="allowAllSenders" type="checkbox"${current.allowAllSenders ? " checked" : ""}><span>允许所有发送者</span></label>
-              <label class="im-channel-senders"><span>可信发送者</span><textarea name="allowedSenderIds" rows="3" placeholder="每行一个飞书 open_id 或微信 openid">${escapeHtml(current.allowedSenderIds)}</textarea><small>默认拒绝未列出的发送者。若开启“允许所有发送者”，请确认这个 Bot 对外开放是安全的。</small></label>
-              <label class="im-channel-toggle"><input name="allowGroupMessages" type="checkbox"${current.allowGroupMessages ? " checked" : ""}><span>允许群消息</span></label>`}
+          ${accessFields(current)}
           <div class="im-channel-editor-actions">
+            ${current.id ? `<button class="settings-secondary-button danger" type="button" data-im-action="delete" data-channel-id="${escapeHtml(current.id)}">删除</button>` : ""}
+            <span class="im-channel-editor-actions-spacer"></span>
             <button class="settings-secondary-button" type="button" data-im-action="cancel">取消</button>
-            <button class="primary" type="submit" ${saveDisabled ? "disabled" : ""}>${isNew ? "创建通道" : "保存通道"}</button>
+            <button class="primary" type="submit" ${saveDisabled ? "disabled" : ""}>${isNew && isWechat ? "保存并连接" : (isNew ? "保存" : "保存更改")}</button>
           </div>
         </form>
       </section>`;
   }
 
-  function setupGuide() {
-    return `
-      <details class="im-channel-guide">
-        <summary>飞书配置</summary>
-        <p>创建企业自建应用并启用机器人能力，订阅 <code>im.message.receive_v1</code>，把上方回调地址和 Verification Token 填入事件订阅。当前使用未加密回调。</p>
-      </details>
-      <details class="im-channel-guide">
-        <summary>微信公众号配置</summary>
-        <p>在「服务器配置」填写回调地址和 Token，选择明文模式。Mia 用客服消息 API 回投回复，需满足微信的 48 小时互动窗口。</p>
-      </details>
-      <section class="im-channel-bridge-note">
-        <strong>微信 ClawBot</strong>
-        <p>使用腾讯官方 ClawBot 的扫码与长轮询协议。创建通道后在绑定设备点击「连接微信」并扫码；扫码微信号会自动授权，无需填写用户 ID。仅支持文本私聊。微信会话令牌和回复上下文始终保留在本机 Mia Core。</p>
-      </section>`;
-  }
-
   function markup() {
     if (!isCloudSignedIn()) return renderSignedOut();
-    const channelList = loading
-      ? '<p class="im-channel-loading">正在读取 IM 通道…</p>'
-      : channels.length
-        ? `<div class="im-channel-list">${channels.map(channelItem).join("")}</div>`
-        : '<section class="im-channel-empty settings-row settings-group-start settings-group-end"><div><strong>还没有 IM 通道</strong><p>把一个已有 Bot 接到飞书、微信公众号或微信 ClawBot。</p></div></section>';
+    const content = loading
+      ? '<p class="im-channel-loading">正在读取 IM 接入…</p>'
+      : `<div class="im-channel-list">${getAvailableProviders().map(providerCard).join("")}</div>`;
     return `
-      <div class="settings-section-label">IM 接入</div>
-      <section class="im-channel-safety">
-        <strong>仅连接受信任的会话</strong>
-        <p>外部消息会触发绑定 Bot 的 Agent。飞书和公众号默认仅接受允许名单；微信 ClawBot 仅接受完成扫码的微信号。</p>
-      </section>
+      <div class="im-channel-settings-head">
+        <div class="settings-section-label">IM 接入</div>
+        ${draft ? "" : '<button class="settings-secondary-button" type="button" data-im-action="refresh">刷新</button>'}
+      </div>
       ${errorText ? `<p class="im-channel-error">${escapeHtml(errorText)}</p>` : ""}
-      ${draft ? editor() : `<div class="im-channel-toolbar"><button class="primary" type="button" data-im-action="create">连接 IM</button><button class="settings-secondary-button" type="button" data-im-action="refresh">刷新</button></div>`}
-      ${channelList}
-      ${setupGuide()}`;
+      ${draft ? editor() : content}`;
   }
 
   function renderImChannelSettings() {
@@ -394,8 +456,6 @@
     const fields = new FormData(form);
     draft = {
       ...draft,
-      name: String(fields.get("name") || ""),
-      provider: String(fields.get("provider") || draft.provider),
       botId: String(fields.get("botId") || ""),
       enabled: fields.get("enabled") === "on",
       allowAllSenders: fields.get("allowAllSenders") === "on",
@@ -405,8 +465,7 @@
       credentials: {
         appId: String(fields.get("appId") || ""),
         appSecret: String(fields.get("appSecret") || ""),
-        verificationToken: String(fields.get("verificationToken") || ""),
-        token: String(fields.get("token") || "")
+        verificationToken: String(fields.get("verificationToken") || "")
       }
     };
   }
@@ -415,12 +474,11 @@
     restoreDraftFromForm(form);
     const current = draft || defaultDraft();
     const credentials = {};
-    if (current.credentials.appId) credentials.appId = current.credentials.appId;
-    if (current.credentials.appSecret) credentials.appSecret = current.credentials.appSecret;
-    if (current.provider === "feishu" && current.credentials.verificationToken) {
-      credentials.verificationToken = current.credentials.verificationToken;
+    if (current.provider === "feishu") {
+      if (current.credentials.appId) credentials.appId = current.credentials.appId;
+      if (current.credentials.appSecret) credentials.appSecret = current.credentials.appSecret;
+      if (current.credentials.verificationToken) credentials.verificationToken = current.credentials.verificationToken;
     }
-    if (current.provider === "wechat_official_account" && current.credentials.token) credentials.token = current.credentials.token;
     return {
       provider: current.provider,
       botId: current.botId,
@@ -436,6 +494,16 @@
       },
       ...(Object.keys(credentials).length ? { credentials } : {})
     };
+  }
+
+  async function startWechatLink(channel, payload) {
+    const deviceId = String(payload?.settings?.relayDeviceId || localRelayDeviceId()).trim();
+    if (!deviceId || !window.mia?.social?.startWechatClawbotLink) return;
+    const status = await displayableClawbotStatus(
+      resultData(await window.mia.social.startWechatClawbotLink(channel.id, { deviceId }))
+    );
+    clawbotStatuses = { ...clawbotStatuses, [channel.id]: status };
+    scheduleClawbotStatusPolling(channel.id);
   }
 
   async function saveDraft(form) {
@@ -455,6 +523,13 @@
         channels = currentId
           ? channels.map((item) => item.id === channel.id ? channel : item)
           : [channel, ...channels];
+        if (!currentId && isWechatClawbot(channel.provider)) {
+          try {
+            await startWechatLink(channel, payload);
+          } catch (error) {
+            errorText = error?.message || "微信已保存，但暂时无法启动扫码。";
+          }
+        }
       }
       draft = null;
       loaded = true;
@@ -475,33 +550,16 @@
       renderImChannelSettings();
       return;
     }
-    if (action === "delete" && !window.confirm(`删除“${channel.name || "这个 IM 通道"}”？`)) return;
+    if (action === "delete" && !window.confirm(`删除“${channel.name || "这个 IM 接入"}”？`)) return;
     setBusy(channelId, true);
     errorText = "";
     renderImChannelSettings();
     try {
       if (action === "clawbot-connect") {
-        const deviceId = String(channel?.settings?.relayDeviceId || channel?.settings?.relay_device_id || localRelayDeviceId()).trim();
-        if (!deviceId) throw new Error("未找到当前 Mia 设备 ID，请先保持 Mia Cloud 已登录。");
-        clawbotStatuses = {
-          ...clawbotStatuses,
-          [channelId]: resultData(await window.mia.social.startWechatClawbotLink(channelId, { deviceId }))
-        };
-        scheduleClawbotStatusPolling(channelId);
-      } else if (action === "clawbot-status") {
-        await refreshClawbotStatus(channelId);
-        scheduleClawbotStatusPolling(channelId);
-      } else if (action === "clawbot-disconnect") {
-        if (!window.confirm("断开此设备上的微信 ClawBot？本机扫码凭据会被删除。")) return;
-        clawbotStatuses = {
-          ...clawbotStatuses,
-          [channelId]: resultData(await window.mia.social.disconnectWechatClawbot(channelId))
-        };
-        stopClawbotStatusPolling(channelId);
+        await startWechatLink(channel, { settings: channel.settings || {} });
       } else if (action === "test") {
         const result = resultData(await window.mia.social.testImChannel(channelId));
-        const updated = result.channel;
-        if (updated) channels = channels.map((item) => item.id === updated.id ? updated : item);
+        if (result.channel) channels = channels.map((item) => item.id === result.channel.id ? result.channel : item);
       } else if (action === "delete") {
         if (isWechatClawbot(channel.provider) && window.mia.social.disconnectWechatClawbot) {
           await window.mia.social.disconnectWechatClawbot(channelId).catch(() => null);
@@ -530,10 +588,10 @@
     errorText = "";
     renderImChannelSettings();
     try {
-      clawbotStatuses = {
-        ...clawbotStatuses,
-        [channelId]: resultData(await window.mia.social.submitWechatClawbotPairingCode(channelId, { code }))
-      };
+      const status = await displayableClawbotStatus(
+        resultData(await window.mia.social.submitWechatClawbotPairingCode(channelId, { code }))
+      );
+      clawbotStatuses = { ...clawbotStatuses, [channelId]: status };
       scheduleClawbotStatusPolling(channelId);
     } catch (error) {
       errorText = error?.message || "微信配对码提交失败。";
@@ -561,7 +619,7 @@
       if (!button) return;
       const action = button.dataset.imAction;
       if (action === "create") {
-        draft = defaultDraft();
+        draft = defaultDraft(button.dataset.providerId || "feishu");
         renderImChannelSettings();
       } else if (action === "cancel") {
         draft = null;
@@ -571,18 +629,9 @@
         loadChannels({ force: true });
       } else if (action === "copy") {
         copyCallback(button.dataset.callback || "");
-      } else if (["edit", "delete", "test", "clawbot-connect", "clawbot-status", "clawbot-disconnect"].includes(action)) {
+      } else if (["edit", "delete", "test", "clawbot-connect"].includes(action)) {
         runAction(action, button.dataset.channelId || "");
       }
-    });
-    els.imChannelSettings.addEventListener("change", (event) => {
-      if (event.target?.name !== "provider") return;
-      const form = event.target.closest("form");
-      restoreDraftFromForm(form);
-      draft.credentials = { appId: draft.credentials.appId || "" };
-      draft.hasCredentials = false;
-      draft.relayDeviceId = localRelayDeviceId();
-      renderImChannelSettings();
     });
     els.imChannelSettings.addEventListener("submit", (event) => {
       if (!event.target.matches("[data-im-form]")) return;

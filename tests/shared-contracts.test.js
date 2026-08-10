@@ -32,15 +32,17 @@ test("ipc channel contract is available in Node and browser contexts", () => {
   assert.deepEqual(plain(browserContract.IpcChannel), plain(nodeContract.IpcChannel));
 });
 
-test("IM channel contract marks the local WeChat ClawBot relay as available", () => {
+test("IM channel contract only exposes Feishu and WeChat", () => {
   const nodeContract = require("../src/shared/im-channel-contracts.js");
   const browserContract = loadBrowserGlobal("src/shared/im-channel-contracts.js", "miaImChannelContracts");
 
   assert.equal(nodeContract.isSupportedImChannelProvider("feishu"), true);
-  assert.equal(nodeContract.isSupportedImChannelProvider("wechat_official_account"), true);
+  assert.equal(nodeContract.isSupportedImChannelProvider("wechat_official_account"), false);
   assert.equal(nodeContract.isSupportedImChannelProvider("wechat_clawbot"), true);
+  assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").label, "微信");
   assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").availability, "available");
   assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").transport, "device-relay");
+  assert.deepEqual(Object.keys(nodeContract.IM_CHANNEL_PROVIDERS), ["feishu", "wechat_clawbot"]);
   assert.deepEqual(plain(browserContract.IM_CHANNEL_PROVIDERS), plain(nodeContract.IM_CHANNEL_PROVIDERS));
 });
 

@@ -1,6 +1,8 @@
 const { IpcChannel } = require("../../shared/ipc-channels");
 const { compactConversationMessages } = require("../../shared/conversation-message-payload");
 
+const WECHAT_CLAWBOT_QR_MAX_LENGTH = 2048;
+
 function safeCall(fn) {
   return async (_event, ...args) => {
     try {
@@ -9,6 +11,27 @@ function safeCall(fn) {
     } catch (error) {
       return { ok: false, error: String(error?.message || error), status: error?.status || 500 };
     }
+  };
+}
+
+async function encodeWechatClawbotQr(value) {
+  const content = String(value || "").trim();
+  if (
+    !content
+    || content.length > WECHAT_CLAWBOT_QR_MAX_LENGTH
+    || !/^(?:https?:\/\/|weixin:\/\/)/i.test(content)
+  ) {
+    const error = new Error("微信二维码内容无效。");
+    error.status = 400;
+    throw error;
+  }
+  const QRCode = require("qrcode");
+  return {
+    dataUrl: await QRCode.toDataURL(content, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 240
+    })
   };
 }
 
@@ -287,6 +310,7 @@ function cacheLiveConversationMessageEvent({ messageCache, envelope, log = () =>
 
 function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUserId = null, ensureRuntimeAvailable = null, log = () => {} }) {
   const cloudCall = (fn) => runtimeCall(ensureRuntimeAvailable, fn);
+  const cloudConfigurationCall = (fn) => safeCall(fn);
 
   ipcMain.handle(IpcChannel.SocialSendFriendRequest, cloudCall((toUserId) => socialApi.sendFriendRequest(toUserId)));
   ipcMain.handle(IpcChannel.SocialRespondFriendRequest, cloudCall((requestId, action) => socialApi.respondFriendRequest(requestId, action)));
@@ -309,17 +333,18 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
     writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { conversations }, log });
     return replaceResultArray(result, "conversations", conversations);
   }));
-  ipcMain.handle(IpcChannel.SocialListBots, cloudCall(async () => {
+  ipcMain.handle(IpcChannel.SocialListBots, cloudConfigurationCall(async () => {
     const result = await socialApi.listBots();
     const bots = mergeBotsWithCachedStatusBadges({ messageCache, getCloudUserId, bots: resultArray(result, "bots"), log });
     writeSocialBootstrapPatch({ messageCache, getCloudUserId, patch: { bots }, log });
     return replaceResultArray(result, "bots", bots);
   }));
-  ipcMain.handle(IpcChannel.SocialListImChannels, cloudCall(() => socialApi.listImChannels()));
-  ipcMain.handle(IpcChannel.SocialCreateImChannel, cloudCall((body) => socialApi.createImChannel(body)));
-  ipcMain.handle(IpcChannel.SocialUpdateImChannel, cloudCall((channelId, body) => socialApi.updateImChannel(channelId, body)));
-  ipcMain.handle(IpcChannel.SocialDeleteImChannel, cloudCall((channelId) => socialApi.deleteImChannel(channelId)));
-  ipcMain.handle(IpcChannel.SocialTestImChannel, cloudCall((channelId) => socialApi.testImChannel(channelId)));
+  ipcMain.handle(IpcChannel.SocialListImChannels, cloudConfigurationCall(() => socialApi.listImChannels()));
+  ipcMain.handle(IpcChannel.SocialCreateImChannel, cloudConfigurationCall((body) => socialApi.createImChannel(body)));
+  ipcMain.handle(IpcChannel.SocialUpdateImChannel, cloudConfigurationCall((channelId, body) => socialApi.updateImChannel(channelId, body)));
+  ipcMain.handle(IpcChannel.SocialDeleteImChannel, cloudConfigurationCall((channelId) => socialApi.deleteImChannel(channelId)));
+  ipcMain.handle(IpcChannel.SocialTestImChannel, cloudConfigurationCall((channelId) => socialApi.testImChannel(channelId)));
+  ipcMain.handle(IpcChannel.SocialEncodeWechatClawbotQr, safeCall((content) => encodeWechatClawbotQr(content)));
   ipcMain.handle(IpcChannel.SocialSaveBotIdentity, cloudCall(async (botId, body = {}) => {
     const result = await socialApi.saveBotIdentity(botId, body);
     const fallback = { ...(body || {}), id: botId, key: botId };

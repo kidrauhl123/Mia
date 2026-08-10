@@ -62,6 +62,7 @@ function userIsMemberOfConversation(socialStore, conversationId, userId) {
 
 function createCloudTasksService(context, options = {}) {
   const tasksStore = context.cloudTasksStore;
+  const deliverBotReply = typeof context.deliverBotReply === "function" ? context.deliverBotReply : null;
   const nowMs = options.nowMs || (() => Date.now());
   const logger = options.logger || console;
   const setTimeoutImpl = options.setTimeout || setTimeout;
@@ -175,6 +176,11 @@ function createCloudTasksService(context, options = {}) {
     }
   }
 
+  function handoffImBotReply(conversationId, message) {
+    if (!deliverBotReply || !message) return;
+    Promise.resolve(deliverBotReply({ conversationId, message })).catch(() => {});
+  }
+
   function appendDirectDeliveryMessage(task) {
     const bot = context.botsStore.getBot(task.botId);
     if (!bot) throw new Error("bot not found");
@@ -194,6 +200,7 @@ function createCloudTasksService(context, options = {}) {
       status: "complete"
     });
     broadcastConversationMessage(task.conversationId, reply);
+    handoffImBotReply(task.conversationId, reply);
     return reply;
   }
 
@@ -253,6 +260,7 @@ function createCloudTasksService(context, options = {}) {
         message,
         runtimeBinding: taskRuntimeBinding(task)
       });
+      handoffImBotReply(task.conversationId, reply);
       const run = finalizeTaskRun(task, {
         id: runId,
         firedAt,

@@ -42,6 +42,9 @@ const MAX_DELIVERY_CONTEXTS: usize = 512;
 const MAX_SENT_DELIVERIES: usize = 512;
 const MAX_QUEUED_REPLIES: usize = 512;
 const MAX_PENDING_ACKS: usize = 512;
+const MAX_COMMAND_RECEIPTS: usize = 128;
+const MAX_CONVERSATION_SESSIONS: usize = 50;
+const CONVERSATION_SESSION_LIST_LIMIT: usize = 10;
 const MAX_RETRY_DELIVERIES_PER_CYCLE: usize = 4;
 
 #[derive(Clone)]
@@ -115,6 +118,12 @@ struct RelaySession {
     queued_replies: BTreeMap<String, QueuedReply>,
     #[serde(default)]
     pending_ack_delivery_ids: Vec<String>,
+    #[serde(default)]
+    conversation_sessions: Vec<ConversationSession>,
+    #[serde(default)]
+    active_conversation_session_id: String,
+    #[serde(default)]
+    command_receipts: Vec<CommandReceipt>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -132,6 +141,40 @@ struct QueuedReply {
     attempts: u32,
     #[serde(default)]
     next_attempt_at_ms: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSession {
+    id: String,
+    number: u32,
+    external_chat_id: String,
+    #[serde(default)]
+    conversation_id: String,
+    #[serde(default)]
+    reply_context: Option<DeliveryContext>,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    created_at_ms: u64,
+    #[serde(default)]
+    last_active_at_ms: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CommandReceipt {
+    event_id: String,
+    reply_id: String,
+    reply_text: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ConversationCommand {
+    New,
+    List,
+    Resume(Option<u32>),
+    InvalidResume,
 }
 
 impl WechatClawbotService {
@@ -484,6 +527,9 @@ impl WechatClawbotService {
                                     sent_delivery_ids: Vec::new(),
                                     queued_replies: BTreeMap::new(),
                                     pending_ack_delivery_ids: Vec::new(),
+                                    conversation_sessions: Vec::new(),
+                                    active_conversation_session_id: String::new(),
+                                    command_receipts: Vec::new(),
                                 };
                                 if self.write_session(&session).is_ok() {
                                     self.set_linked_runtime(&session).await;
@@ -715,25 +761,53 @@ impl WechatClawbotService {
             to_user_id: sender_id.clone(),
             context_token,
         };
+        let command = parse_conversation_command(&text);
 
-        let session = {
+        let (session, conversation_session_id, external_chat_id, command_receipt) = {
             let lock = self.channel_lock(channel_id).await;
             let _guard = lock.lock().await;
             let mut session = self.load_session(channel_id)?;
-            // Match Lobster/OpenClaw's default pairing behavior: only the
-            // WeChat account that completed the QR authorization can enter
-            // this Bot. The identifier and comparison both stay in Core;
-            // Cloud receives no authorization list or WeChat credentials.
             if !is_authorized_sender(&session, &sender_id) {
                 return Ok(());
             }
-            if session.pending_contexts.len() >= MAX_DELIVERY_CONTEXTS {
-                trim_map(&mut session.pending_contexts, MAX_DELIVERY_CONTEXTS - 1);
+            if let Some(command) = command {
+                let receipt = command_receipt(&session, &event_id).unwrap_or_else(|| {
+                    let reply_text = apply_conversation_command(&mut session, command);
+                    let receipt = CommandReceipt {
+                        event_id: event_id.clone(),
+                        reply_id: format!("mcmd_{}", Uuid::new_v4().simple()),
+                        reply_text,
+                    };
+                    remember_command_receipt(&mut session, receipt.clone());
+                    receipt
+                });
+                self.write_session(&session)?;
+                (session, String::new(), String::new(), Some(receipt))
+            } else {
+                let session_index = ensure_active_conversation_session(&mut session, &sender_id);
+                let active = &mut session.conversation_sessions[session_index];
+                active.last_active_at_ms = unix_ms();
+                active.reply_context = Some(context.clone());
+                if active.title.is_empty() {
+                    active.title = conversation_title(&text);
+                }
+                let conversation_session_id = active.id.clone();
+                let external_chat_id = active.external_chat_id.clone();
+                if session.pending_contexts.len() >= MAX_DELIVERY_CONTEXTS {
+                    trim_map(&mut session.pending_contexts, MAX_DELIVERY_CONTEXTS - 1);
+                }
+                session
+                    .pending_contexts
+                    .insert(event_id.clone(), context.clone());
+                self.write_session(&session)?;
+                (session, conversation_session_id, external_chat_id, None)
             }
-            session.pending_contexts.insert(event_id.clone(), context);
-            self.write_session(&session)?;
-            session
         };
+        if let Some(receipt) = command_receipt {
+            return self
+                .send_text_reply(&session, &receipt.reply_id, &context, &receipt.reply_text)
+                .await;
+        }
         let path = format!("/api/me/im-channels/{channel_id}/relay/inbound");
         let response = tokio::time::timeout(
             CLOUD_RELAY_TIMEOUT,
@@ -744,7 +818,7 @@ impl WechatClawbotService {
                     "eventId": event_id,
                     "senderId": sender_id,
                     "senderLabel": sender_id,
-                    "externalChatId": sender_id,
+                    "externalChatId": external_chat_id,
                     "chatType": "p2p",
                     "text": text,
                 }),
@@ -755,6 +829,14 @@ impl WechatClawbotService {
         if response.get("accepted").and_then(Value::as_bool) == Some(false) {
             self.remove_pending_context(channel_id, &event_id).await?;
             return Ok(());
+        }
+        if let Some(conversation_id) = value_string(&response, "conversationId") {
+            self.record_conversation_session(
+                channel_id,
+                &conversation_session_id,
+                &conversation_id,
+            )
+            .await?;
         }
         let delivery_id = value_string(&response, "deliveryId")
             .ok_or_else(|| anyhow!("Cloud relay did not return delivery ID"))?;
@@ -787,6 +869,17 @@ impl WechatClawbotService {
                 .unwrap_or_default(),
             "deliveryId",
         )?;
+        let delivery_mode = value_string(&message, "deliveryMode").unwrap_or_default();
+        let conversation_id = if delivery_mode == "conversation_output" {
+            Some(clean_identifier(
+                value_string(&message, "conversationId")
+                    .as_deref()
+                    .unwrap_or_default(),
+                "conversationId",
+            )?)
+        } else {
+            None
+        };
         let text = value_string(&message, "text").unwrap_or_default();
         if text.is_empty() || text.len() > 12_000 {
             return Err(anyhow!("invalid delivery text"));
@@ -810,7 +903,12 @@ impl WechatClawbotService {
             self.flush_pending_acks(&channel_id, &mut session).await?;
             return Ok(());
         }
-        let Some(context) = session.delivery_contexts.get(&delivery_id).cloned() else {
+        let Some(context) = resolve_delivery_context(
+            &mut session,
+            &delivery_id,
+            &delivery_mode,
+            conversation_id.as_deref(),
+        ) else {
             // We cannot safely reconstruct a WeChat context token from Cloud.
             // Mark this one delivery failed, but keep the rest of the relay
             // alive.  Any provider detail stays out of Cloud/UI logs.
@@ -1081,6 +1179,30 @@ impl WechatClawbotService {
         self.write_session(&session)
     }
 
+    async fn record_conversation_session(
+        &self,
+        channel_id: &str,
+        conversation_session_id: &str,
+        conversation_id: &str,
+    ) -> Result<()> {
+        if clean_identifier(conversation_id, "conversationId").is_err() {
+            return Ok(());
+        }
+        let lock = self.channel_lock(channel_id).await;
+        let _guard = lock.lock().await;
+        let mut session = self.load_session(channel_id)?;
+        if let Some(conversation) = session
+            .conversation_sessions
+            .iter_mut()
+            .find(|item| item.id == conversation_session_id)
+        {
+            conversation.conversation_id = conversation_id.to_string();
+            conversation.last_active_at_ms = unix_ms();
+            self.write_session(&session)?;
+        }
+        Ok(())
+    }
+
     async fn update_sync_cursor(&self, channel_id: &str, cursor: String) -> Result<()> {
         let lock = self.channel_lock(channel_id).await;
         let _guard = lock.lock().await;
@@ -1248,6 +1370,231 @@ impl CloudDomainEventHandler for WechatClawbotService {
             .await
             .map_err(|_| CloudError::Runtime("WeChat ClawBot relay delivery failed".into()))
     }
+}
+
+fn parse_conversation_command(text: &str) -> Option<ConversationCommand> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("/new") {
+        return Some(ConversationCommand::New);
+    }
+    if text.eq_ignore_ascii_case("/sessions") {
+        return Some(ConversationCommand::List);
+    }
+    let mut parts = text.split_whitespace();
+    let command = parts.next()?;
+    if !command.eq_ignore_ascii_case("/resume") {
+        return None;
+    }
+    let argument = parts.next();
+    if parts.next().is_some() {
+        return Some(ConversationCommand::InvalidResume);
+    }
+    match argument {
+        None => Some(ConversationCommand::Resume(None)),
+        Some(value) => value
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value > 0)
+            .map(|value| ConversationCommand::Resume(Some(value)))
+            .or(Some(ConversationCommand::InvalidResume)),
+    }
+}
+
+fn command_receipt(session: &RelaySession, event_id: &str) -> Option<CommandReceipt> {
+    session
+        .command_receipts
+        .iter()
+        .rev()
+        .find(|receipt| receipt.event_id == event_id)
+        .cloned()
+}
+
+fn remember_command_receipt(session: &mut RelaySession, receipt: CommandReceipt) {
+    session.command_receipts.push(receipt);
+    if session.command_receipts.len() > MAX_COMMAND_RECEIPTS {
+        session
+            .command_receipts
+            .drain(0..session.command_receipts.len() - MAX_COMMAND_RECEIPTS);
+    }
+}
+
+fn apply_conversation_command(session: &mut RelaySession, command: ConversationCommand) -> String {
+    match command {
+        ConversationCommand::New => {
+            let number = create_conversation_session(
+                session,
+                format!("wx_session_{}", Uuid::new_v4().simple()),
+            );
+            format!("已新建会话 #{number}。发送下一条消息开始新对话。")
+        }
+        ConversationCommand::List | ConversationCommand::Resume(None) => {
+            conversation_session_list(session)
+        }
+        ConversationCommand::Resume(Some(number)) => {
+            if let Some(conversation) = session
+                .conversation_sessions
+                .iter_mut()
+                .find(|conversation| conversation.number == number)
+            {
+                conversation.last_active_at_ms = unix_ms();
+                session.active_conversation_session_id = conversation.id.clone();
+                format!("已切换到会话 #{number}。")
+            } else {
+                format!(
+                    "未找到会话 #{number}。\n{}",
+                    conversation_session_list(session)
+                )
+            }
+        }
+        ConversationCommand::InvalidResume => {
+            "用法：/resume 查看会话，或 /resume 编号 切换会话。".into()
+        }
+    }
+}
+
+fn ensure_active_conversation_session(
+    session: &mut RelaySession,
+    legacy_external_chat_id: &str,
+) -> usize {
+    if let Some(index) = session
+        .conversation_sessions
+        .iter()
+        .position(|conversation| {
+            conversation.id == session.active_conversation_session_id
+                && !conversation.external_chat_id.trim().is_empty()
+        })
+    {
+        return index;
+    }
+    if let Some((index, conversation)) = session
+        .conversation_sessions
+        .iter()
+        .enumerate()
+        .filter(|(_, conversation)| !conversation.external_chat_id.trim().is_empty())
+        .max_by_key(|(_, conversation)| (conversation.last_active_at_ms, conversation.number))
+    {
+        session.active_conversation_session_id = conversation.id.clone();
+        return index;
+    }
+    create_conversation_session(session, legacy_external_chat_id.to_string());
+    session.conversation_sessions.len() - 1
+}
+
+fn create_conversation_session(session: &mut RelaySession, external_chat_id: String) -> u32 {
+    let number = session
+        .conversation_sessions
+        .iter()
+        .map(|conversation| conversation.number)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1)
+        .max(1);
+    let id = format!("session_{}", Uuid::new_v4().simple());
+    let now = unix_ms();
+    session.conversation_sessions.push(ConversationSession {
+        id: id.clone(),
+        number,
+        external_chat_id,
+        conversation_id: String::new(),
+        reply_context: None,
+        title: String::new(),
+        created_at_ms: now,
+        last_active_at_ms: now,
+    });
+    session.active_conversation_session_id = id;
+    trim_conversation_sessions(session);
+    number
+}
+
+fn resolve_delivery_context(
+    session: &mut RelaySession,
+    delivery_id: &str,
+    delivery_mode: &str,
+    conversation_id: Option<&str>,
+) -> Option<DeliveryContext> {
+    let context = session
+        .delivery_contexts
+        .get(delivery_id)
+        .cloned()
+        .or_else(|| {
+            (delivery_mode == "conversation_output")
+                .then(|| conversation_id.and_then(|id| conversation_reply_context(session, id)))
+                .flatten()
+        })?;
+    if !session.delivery_contexts.contains_key(delivery_id) {
+        if session.delivery_contexts.len() >= MAX_DELIVERY_CONTEXTS {
+            trim_map(&mut session.delivery_contexts, MAX_DELIVERY_CONTEXTS - 1);
+        }
+        session
+            .delivery_contexts
+            .insert(delivery_id.to_string(), context.clone());
+    }
+    Some(context)
+}
+
+fn conversation_reply_context(
+    session: &RelaySession,
+    conversation_id: &str,
+) -> Option<DeliveryContext> {
+    session
+        .conversation_sessions
+        .iter()
+        .find(|conversation| conversation.conversation_id == conversation_id)
+        .and_then(|conversation| conversation.reply_context.clone())
+}
+
+fn trim_conversation_sessions(session: &mut RelaySession) {
+    while session.conversation_sessions.len() > MAX_CONVERSATION_SESSIONS {
+        let Some((index, _)) = session
+            .conversation_sessions
+            .iter()
+            .enumerate()
+            .filter(|(_, conversation)| conversation.id != session.active_conversation_session_id)
+            .min_by_key(|(_, conversation)| (conversation.last_active_at_ms, conversation.number))
+        else {
+            break;
+        };
+        session.conversation_sessions.remove(index);
+    }
+}
+
+fn conversation_title(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(36)
+        .collect()
+}
+
+fn conversation_session_list(session: &RelaySession) -> String {
+    if session.conversation_sessions.is_empty() {
+        return "暂无可恢复的会话。发送 /new 新建对话。".into();
+    }
+    let mut conversations = session.conversation_sessions.iter().collect::<Vec<_>>();
+    conversations.sort_by(|left, right| {
+        right
+            .last_active_at_ms
+            .cmp(&left.last_active_at_ms)
+            .then_with(|| right.number.cmp(&left.number))
+    });
+    let mut lines = vec!["最近会话：".to_string()];
+    for conversation in conversations
+        .into_iter()
+        .take(CONVERSATION_SESSION_LIST_LIMIT)
+    {
+        let current = (conversation.id == session.active_conversation_session_id)
+            .then_some("（当前）")
+            .unwrap_or("");
+        let title = if conversation.title.is_empty() {
+            "未命名"
+        } else {
+            conversation.title.as_str()
+        };
+        lines.push(format!("#{}{} · {}", conversation.number, current, title));
+    }
+    lines.push("发送 /resume 编号 切换；/new 新建。".into());
+    lines.join("\n")
 }
 
 fn wechat_base_info() -> Value {
@@ -1547,6 +1894,125 @@ mod tests {
     }
 
     #[test]
+    fn wechat_conversation_commands_parse_without_capturing_regular_messages() {
+        assert_eq!(
+            parse_conversation_command("/new"),
+            Some(ConversationCommand::New)
+        );
+        assert_eq!(
+            parse_conversation_command("/sessions"),
+            Some(ConversationCommand::List)
+        );
+        assert_eq!(
+            parse_conversation_command("/resume"),
+            Some(ConversationCommand::Resume(None))
+        );
+        assert_eq!(
+            parse_conversation_command("/resume 12"),
+            Some(ConversationCommand::Resume(Some(12)))
+        );
+        assert_eq!(
+            parse_conversation_command("/resume none"),
+            Some(ConversationCommand::InvalidResume)
+        );
+        assert_eq!(parse_conversation_command("/new 请帮我写一封信"), None);
+        assert_eq!(parse_conversation_command("/resumex"), None);
+    }
+
+    #[test]
+    fn new_and_resume_commands_keep_a_local_session_index() {
+        let mut session = RelaySession {
+            version: 1,
+            channel_id: "imc_channel".into(),
+            device_id: "device_local".into(),
+            account_id: "account".into(),
+            owner_user_id: "wx_owner".into(),
+            base_url: "https://ilinkai.weixin.qq.com".into(),
+            token: "test-token".into(),
+            ..RelaySession::default()
+        };
+
+        assert!(apply_conversation_command(&mut session, ConversationCommand::New).contains("#1"));
+        let first_id = session.active_conversation_session_id.clone();
+        assert!(apply_conversation_command(&mut session, ConversationCommand::New).contains("#2"));
+        assert_ne!(session.active_conversation_session_id, first_id);
+
+        assert_eq!(
+            apply_conversation_command(&mut session, ConversationCommand::Resume(Some(1))),
+            "已切换到会话 #1。"
+        );
+        assert_eq!(session.active_conversation_session_id, first_id);
+        let list = apply_conversation_command(&mut session, ConversationCommand::List);
+        assert!(list.contains("#1（当前）"));
+        assert!(list.contains("#2"));
+    }
+
+    #[test]
+    fn first_routed_message_keeps_the_legacy_wechat_conversation_key() {
+        let mut session = RelaySession {
+            version: 1,
+            channel_id: "imc_channel".into(),
+            device_id: "device_local".into(),
+            account_id: "account".into(),
+            owner_user_id: "wx_owner".into(),
+            base_url: "https://ilinkai.weixin.qq.com".into(),
+            token: "test-token".into(),
+            ..RelaySession::default()
+        };
+
+        let index = ensure_active_conversation_session(&mut session, "wx_owner");
+        assert_eq!(session.conversation_sessions[index].number, 1);
+        assert_eq!(
+            session.conversation_sessions[index].external_chat_id,
+            "wx_owner"
+        );
+    }
+
+    #[test]
+    fn old_local_sessions_load_without_conversation_command_fields() {
+        let session: RelaySession = serde_json::from_value(json!({
+            "version": 1,
+            "channelId": "imc_channel",
+            "deviceId": "device_local",
+            "accountId": "account",
+            "ownerUserId": "wx_owner",
+            "baseUrl": "https://ilinkai.weixin.qq.com",
+            "token": "test-token"
+        }))
+        .unwrap();
+        assert!(session.conversation_sessions.is_empty());
+        assert!(session.active_conversation_session_id.is_empty());
+        assert!(session.command_receipts.is_empty());
+    }
+
+    #[test]
+    fn duplicate_new_command_reuses_its_recorded_reply() {
+        let mut session = RelaySession {
+            version: 1,
+            channel_id: "imc_channel".into(),
+            device_id: "device_local".into(),
+            account_id: "account".into(),
+            owner_user_id: "wx_owner".into(),
+            base_url: "https://ilinkai.weixin.qq.com".into(),
+            token: "test-token".into(),
+            ..RelaySession::default()
+        };
+        let receipt = CommandReceipt {
+            event_id: "wx_command".into(),
+            reply_id: "mcmd_reply".into(),
+            reply_text: apply_conversation_command(&mut session, ConversationCommand::New),
+        };
+        remember_command_receipt(&mut session, receipt.clone());
+        let session_count = session.conversation_sessions.len();
+
+        assert_eq!(
+            command_receipt(&session, "wx_command").unwrap().reply_text,
+            receipt.reply_text
+        );
+        assert_eq!(session.conversation_sessions.len(), session_count);
+    }
+
+    #[test]
     fn queued_reply_survives_retry_and_ack_recovery() {
         let mut session = RelaySession {
             version: 1,
@@ -1568,6 +2034,9 @@ mod tests {
             sent_delivery_ids: Vec::new(),
             queued_replies: BTreeMap::new(),
             pending_ack_delivery_ids: Vec::new(),
+            conversation_sessions: Vec::new(),
+            active_conversation_session_id: String::new(),
+            command_receipts: Vec::new(),
         };
 
         queue_delivery_reply(&mut session, "imd_reply", "回复内容");
@@ -1583,6 +2052,50 @@ mod tests {
         assert!(!session.queued_replies.contains_key("imd_reply"));
         assert_eq!(session.sent_delivery_ids, vec!["imd_reply"]);
         assert_eq!(session.pending_ack_delivery_ids, vec!["imd_reply"]);
+    }
+
+    #[test]
+    fn conversation_output_uses_only_the_matching_session_context() {
+        let mut session = RelaySession::default();
+        create_conversation_session(&mut session, "wx_first".into());
+        session.conversation_sessions[0].conversation_id = "botc_first".into();
+        session.conversation_sessions[0].reply_context = Some(DeliveryContext {
+            to_user_id: "wx_first".into(),
+            context_token: "first-context".into(),
+        });
+        create_conversation_session(&mut session, "wx_second".into());
+        session.conversation_sessions[1].conversation_id = "botc_second".into();
+        session.conversation_sessions[1].reply_context = Some(DeliveryContext {
+            to_user_id: "wx_second".into(),
+            context_token: "second-context".into(),
+        });
+
+        let context = resolve_delivery_context(
+            &mut session,
+            "imd_conversation_output",
+            "conversation_output",
+            Some("botc_second"),
+        )
+        .unwrap();
+        assert_eq!(context.to_user_id, "wx_second");
+        assert!(
+            session
+                .delivery_contexts
+                .contains_key("imd_conversation_output")
+        );
+        assert!(
+            resolve_delivery_context(&mut session, "imd_without_marker", "", Some("botc_second"),)
+                .is_none()
+        );
+        assert!(
+            resolve_delivery_context(
+                &mut session,
+                "imd_unknown_conversation",
+                "conversation_output",
+                Some("botc_unknown"),
+            )
+            .is_none()
+        );
     }
 
     #[test]

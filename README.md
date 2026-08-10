@@ -63,8 +63,8 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 ### 外部 IM 接入
 
-- 设置页可将已有 Bot 接到飞书、微信公众号或微信 ClawBot，并沿用 Bot 原有的 Claude Code、Codex、Hermes 或 Cloud 运行目标。
-- 微信 ClawBot 使用腾讯官方扫码和长轮询协议，绑定到当前桌面设备；扫码微信号自动成为唯一可用的私聊账号，无需手填微信用户 ID。首版仅支持文本私聊。
+- 设置页可将已有 Bot 接到飞书或微信，并沿用 Bot 原有的 Claude Code、Codex、Hermes 或 Cloud 运行目标。
+- 微信连接绑定到当前桌面设备，扫码后即可使用，无需填写微信用户 ID；目前支持文本私聊。
 - 微信 Bot Token、同步游标和单条消息的回复上下文只保存在绑定设备的 Mia Core。Cloud 保存会话、路由与可恢复投递状态，但不接收这些凭据。
 
 ### Cloud/Web

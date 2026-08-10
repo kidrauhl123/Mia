@@ -115,6 +115,7 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
   const ctx = setup();
   const hermesCalls = [];
   const transientEvents = [];
+  const imReplyDeliveries = [];
   try {
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
@@ -133,6 +134,9 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
       },
       broadcastTransientEvent(userId, payload) {
         transientEvents.push({ userId, payload });
+      },
+      deliverBotReply(input) {
+        imReplyDeliveries.push(input);
       }
     });
     ctx.messagesStore.appendMessage({
@@ -169,6 +173,9 @@ test("cloud-claude-code DM runs the bot and appends a reply", async () => {
       transientEvents.filter((entry) => entry.payload.event?.type === "run.completed").length,
       1
     );
+    assert.equal(imReplyDeliveries.length, 1);
+    assert.equal(imReplyDeliveries[0].conversationId, ctx.conversation.id);
+    assert.equal(imReplyDeliveries[0].message.id, reply.id);
     assert.equal(hermesCalls[0].transient, true);
     assert.equal(Object.prototype.hasOwnProperty.call(hermesCalls[0], "seedMessages"), false);
     assert.match(hermesCalls[0].input, /用户消息：\nhello/);
