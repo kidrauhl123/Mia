@@ -8,6 +8,14 @@ const path = require("node:path");
 const test = require("node:test");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
+const COLD_BUILD_START_TIMEOUT_MS = 300_000;
+
+function coreStartTimeoutMs(env = process.env) {
+  const configured = Number(env.MIA_CORE_TEST_START_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : COLD_BUILD_START_TIMEOUT_MS;
+}
 
 function cargoCommand() {
   const configured = String(process.env.CARGO || "").trim();
@@ -17,7 +25,7 @@ function cargoCommand() {
   return fs.existsSync(userCargo) ? userCargo : binary;
 }
 
-function waitForListening(child, timeoutMs = 120_000) {
+function waitForListening(child, timeoutMs = coreStartTimeoutMs()) {
   return new Promise((resolve, reject) => {
     let output = "";
     const timeout = setTimeout(() => {
@@ -86,6 +94,12 @@ async function stopProcessTree(child, timeoutMs = 5_000) {
   }
   await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1_000))]);
 }
+
+test("Rust Core health test allows enough time for a cold Cargo build", () => {
+  assert.equal(coreStartTimeoutMs({}), COLD_BUILD_START_TIMEOUT_MS);
+  assert.equal(coreStartTimeoutMs({ MIA_CORE_TEST_START_TIMEOUT_MS: "240000" }), 240_000);
+  assert.equal(coreStartTimeoutMs({ MIA_CORE_TEST_START_TIMEOUT_MS: "0" }), COLD_BUILD_START_TIMEOUT_MS);
+});
 
 test("Rust Core workspace exposes a dynamic-port health server", async () => {
   assert.equal(fs.existsSync(path.join(REPO_ROOT, "Cargo.toml")), true);
