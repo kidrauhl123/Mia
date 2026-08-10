@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::cloud_bridge::MiaRuntimeProxyRegistry;
 use crate::runtime::RuntimeRegistry;
 use crate::services::AppServices;
+use crate::wechat_clawbot::WechatClawbotService;
 use mia_core_bot::BotService;
 use mia_core_cloud::{CloudBridgeManager, CloudEventsManager, CloudService};
 use mia_core_conversation::{ConversationService, CurrentSkillService};
@@ -30,6 +31,7 @@ pub struct ModuleStates {
     pub cloud: CloudService,
     pub cloud_bridge: CloudBridgeManager,
     pub cloud_events: CloudEventsManager,
+    pub wechat_clawbot: WechatClawbotService,
     pub realtime: EventBus,
     pub runtime: RuntimeRegistry,
     pub runtime_sessions: RuntimeSessionManager,
@@ -53,6 +55,7 @@ pub fn build_module_states(services: &AppServices) -> ModuleStates {
         cloud: services.cloud.clone(),
         cloud_bridge: services.cloud_bridge.clone(),
         cloud_events: services.cloud_events.clone(),
+        wechat_clawbot: services.wechat_clawbot.clone(),
         realtime: services.realtime.clone(),
         runtime: services.runtime.clone(),
         runtime_sessions: services.runtime_sessions.clone(),

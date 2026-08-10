@@ -4600,6 +4600,34 @@ async function handleRequest(req, res, context) {
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
     }
+    // WeChat ClawBot is a device relay, not a public callback.  These routes
+    // are therefore normal account-authenticated APIs used only by the
+    // selected local Core.  They never accept a WeChat Bot token or context
+    // token; those stay in the device's private relay state.
+    const imChannelRelayInboundMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/relay\/inbound$/);
+    const imChannelRelayActivateMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/relay\/deliveries\/([A-Za-z0-9_.-]+)\/activate$/);
+    const imChannelRelayAckMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/relay\/deliveries\/([A-Za-z0-9_.-]+)\/ack$/);
+    if (req.method === "POST" && imChannelRelayInboundMatch) {
+      const body = await readJson(req);
+      const result = context.imChannelsService.receiveWechatClawbotRelay(auth.user.id, imChannelRelayInboundMatch[1], body);
+      return writeJson(res, 202, result);
+    }
+    if (req.method === "POST" && imChannelRelayActivateMatch) {
+      const body = await readJson(req);
+      const result = context.imChannelsService.activateWechatClawbotRelay(auth.user.id, imChannelRelayActivateMatch[1], {
+        ...body,
+        deliveryId: imChannelRelayActivateMatch[2]
+      });
+      return writeJson(res, 202, result);
+    }
+    if (req.method === "POST" && imChannelRelayAckMatch) {
+      const body = await readJson(req);
+      const result = context.imChannelsService.acknowledgeWechatClawbotRelay(auth.user.id, imChannelRelayAckMatch[1], {
+        ...body,
+        deliveryId: imChannelRelayAckMatch[2]
+      });
+      return writeJson(res, 200, result);
+    }
     const imChannelDetailMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)$/);
     const imChannelTestMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/test$/);
     if (req.method === "PATCH" && imChannelDetailMatch) {

@@ -8,8 +8,8 @@ use mia_core_api_types::{
 };
 use mia_core_cloud::{
     CloudBridgeConnectionSpec, CloudBridgeManager, CloudBridgeRunHandler, CloudBridgeSocketCommand,
-    CloudBridgeSocketEvent, CloudBridgeSocketTransport, CloudError, CloudEventsManager,
-    CloudMemoryTransport, CloudService,
+    CloudBridgeSocketEvent, CloudBridgeSocketTransport, CloudDomainEventHandler, CloudError,
+    CloudEventsManager, CloudMemoryTransport, CloudService,
 };
 use mia_core_db::init_database_memory;
 use mia_core_memory::MemoryService;
@@ -22,6 +22,22 @@ use tokio::time::{Duration, sleep};
 struct MockMemoryTransport {
     calls: Arc<Mutex<Vec<(String, String, serde_json::Value)>>>,
     responses: Arc<Mutex<Vec<serde_json::Value>>>,
+}
+
+#[derive(Clone, Default)]
+struct MockDomainEventHandler {
+    events: Arc<Mutex<Vec<serde_json::Value>>>,
+}
+
+#[async_trait]
+impl CloudDomainEventHandler for MockDomainEventHandler {
+    async fn handle_cloud_domain_event(
+        &self,
+        message: serde_json::Value,
+    ) -> Result<(), CloudError> {
+        self.events.lock().unwrap().push(message);
+        Ok(())
+    }
 }
 
 impl MockMemoryTransport {
@@ -1096,6 +1112,69 @@ async fn cloud_events_manager_owns_remote_socket_cursor_and_fanout() {
     assert_eq!(status.events["lastEventSeq"], 5);
     assert_eq!(status.user.as_ref().unwrap()["id"], "u2");
 
+    manager.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn cloud_events_manager_routes_replayed_im_delivery_to_local_domain_handler() {
+    let database = init_database_memory().await.unwrap();
+    let service = CloudService::with_now(database.pool().clone(), || 123456);
+    service
+        .connect(CloudConnectRequest {
+            url: Some("https://mia.example/".into()),
+            token: Some("secret-token".into()),
+            account_hint: None,
+            user: Some(json!({ "id": "u1" })),
+            account: None,
+            agent_runtime: None,
+            last_event_seq: Some(0),
+            last_memory_sync_at: None,
+        })
+        .await
+        .unwrap();
+    let transport = Arc::new(MockBridgeTransport {
+        events: Arc::new(Mutex::new(vec![
+            CloudBridgeSocketEvent::Open,
+            CloudBridgeSocketEvent::Text(
+                json!({ "type": "events_ready", "sinceSeq": 0, "serverSeq": 1 }).to_string(),
+            ),
+            CloudBridgeSocketEvent::Text(
+                json!({
+                    "type": "im_channel.delivery_requested",
+                    "seq": 1,
+                    "replay": true,
+                    "channelId": "imc_1",
+                    "deliveryId": "imd_1",
+                    "targetDeviceId": "device_1",
+                    "text": "reply"
+                })
+                .to_string(),
+            ),
+        ])),
+        ..Default::default()
+    });
+    let handler = Arc::new(MockDomainEventHandler::default());
+    let manager = CloudEventsManager::with_transport(
+        service,
+        transport,
+        Arc::new(|_, _| {}),
+        Duration::from_millis(10),
+        Duration::from_secs(60),
+        Duration::from_secs(60),
+    )
+    .with_domain_event_handler(handler.clone());
+
+    manager.start().await.unwrap();
+    for _ in 0..50 {
+        if !handler.events.lock().unwrap().is_empty() {
+            break;
+        }
+        sleep(Duration::from_millis(10)).await;
+    }
+    let events = handler.events.lock().unwrap().clone();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["deliveryId"], "imd_1");
+    assert_eq!(events[0]["replay"], true);
     manager.stop().await.unwrap();
 }
 

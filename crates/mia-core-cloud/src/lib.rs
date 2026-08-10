@@ -20,7 +20,7 @@ pub use bridge::{
     CloudBridgeConnectionSpec, CloudBridgeManager, CloudBridgeRunHandler, CloudBridgeSocketCommand,
     CloudBridgeSocketEvent, CloudBridgeSocketTransport, TungsteniteCloudBridgeTransport,
 };
-pub use events::{CloudEventEmitter, CloudEventsManager};
+pub use events::{CloudDomainEventHandler, CloudEventEmitter, CloudEventsManager};
 
 pub const EVENT_CLOUD_STATUS_CHANGED: &str = "cloud.statusChanged";
 
@@ -511,6 +511,26 @@ impl CloudService {
                 &format!("/api/conversations/{conversation_id}/messages/as-bot"),
                 body,
             )
+            .await
+    }
+
+    /// Post a small, account-authenticated control envelope to Mia Cloud.
+    ///
+    /// This keeps the Cloud bearer token inside Core instead of forwarding it
+    /// to Electron/renderer code.  Callers are intentionally restricted to
+    /// relative API paths so this helper cannot become an arbitrary token
+    /// forwarding primitive.
+    pub async fn post_authenticated_json(
+        &self,
+        path: &str,
+        body: Value,
+    ) -> Result<Value, CloudError> {
+        if !path.starts_with("/api/") || path.contains("//") {
+            return Err(CloudError::InvalidInput("cloud API path is invalid".into()));
+        }
+        let (base_url, token) = self.connected_cloud_api().await?;
+        self.memory_transport
+            .post_json(&base_url, &token, path, body)
             .await
     }
 

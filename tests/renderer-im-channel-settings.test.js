@@ -24,8 +24,14 @@ test("IM settings are a dedicated Cloud-backed settings tab with a narrow preloa
   assert.match(app, /activeSettingsTab === "im"/);
   assert.match(preload, /listImChannels: \(\) => ipcRenderer\.invoke\(IpcChannel\.SocialListImChannels\)/);
   assert.match(ipc, /SocialCreateImChannel: "social:create-im-channel"/);
-  assert.match(feature, /默认拒绝未列出的发送者/);
+  assert.match(feature, /扫码的微信号会自动成为唯一可用的私聊账号/);
+  assert.match(feature, /无需填写微信用户 ID/);
+  assert.doesNotMatch(feature, /每行一个微信 ClawBot 用户 ID/);
   assert.match(feature, /微信 ClawBot/);
+  assert.match(feature, /仅支持文本私聊/);
+  assert.match(preload, /startWechatClawbotLink/);
+  assert.match(preload, /getWechatClawbotStatus/);
+  assert.match(preload, /disconnectWechatClawbot/);
   assert.doesNotMatch(feature, /require\("electron"/);
   assert.match(css, /\.im-channel-callback code[\s\S]*?text-overflow:\s*ellipsis;/);
   assert.match(css, /@media \(max-width: 640px\)/);

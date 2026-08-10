@@ -275,3 +275,123 @@ test("IM 通道默认拒绝未知发送者，且启用时要求发送者策略",
     await destroyFixture(fixture);
   }
 });
+
+test("微信 ClawBot 通过受控本机中继投递，Cloud 不保存微信回复上下文", async () => {
+  const fixture = createFixture();
+  const baseUrl = await listen(fixture.server);
+  try {
+    const created = await jsonRequest(baseUrl, "/api/me/im-channels", {
+      method: "POST",
+      token: fixture.account.token,
+      body: {
+        provider: "wechat_clawbot",
+        botId: fixture.bot.id,
+        enabled: true,
+        settings: {
+          relayDeviceId: "device_local_1",
+          // Stale clients cannot turn a scanner-only ClawBot into a public
+          // endpoint. Sender identity is instead verified in the bound Core.
+          allowedSenderIds: ["stale_manual_id"],
+          allowAllSenders: true,
+          allowGroupMessages: true
+        }
+      }
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.data));
+    const channel = created.data.channel;
+    assert.equal(channel.hasCredentials, false);
+    assert.equal(channel.callbackUrl, "");
+    assert.equal(channel.settings.relayDeviceId, "device_local_1");
+    assert.equal(channel.settings.allowGroupMessages, false);
+    assert.equal(channel.settings.allowAllSenders, false);
+    assert.deepEqual(channel.settings.allowedSenderIds, []);
+
+    const forbidden = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/relay/inbound`, {
+      method: "POST",
+      token: fixture.account.token,
+      body: {
+        deviceId: "device_other",
+        eventId: "wx_inbound_1",
+        senderId: "wx_clawbot_sender",
+        externalChatId: "wx_clawbot_sender",
+        chatType: "p2p",
+        text: "你好 ClawBot"
+      }
+    });
+    assert.equal(forbidden.status, 403);
+
+    const inbound = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/relay/inbound`, {
+      method: "POST",
+      token: fixture.account.token,
+      body: {
+        deviceId: "device_local_1",
+        eventId: "wx_inbound_1",
+        senderId: "wx_clawbot_sender",
+        senderLabel: "微信测试用户",
+        externalChatId: "wx_clawbot_sender",
+        chatType: "p2p",
+        text: "你好 ClawBot"
+      }
+    });
+    assert.equal(inbound.status, 202, JSON.stringify(inbound.data));
+    assert.equal(inbound.data.accepted, true);
+    assert.match(inbound.data.deliveryId, /^imd_/);
+    const waiting = fixture.server.mia.cloudStore.getDb()
+      .prepare("SELECT status FROM im_channel_deliveries WHERE id = ?")
+      .get(inbound.data.deliveryId);
+    assert.equal(waiting.status, "awaiting_relay_activation");
+    const activate = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/relay/deliveries/${inbound.data.deliveryId}/activate`, {
+      method: "POST",
+      token: fixture.account.token,
+      body: { deviceId: "device_local_1" }
+    });
+    assert.equal(activate.status, 202, JSON.stringify(activate.data));
+    assert.equal(activate.data.activated, true);
+    await fixture.server.mia.imChannelsService.idle();
+
+    const relayEvent = fixture.server.mia.eventLog
+      .listEventsSince(fixture.account.user.id, 0)
+      .find((event) => event.payload?.type === "im_channel.delivery_requested");
+    assert.ok(relayEvent, "expected a durable device relay event");
+    assert.equal(relayEvent.payload.channelId, channel.id);
+    assert.equal(relayEvent.payload.deliveryId, inbound.data.deliveryId);
+    assert.equal(relayEvent.payload.targetDeviceId, "device_local_1");
+    assert.match(relayEvent.payload.text, /这是来自 Mia 的回复/);
+    assert.equal(JSON.stringify(relayEvent.payload).includes("context_token"), false);
+    assert.equal(JSON.stringify(relayEvent.payload).includes("Bearer"), false);
+
+    const storedDelivery = fixture.server.mia.cloudStore.getDb()
+      .prepare("SELECT status, reply_ref, recipient_json, attempt_count FROM im_channel_deliveries WHERE id = ?")
+      .get(inbound.data.deliveryId);
+    assert.equal(storedDelivery.status, "relay_requested");
+    assert.equal(storedDelivery.reply_ref, "");
+    assert.equal(storedDelivery.recipient_json, "{}");
+    assert.equal(storedDelivery.attempt_count, 1);
+
+    const duplicate = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/relay/inbound`, {
+      method: "POST",
+      token: fixture.account.token,
+      body: {
+        deviceId: "device_local_1",
+        eventId: "wx_inbound_1",
+        senderId: "wx_clawbot_sender",
+        externalChatId: "wx_clawbot_sender",
+        chatType: "p2p",
+        text: "你好 ClawBot"
+      }
+    });
+    assert.equal(duplicate.status, 202);
+    assert.equal(duplicate.data.duplicate, true);
+    assert.equal(duplicate.data.deliveryId, inbound.data.deliveryId);
+
+    const ack = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/relay/deliveries/${inbound.data.deliveryId}/ack`, {
+      method: "POST",
+      token: fixture.account.token,
+      body: { deviceId: "device_local_1", ok: true }
+    });
+    assert.equal(ack.status, 200, JSON.stringify(ack.data));
+    assert.equal(ack.data.status, "delivered");
+  } finally {
+    await destroyFixture(fixture);
+  }
+});

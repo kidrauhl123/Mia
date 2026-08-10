@@ -1597,6 +1597,35 @@ pub struct CloudEventsLifecycleResponse {
     pub status: CloudStatusResponse,
 }
 
+/// Local-only controls for the official WeChat ClawBot device relay.  The
+/// response deliberately excludes the WeChat Bot token and reply context
+/// tokens; those never leave Core's private relay state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WechatClawbotLinkRequest {
+    #[serde(default)]
+    pub device_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WechatClawbotPairingCodeRequest {
+    #[serde(default)]
+    pub code: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WechatClawbotStatusResponse {
+    pub channel_id: String,
+    pub device_id: String,
+    pub state: String,
+    pub message: String,
+    pub linked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qr_url: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CloudBridgeRunRequest {

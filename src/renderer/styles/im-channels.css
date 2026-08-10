@@ -118,6 +118,57 @@
   color: var(--danger);
 }
 
+.im-channel-clawbot-status {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--field) 82%, transparent);
+}
+
+.im-channel-clawbot-status p {
+  margin: 0;
+}
+
+.im-channel-clawbot-qr {
+  width: min(196px, 100%);
+  aspect-ratio: 1;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
+  object-fit: contain;
+}
+
+.im-channel-pairing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.im-channel-pairing input {
+  min-width: 0;
+  flex: 1;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  outline: none;
+  color: var(--text);
+  background: var(--field);
+  font: inherit;
+}
+
+.im-channel-field-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .im-channel-editor {
   margin: 0 0 14px;
   padding: 16px;
@@ -231,7 +282,6 @@
 }
 
 .im-channel-guide summary {
-  cursor: pointer;
   color: var(--text);
   font-size: 13px;
 }
@@ -275,5 +325,10 @@
 
   .im-channel-callback code {
     width: 100%;
+  }
+
+  .im-channel-pairing {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

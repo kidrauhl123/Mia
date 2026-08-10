@@ -13,5 +13,6 @@ mod mia;
 mod realtime;
 mod system;
 mod tasks;
+mod wechat_clawbot;
 
 pub use routes::create_router;

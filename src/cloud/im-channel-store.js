@@ -51,6 +51,8 @@ function deliveryFromRow(row) {
     recipient: parseJson(row.recipient_json, {}),
     status: row.status,
     error: row.error || "",
+    attemptCount: Number(row.attempt_count || 0),
+    lastAttemptAt: row.last_attempt_at || "",
     createdAt: row.created_at,
     deliveredAt: row.delivered_at || ""
   };
@@ -83,17 +85,23 @@ function createImChannelStore(db) {
     VALUES (?, ?, 'received', ?)
   `);
   const updateEventStatus = db.prepare(`
-    UPDATE im_channel_events SET status = ? WHERE channel_id = ? AND provider_event_id = ?
+    UPDATE im_channel_events
+    SET status = ?, delivery_id = COALESCE(NULLIF(?, ''), delivery_id)
+    WHERE channel_id = ? AND provider_event_id = ?
+  `);
+  const selectInboundEvent = db.prepare(`
+    SELECT status, delivery_id FROM im_channel_events
+    WHERE channel_id = ? AND provider_event_id = ?
   `);
   const insertDelivery = db.prepare(`
     INSERT OR IGNORE INTO im_channel_deliveries (
       id, channel_id, conversation_id, trigger_message_id, reply_ref,
       recipient_json, status, error, created_at, delivered_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', '', ?, '')
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, '')
   `);
   const selectDeliveryForTrigger = db.prepare(`
     SELECT * FROM im_channel_deliveries
-    WHERE conversation_id = ? AND trigger_message_id = ? AND status <> 'delivered'
+    WHERE conversation_id = ? AND trigger_message_id = ? AND status = 'pending'
     ORDER BY created_at ASC LIMIT 1
   `);
   const selectAnyDeliveryForTrigger = db.prepare(`
@@ -108,7 +116,19 @@ function createImChannelStore(db) {
     WHERE id = ? AND status <> 'delivered'
   `);
   const markDeliveryFailedStmt = db.prepare(`
-    UPDATE im_channel_deliveries SET status = 'failed', error = ? WHERE id = ?
+    UPDATE im_channel_deliveries
+    SET status = 'failed', error = ?
+    WHERE id = ? AND status <> 'delivered'
+  `);
+  const claimRelayDeliveryStmt = db.prepare(`
+    UPDATE im_channel_deliveries
+    SET status = 'relay_requested', error = '', attempt_count = attempt_count + 1, last_attempt_at = ?
+    WHERE id = ? AND status = 'pending'
+  `);
+  const activateRelayDeliveryStmt = db.prepare(`
+    UPDATE im_channel_deliveries
+    SET status = 'pending'
+    WHERE id = ? AND status = 'awaiting_relay_activation'
   `);
 
   function getChannel(id, options = {}) {
@@ -176,10 +196,22 @@ function createImChannelStore(db) {
     return insertEventClaim.run(String(channelId || ""), eventId, nowIso()).changes > 0;
   }
 
-  function markInboundEvent(channelId, providerEventId, status) {
+  function getInboundEvent(channelId, providerEventId) {
+    const eventId = String(providerEventId || "").trim();
+    if (!eventId) return null;
+    const row = selectInboundEvent.get(String(channelId || ""), eventId);
+    return row ? { status: row.status || "", deliveryId: row.delivery_id || "" } : null;
+  }
+
+  function markInboundEvent(channelId, providerEventId, status, deliveryId = "") {
     const eventId = String(providerEventId || "").trim();
     if (!eventId) return;
-    updateEventStatus.run(String(status || "received"), String(channelId || ""), eventId);
+    updateEventStatus.run(
+      String(status || "received"),
+      String(deliveryId || ""),
+      String(channelId || ""),
+      eventId
+    );
   }
 
   function createDelivery(input = {}) {
@@ -191,6 +223,7 @@ function createImChannelStore(db) {
       String(input.triggerMessageId || ""),
       String(input.replyRef || ""),
       JSON.stringify(input.recipient || {}),
+      String(input.status || "pending"),
       nowIso()
     );
     const existing = selectAnyDeliveryForTrigger.get(String(input.conversationId || ""), String(input.triggerMessageId || ""));
@@ -199,6 +232,22 @@ function createImChannelStore(db) {
 
   function findPendingDelivery(conversationId, triggerMessageId) {
     return deliveryFromRow(selectDeliveryForTrigger.get(String(conversationId || ""), String(triggerMessageId || "")));
+  }
+
+  function getDelivery(id) {
+    return deliveryFromRow(selectDeliveryById.get(String(id || "")));
+  }
+
+  function claimRelayDelivery(id) {
+    const deliveryId = String(id || "");
+    const claimed = claimRelayDeliveryStmt.run(nowIso(), deliveryId).changes > 0;
+    return claimed ? getDelivery(deliveryId) : null;
+  }
+
+  function activateRelayDelivery(id) {
+    const deliveryId = String(id || "");
+    const activated = activateRelayDeliveryStmt.run(deliveryId).changes > 0;
+    return activated ? getDelivery(deliveryId) : null;
   }
 
   function markDeliveryDelivered(id) {
@@ -220,9 +269,13 @@ function createImChannelStore(db) {
     deleteChannel,
     recordChannelStatus,
     claimInboundEvent,
+    getInboundEvent,
     markInboundEvent,
     createDelivery,
+    getDelivery,
     findPendingDelivery,
+    claimRelayDelivery,
+    activateRelayDelivery,
     markDeliveryDelivered,
     markDeliveryFailed
   };

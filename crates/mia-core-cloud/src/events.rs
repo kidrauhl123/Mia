@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use mia_core_api_types::{
     CloudBridgeRunRequest, CloudBridgeRunResponse, CloudEventsLifecycleResponse,
     CloudMemorySyncRequest, CloudStatusResponse,
@@ -29,6 +30,14 @@ const RECENT_DESKTOP_INVOCATION_LIMIT: usize = 512;
 
 pub type CloudEventEmitter = Arc<dyn Fn(String, Value) + Send + Sync>;
 
+/// Handles durable Cloud-domain work that is owned by a local Core service.
+/// The event stream may replay after a reconnect, so implementations must be
+/// idempotent and must never assume the event was delivered exactly once.
+#[async_trait]
+pub trait CloudDomainEventHandler: Send + Sync {
+    async fn handle_cloud_domain_event(&self, message: Value) -> Result<(), CloudError>;
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct CloudEventsRuntimeState {
     connecting: bool,
@@ -41,6 +50,7 @@ pub struct CloudEventsManager {
     cloud: CloudService,
     transport: Arc<dyn CloudBridgeSocketTransport>,
     desktop_runner: Option<Arc<dyn CloudBridgeRunHandler>>,
+    domain_event_handler: Option<Arc<dyn CloudDomainEventHandler>>,
     desktop_invocations: Arc<DesktopInvocationCoordinator>,
     emit: CloudEventEmitter,
     state: Arc<Mutex<CloudEventsRuntimeState>>,
@@ -120,6 +130,7 @@ impl CloudEventsManager {
             cloud,
             transport,
             desktop_runner,
+            domain_event_handler: None,
             desktop_invocations: Arc::new(DesktopInvocationCoordinator::default()),
             emit,
             state: Arc::new(Mutex::new(CloudEventsRuntimeState::default())),
@@ -132,6 +143,11 @@ impl CloudEventsManager {
                 DEFAULT_DESKTOP_BUSY_RETRY_TIMEOUT_MS,
             ),
         }
+    }
+
+    pub fn with_domain_event_handler(mut self, handler: Arc<dyn CloudDomainEventHandler>) -> Self {
+        self.domain_event_handler = Some(handler);
+        self
     }
 
     pub async fn status(&self, include_token: bool) -> Result<CloudStatusResponse, CloudError> {
@@ -405,6 +421,22 @@ impl CloudEventsManager {
                 tokio::spawn(async move {
                     if let Err(error) = manager.handle_desktop_invocation(message).await {
                         manager.set_last_error(&error.to_string()).await;
+                    }
+                });
+            }
+            "im_channel.delivery_requested" => {
+                let Some(handler) = self.domain_event_handler.clone() else {
+                    return;
+                };
+                let manager = self.clone();
+                let message = message.clone();
+                tokio::spawn(async move {
+                    if handler.handle_cloud_domain_event(message).await.is_err() {
+                        // Details from a provider transport can contain opaque
+                        // values.  Keep Cloud status safe and actionable.
+                        manager
+                            .set_last_error("微信 ClawBot 本机桥接未能投递回复。")
+                            .await;
                     }
                 });
             }
