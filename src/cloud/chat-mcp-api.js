@@ -2,6 +2,7 @@
 
 const crypto = require("node:crypto");
 const ids = require("../shared/ids.js");
+const { MemberKind, SenderKind } = require("../shared/conversation-kinds.js");
 const {
   botConversationId,
   manualBotDefaultCapabilities
@@ -328,7 +329,7 @@ function botIdForConversation(context, conversation, userId) {
   }
   const members = context.socialStore.listConversationMembers(conversation.id);
   const botMember = members.find((member) => {
-    if (member.member_kind !== "bot" || !member.member_ref) return false;
+    if (member.member_kind !== MemberKind.Bot || !member.member_ref) return false;
     const bot = context.botsStore.getBot(member.member_ref);
     return bot && cleanText(bot.ownerUserId) === userId;
   });
@@ -357,7 +358,7 @@ function normalizeMessage(message) {
   return {
     id: cleanText(message?.id),
     seq: Number(message?.seq) || 0,
-    role: senderKind === "bot" ? "assistant" : "user",
+    role: senderKind === SenderKind.Bot ? "assistant" : "user",
     sender_kind: senderKind,
     sender_id: senderRef,
     text: String(message?.body_md ?? message?.bodyMd ?? ""),
@@ -585,12 +586,12 @@ function createChatMcpApi(options = {}) {
     });
     context.socialStore.addConversationMember({
       conversationId,
-      memberKind: "user",
+      memberKind: MemberKind.User,
       memberRef: userId
     });
     context.socialStore.addConversationMember({
       conversationId,
-      memberKind: "bot",
+      memberKind: MemberKind.Bot,
       memberRef: botId,
       ownerId: userId
     });
@@ -608,7 +609,7 @@ function createChatMcpApi(options = {}) {
     return context.messagesStore
       .listMessagesSince(conversationId, Number(userMessage.seq) || 0, 500, userId)
       .find((message) => (
-        cleanText(message.sender_kind) === "bot"
+        cleanText(message.sender_kind) === SenderKind.Bot
         && cleanText(message.trigger_message_id) === cleanText(userMessage.id)
       )) || null;
   }
@@ -628,7 +629,7 @@ function createChatMcpApi(options = {}) {
 
     const message = context.messagesStore.appendMessage({
       conversationId,
-      senderKind: "user",
+      senderKind: SenderKind.User,
       senderRef: userId,
       bodyMd: text,
       turnId: `mcp_${crypto.randomUUID()}`,

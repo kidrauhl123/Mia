@@ -10,11 +10,14 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { shell } = require("electron");
 const { botCapabilitiesWithPresetDefaults } = require("../shared/bot-identity.js");
 const { materializeSkillsForTurn } = require("../shared/skill-materializer.js");
 const { isSafeId, isSafeEntryName, assertInside, MAX_FILES, MAX_UNCOMPRESSED_BYTES } = require("../shared/skill-safety.js");
 const { buildSelectedSkillRoutingPrompt } = require("./selected-skill-routing-prompt.js");
+
+function electronShell() {
+  return require("electron").shell;
+}
 
 function cleanYamlScalar(value) {
   return String(value || "").trim().replace(/^['"]|['"]$/g, "");
@@ -831,7 +834,7 @@ function createSkillsLoader(deps = {}) {
     if (!found) throw new Error("Skill not found.");
     const skillDir = path.dirname(found.filePath);
     if (!fs.existsSync(skillDir)) throw new Error("Skill directory not found.");
-    const error = await shell.openPath(skillDir);
+    const error = await electronShell().openPath(skillDir);
     if (error) throw new Error(error);
     return { opened: true, path: skillDir };
   }

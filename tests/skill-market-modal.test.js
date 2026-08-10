@@ -8,8 +8,10 @@ const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
 test("market card click opens the detail modal", () => {
   const src = read("src/renderer/skills/skill-library.js");
-  // the previously-dead market card now wires a left click
-  assert.match(src, /\[data-market-id\][\s\S]*addEventListener\("click", \(\) => openMarketModal/);
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
+  // Cards are now published as a view model and React owns the click binding.
+  assert.match(src, /id: `market:\$\{skill\.id\}`,[\s\S]*open: \(\) => openMarketModal\(skill\.id\)/);
+  assert.match(reactSkills, /<article[\s\S]*onClick=\{card\.open\}/);
   assert.match(src, /function openMarketModal/);
   assert.match(src, /function closeMarketModal/);
   assert.match(src, /function renderSkillModal/);
@@ -17,6 +19,7 @@ test("market card click opens the detail modal", () => {
 
 test("detail modal shows Chinese name + summary, body toggle, and add action", () => {
   const src = read("src/renderer/skills/skill-library.js");
+  const dialogs = read("src/renderer/react/components/Dialogs.tsx");
   // intro uses Chinese fields with graceful fallback
   assert.match(src, /skill\.name_zh \|\| skill\.name/);
   assert.match(src, /skill\.summary_zh \|\| marketDescriptionZh\(skill\)/);
@@ -26,10 +29,11 @@ test("detail modal shows Chinese name + summary, body toggle, and add action", (
   assert.match(src, /window\.mia\.readMarketSkill/);
   assert.match(src, /renderSkillMarkdownSource\(skill\.body\)/);
   assert.match(src, /展开正文/);
-  assert.match(src, /返回简介/);
+  assert.match(dialogs, /onClick=\{dialog\.back\}>‹ 返回简介/);
   assert.doesNotMatch(src, /完整 SKILL\.md 内容将在添加到本机后查看/);
   // add / use action
-  assert.match(src, /installMarketSkill\(skill\.id\)/);
+  assert.match(src, /installMarketSkill\(current\.id\)/);
+  assert.match(dialogs, /onClick=\{dialog\.primary\}/);
 });
 
 test("market modal refreshes its add button after install state changes", () => {
@@ -57,13 +61,17 @@ test("market modal uses a text-only theme-color button after install", () => {
 
 test("local skill cards reuse the shared market modal and keep the body entry", () => {
   const src = read("src/renderer/skills/skill-library.js");
-  assert.match(src, /\[data-skill-select\][\s\S]*addEventListener\("click", \(\) => selectSkill/);
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
+  const dialogs = read("src/renderer/react/components/Dialogs.tsx");
+  assert.match(src, /function renderSkillCard\(skill\)[\s\S]*open: \(\) => selectSkill\(skill\.id\)/);
+  assert.match(reactSkills, /<article[\s\S]*onClick=\{card\.open\}/);
   assert.match(src, /function openLocalSkillModal/);
   assert.match(src, /skillModal = \{ kind: "local", skillId, showBody: false \}/);
-  assert.match(src, /ensureMarketModalEl\(\)\.classList\.remove\("hidden"\)/);
+  assert.match(src, /window\.miaReactDialogs\?\.publish\?\.\(\{[\s\S]*kind: "skill"/);
   assert.match(src, /skillModal\.kind === "local"[\s\S]*window\.miaSkillHelpers\.skillSummaryZh\(skill\)/);
-  assert.match(src, /skillModal\.kind === "local"[\s\S]*useSkillInComposer\(skill\.id\)/);
+  assert.match(src, /skillModal\.kind === "local"[\s\S]*useSkillInComposer\(current\.id\)/);
   assert.match(src, /renderSkillMarkdownSource\(skill\.body\)/);
+  assert.match(dialogs, /dangerouslySetInnerHTML=\{dialog\.bodyHtml/);
   assert.doesNotMatch(src, /function renderSkillPreview/);
 });
 
@@ -78,8 +86,10 @@ test("legacy local skill preview dialog is removed", () => {
 
 test("detail modal closes on Escape and backdrop", () => {
   const src = read("src/renderer/skills/skill-library.js");
+  const dialogs = read("src/renderer/react/components/Dialogs.tsx");
   assert.match(src, /event\.key === "Escape"/);
-  assert.match(src, /data-smm-close/);
+  assert.match(dialogs, /className="smm-backdrop" onClick=\{dialog\.close\}/);
+  assert.match(dialogs, /else if \("close" in dialog\) dialog\.close\(\);/);
 });
 
 test("detail modal styles exist", () => {

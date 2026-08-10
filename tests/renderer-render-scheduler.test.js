@@ -71,6 +71,7 @@ test("social events are wired to a coalesced conversation-only renderer", () => 
   const root = path.join(__dirname, "..");
   const appSource = fs.readFileSync(path.join(root, "src", "renderer", "app.js"), "utf8");
   const html = fs.readFileSync(path.join(root, "src", "renderer", "index.html"), "utf8");
+  const reactMain = fs.readFileSync(path.join(root, "src", "renderer", "react", "main.tsx"), "utf8");
 
   assert.match(appSource, /render:\s*\(conversationScopes\)\s*=>\s*render\(\{\s*conversationOnly:\s*true,\s*conversationScopes\s*\}\)/);
   assert.match(appSource, /initSocialModule\(\{[\s\S]*?render:\s*scheduleConversationRender/);
@@ -79,7 +80,8 @@ test("social events are wired to a coalesced conversation-only renderer", () => 
   assert.match(appSource, /state\.activeView === "contacts"\)\s*window\.miaBotManager\.renderContacts\(\)/);
   assert.match(appSource, /state\.activeView === "tasks"\)\s*window\.miaTasksPanel\?\.\s*renderTaskView\(\)/);
   assert.ok(
-    html.indexOf("./render-scheduler.js") < html.indexOf("./app.js"),
-    "the frame scheduler must load before the app entry"
+    html.indexOf("./render-scheduler.js") < html.indexOf("./react-dist/renderer.js"),
+    "the frame scheduler must load before the React renderer"
   );
+  assert.match(reactMain, /appScript\.src = "\.\/app\.js"/);
 });

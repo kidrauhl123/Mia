@@ -7,6 +7,23 @@ const vm = require("node:vm");
 const root = path.join(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 
+function attachReactSkills(window) {
+  let snapshot = {
+    cards: [],
+    chips: [],
+    emptyText: "",
+    mode: "skills",
+    modeTabs: [],
+    pageDirection: 0
+  };
+  window.miaReactSkills = {
+    publish(patch) {
+      snapshot = { ...snapshot, ...patch };
+    }
+  };
+  return () => snapshot;
+}
+
 test("market IPC channels + preload bridge are wired", () => {
   const channels = read("src/shared/ipc-channels.js");
   assert.match(channels, /SkillsMarketList:\s*"skills:market-list"/);
@@ -43,6 +60,7 @@ test("main serves a snapshot-plus-cloud market and installs through the unified 
 
 test("skill-library renders a market mode with modal install actions", () => {
   const src = read("src/renderer/skills/skill-library.js");
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
   assert.match(src, /const MARKET_SKILL_PAGE_LIMIT = 72/);
   assert.match(src, /function marketRequestParams/);
   assert.match(src, /limit:\s*MARKET_SKILL_PAGE_LIMIT/);
@@ -57,8 +75,9 @@ test("skill-library renders a market mode with modal install actions", () => {
   assert.match(src, /state\.skillMarketMode/);
   assert.match(src, /function renderMarketView/);
   assert.match(src, /function installMarketSkill/);
-  assert.match(src, /openMarketModal\(card\.dataset\.marketId\)/);
-  assert.match(src, /installMarketSkill\(skill\.id\)/);
+  assert.match(src, /open: \(\) => openMarketModal\(skill\.id\)/);
+  assert.match(src, /installMarketSkill\(current\.id\)/);
+  assert.match(reactSkills, /onClick=\{card\.open\}/);
   assert.doesNotMatch(src, /data-skill-install=/);
 });
 
@@ -135,11 +154,13 @@ test("local skill helpers prefer market and official Chinese display metadata", 
 
 test("market cards render compact source logos beside source labels", () => {
   const src = read("src/renderer/skills/skill-library.js");
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
   assert.match(src, /MARKET_SOURCE_LOGOS/);
-  assert.match(src, /function renderUnifiedSkillCard/);
+  assert.match(src, /function renderMarketCard/);
   assert.match(src, /function marketSourceKey/);
-  assert.match(src, /function marketSourceLogoHtml/);
-  assert.match(src, /className = `skill-source-logo skill-source-logo-\$\{sourceKey\}`/);
+  assert.match(src, /function marketSourceLogoView/);
+  assert.match(reactSkills, /const className = `skill-source-logo skill-source-logo-\$\{logo\.key\}`/);
+  assert.match(reactSkills, /function SourceLogo/);
   assert.match(src, /claude:\s*\{\s*label:\s*"Claude"/);
   assert.match(src, /values\.has\("anthropic"\)/);
   assert.match(src, /values\.has\("anthropics\/skills"\)/);
@@ -304,6 +325,7 @@ test("market cards do not render direct install or use actions", () => {
       }
     }
   };
+  const getSkills = attachReactSkills(context.window);
   vm.createContext(context);
   vm.runInContext(src, context, { filename: "skill-library.js" });
   context.window.miaSkillLibrary.initSkillLibrary({
@@ -325,60 +347,53 @@ test("market cards do not render direct install or use actions", () => {
   });
 
   context.window.miaSkillLibrary.renderSkillLibrary();
-  assert.match(els.skillModeToggle.innerHTML, /data-skill-mode="market">技能/);
-  assert.equal(els.skillChipRow.classList.contains("mcp-toolbar-row"), false);
-  assert.equal(els.skillChipRow.getAttribute("aria-label"), "Skill 分类");
-  assert.doesNotMatch(els.skillModeToggle.innerHTML, /我的技能/);
-  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="">全部<\/button>[\s\S]*data-skill-scope="mine">我的技能/);
-  assert.doesNotMatch(els.skillChipRow.innerHTML, />\s*市场\s*</);
-  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine"/);
-  assert.match(els.skillChipRow.innerHTML, />\s*我的技能\s*</);
-  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="开发工程"/);
-  assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
-  const firstAllChip = els.skillChipRow.querySelectorAll("[data-skill-filter]")
-    .find((button) => button.dataset.skillFilter === "");
-  const firstModeHtml = els.skillModeToggle.innerHTML;
+  let snapshot = getSkills();
+  assert.equal(snapshot.mode, "skills");
+  assert.equal(snapshot.modeTabs[0].id, "skills");
+  assert.equal(snapshot.modeTabs[0].label, "技能");
+  assert.equal(snapshot.modeTabs[0].active, true);
+  assert.equal(snapshot.modeTabs.some((tab) => tab.label === "我的技能"), false);
+  assert.equal(snapshot.chips[0].label, "全部");
+  assert.equal(snapshot.chips[1].id, "scope:mine");
+  assert.equal(snapshot.chips[1].label, "我的技能");
+  assert.equal(snapshot.chips.some((chip) => chip.label === "市场"), false);
+  assert.equal(snapshot.chips.some((chip) => chip.id === "category:开发工程"), true);
+  assert.equal(snapshot.cards.length, 1);
+  assert.equal(snapshot.cards[0].id, "market:skill-creator");
+  assert.equal(snapshot.cards[0].actions.length, 0);
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
+  assert.match(reactSkills, /key=\{tab\.id\}/);
+  assert.match(reactSkills, /key=\{chip\.id\}/);
+  assert.match(reactSkills, /host\?\.classList\.toggle\("mcp-toolbar-row", mode === "mcp"\)/);
   context.window.miaSkillLibrary.renderSkillLibrary();
-  const secondAllChip = els.skillChipRow.querySelectorAll("[data-skill-filter]")
-    .find((button) => button.dataset.skillFilter === "");
-  assert.equal(secondAllChip, firstAllChip, "unchanged skill filters should keep the same DOM nodes across render");
-  assert.equal(els.skillModeToggle.innerHTML, firstModeHtml);
+  snapshot = getSkills();
+  assert.equal(snapshot.chips.find((chip) => chip.id === "scope:all").active, true);
 
-  els.skillChipRow.querySelectorAll("[data-skill-filter]")
-    .find((button) => button.dataset.skillFilter === "开发工程")
-    .click();
+  snapshot.chips.find((chip) => chip.id === "category:开发工程").select();
   assert.equal(state.skillCapabilityMode, "market");
   assert.equal(state.skillCategoryFilter, "开发工程");
-  els.skillChipRow.querySelectorAll("[data-skill-filter]")
-    .find((button) => button.dataset.skillFilter === "")
-    .click();
+  snapshot = getSkills();
+  snapshot.chips.find((chip) => chip.id === "scope:all").select();
   assert.equal(state.skillCapabilityMode, "market");
   assert.equal(state.skillCategoryFilter, "");
 
   context.window.miaSkillLibrary.switchSkillMode("mine");
   assert.equal(state.skillCapabilityMode, "mine");
-  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="">全部/);
-  assert.match(els.skillChipRow.innerHTML, /data-skill-scope="mine">我的技能/);
-  assert.match(els.skillChipRow.innerHTML, /开发工程/);
-  assert.match(els.skillChipRow.innerHTML, /data-skill-filter="开发工程"/);
+  snapshot = getSkills();
+  assert.equal(snapshot.chips[0].label, "全部");
+  assert.equal(snapshot.chips[1].id, "scope:mine");
+  assert.equal(snapshot.chips.some((chip) => chip.label === "开发工程"), true);
   state.skillCategoryFilter = "开发工程";
   context.window.miaSkillLibrary.renderSkillLibrary();
-  assert.match(els.skillCardGrid.innerHTML, /data-skill-select="mia-official:skill-creator"/);
+  snapshot = getSkills();
+  assert.equal(snapshot.cards[0].id, "local:mia-official:skill-creator");
 
   context.window.miaSkillLibrary.switchSkillMode("market");
-  els.skillChipRow.classList.add("mcp-toolbar-row");
-  els.skillChipRow.setAttribute("aria-label", "MCP 操作");
   state.skillLibrary.skills.push({ id: "mia:skill-creator", source: "mia", fromMarket: true, marketId: "skill-creator", name: "skill-creator" });
   context.window.miaSkillLibrary.renderSkillLibrary();
-  assert.equal(els.skillChipRow.classList.contains("mcp-toolbar-row"), false);
-  assert.equal(els.skillChipRow.getAttribute("aria-label"), "Skill 分类");
-  assert.match(els.skillCardGrid.innerHTML, /data-market-id="skill-creator"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /skill-card-action/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-install=/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-skill-use=/);
+  snapshot = getSkills();
+  assert.equal(snapshot.cards[0].id, "market:skill-creator");
+  assert.equal(snapshot.cards[0].actions.length, 0);
 });
 
 test("market category and search filters are local only after the catalog loads", () => {
@@ -450,6 +465,7 @@ test("market category and search filters are local only after the catalog loads"
       }
     }
   };
+  const getSkills = attachReactSkills(context.window);
   vm.createContext(context);
   vm.runInContext(src, context, { filename: "skill-library.js" });
   context.window.miaSkillLibrary.initSkillLibrary({
@@ -474,12 +490,11 @@ test("market category and search filters are local only after the catalog loads"
   assert.equal(state.skillMarket.loading, false);
   assert.equal(state.skillMarket.refreshing, false);
   assert.equal(marketCalls, 0);
-  assert.match(els.skillChipRow.innerHTML, /文档处理/);
-  assert.match(els.skillChipRow.innerHTML, /开发工程/);
-  assert.match(els.skillCardGrid.innerHTML, /data-market-id="anki"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-market-id="pdf"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /data-market-id="web"/);
-  assert.doesNotMatch(els.skillCardGrid.innerHTML, /正在加载技能/);
+  const snapshot = getSkills();
+  assert.equal(snapshot.chips.some((chip) => chip.label === "文档处理"), true);
+  assert.equal(snapshot.chips.some((chip) => chip.label === "开发工程"), true);
+  assert.deepEqual(snapshot.cards.map((card) => card.id), ["market:anki"]);
+  assert.equal(snapshot.emptyText, "");
 });
 
 test("background market refresh preserves the skill market scroll position", async () => {
@@ -553,6 +568,7 @@ test("background market refresh preserves the skill market scroll position", asy
       }
     }
   };
+  const getSkills = attachReactSkills(context.window);
   vm.createContext(context);
   vm.runInContext(src, context, { filename: "skill-library.js" });
   context.window.miaSkillLibrary.initSkillLibrary({
@@ -577,11 +593,12 @@ test("background market refresh preserves the skill market scroll position", asy
 
   assert.equal(scroller.scrollTop, 420);
   assert.equal(state.skillMarket.refreshing, false);
-  assert.match(els.skillCardGrid.innerHTML, /data-market-id="fresh"/);
+  assert.equal(getSkills().cards[0].id, "market:fresh");
 });
 
 test("skill category chip centering does not scroll the skills floor", () => {
   const src = read("src/renderer/skills/skill-library.js");
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
   const scroller = {
     scrollTop: 420,
     scrollLeft: 0,
@@ -691,20 +708,21 @@ test("skill category chip centering does not scroll the skills floor", () => {
 
   context.window.miaSkillLibrary.renderSkillLibrary();
 
-  assert.equal(chipScrollIntoViewCalled, false);
-  assert.equal(scroller.scrollTop, 420);
-  assert.equal(chipRow.scrollLeft, 520);
+  assert.match(reactSkills, /active\.scrollIntoView\(\{ block: "nearest", inline: "center", behavior: "auto" \}\)/);
+  assert.match(reactSkills, /syncPill\(host, true\)/);
+  assert.doesNotMatch(reactSkills, /scrollIntoView\(\{[^}]*block:\s*"center"/);
 });
 
 test("topbar keeps skills as one mode and moves mine into in-page filters", () => {
   const html = read("src/renderer/index.html");
   assert.match(html, /id="skillModeToggle"/);
   const skillLibrary = read("src/renderer/skills/skill-library.js");
-  assert.match(skillLibrary, /data-skill-filter="">全部/);
-  assert.match(skillLibrary, /data-skill-scope="mine">我的技能/);
+  const reactSkills = read("src/renderer/react/components/Skills.tsx");
+  assert.match(skillLibrary, /id: "scope:all",[\s\S]*label: "全部"/);
+  assert.match(skillLibrary, /id: "scope:mine",[\s\S]*label: "我的技能"/);
   assert.doesNotMatch(skillLibrary, /label:\s*"市场"/);
-  assert.match(skillLibrary, /syncChipRowIndicator\("auto"\)/);
-  assert.match(skillLibrary, /data-skill-mode="mcp"/);
+  assert.match(skillLibrary, /id: "mcp",[\s\S]*label: "MCP 服务"/);
+  assert.match(reactSkills, /syncPill\(host, true\)/);
   const css = read("src/renderer/styles/skills.css");
   assert.match(css, /\.skill-mode-toggle/);
   assert.match(css, /\.skill-card/);
@@ -884,7 +902,7 @@ test("local market cards infer known source labels from legacy market ids", () =
     openSkillDirectory: () => {}
   });
 
-  const html = context.window.miaSkillLibrary.renderSkillCard({
+  const card = context.window.miaSkillLibrary.renderSkillCard({
     id: "mia:hermes.claude-marketplace.presentation-tools.abc123",
     name: "presentation-tools",
     title: "presentation-tools",
@@ -893,6 +911,6 @@ test("local market cards infer known source labels from legacy market ids", () =
     relPath: "hermes.claude-marketplace.presentation-tools.abc123/SKILL.md"
   });
 
-  assert.match(html, /skill-source-logo-claude/);
-  assert.match(html, />Claude</);
+  assert.equal(card.sourceLogo.key, "claude");
+  assert.equal(card.sourceLogo.label, "Claude");
 });

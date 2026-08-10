@@ -138,6 +138,67 @@ function checkTransferBundleFresh(rootDir) {
   }
 }
 
+function checkReleaseReadmeBridgePolicy(rootDir) {
+  const relativePath = "dist/mia-cloud-release/README.md";
+  if (!exists(rootDir, relativePath)) {
+    return {
+      ok: false,
+      label: "release README documents same-account bridge without remote approval gate",
+      evidence: `${relativePath} missing`
+    };
+  }
+  return checkSource(
+    rootDir,
+    relativePath,
+    /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/,
+    "release README documents same-account bridge without remote approval gate"
+  );
+}
+
+function isMissingReleaseEvidence(check) {
+  return /\bmissing\b|enoent|no such file/i.test(String(check?.evidence || ""));
+}
+
+function cloudReleasePackageRequirement(rootDir) {
+  const staticChecks = [
+    checkPackageScript(rootDir, "cloud:release", "node scripts/build-cloud-release.js"),
+    checkPackageScript(rootDir, "cloud:deploy:dry-run", "MIA_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh"),
+    checkPackageScript(rootDir, "cloud:deploy:ssh-diagnose", "node scripts/diagnose-deploy-ssh.js"),
+    checkPackageScript(rootDir, "cloud:blockers", "node scripts/print-cloud-blockers.js"),
+    checkPackageScript(rootDir, "cloud:audit", "node scripts/audit-cloud-productization.js --live"),
+    checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),
+    checkPackageScript(rootDir, "cloud:prod:verify:e2e", "MIA_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js"),
+    checkPackageScript(rootDir, "cloud:site-verify", "node scripts/verify-site-verification.js"),
+    checkSource(rootDir, "scripts/build-cloud-release.js", /README\.md[\s\S]*install-cloud-release-local\.sh[\s\S]*doctor-cloud\.js[\s\S]*smoke-cloud\.js[\s\S]*verify-site-verification\.js[\s\S]*diagnose-deploy-ssh\.js/, "release package includes operator assets"),
+    checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "transfer bundle documents same-account bridge without remote approval gate"),
+    checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /readSshAgentStatus[\s\S]*ssh-add/, "handoff reports ssh-agent status and ssh-add recovery"),
+    checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /sshServerDiagnosticsCommand[\s\S]*authorized_keys[\s\S]*sshd -T/, "handoff includes VPS-side SSH diagnostics")
+  ];
+  const evidenceChecks = [
+    checkReleaseManifest(rootDir),
+    checkReleaseArchiveChecksum(rootDir),
+    checkReleaseHandoffFresh(rootDir),
+    checkTransferBundleFresh(rootDir),
+    checkPackagedDesktopPermissionGate(rootDir),
+    checkReleaseReadmeBridgePolicy(rootDir)
+  ];
+  const failedEvidence = evidenceChecks.filter((check) => !check.ok);
+  const staticOk = staticChecks.every((check) => check.ok);
+  const evidenceMissing = failedEvidence.length > 0 && failedEvidence.every(isMissingReleaseEvidence);
+  const status = !staticOk || (failedEvidence.length > 0 && !evidenceMissing)
+    ? "fail"
+    : (failedEvidence.length > 0 ? "blocked" : "pass");
+  return item("cloud.release-package", "可部署 release 包、doctor/smoke/handoff/transfer bundle", [
+    ...staticChecks,
+    ...evidenceChecks
+  ], {
+    status,
+    note: status === "blocked"
+      ? "当前工作区没有完整的 Cloud/Desktop release 证据；生成对应 artifacts 后再执行发布证据审计。"
+      : ""
+  });
+}
+
 function runCloudBridgeRequestSource(source) {
   return source.match(/async function runCloudBridgeRequest\(ws, message = \{\}\) \{[\s\S]*?\n\}/)?.[0] || "";
 }
@@ -350,12 +411,13 @@ function runCommand(command, args, { timeoutMs = 10000 } = {}) {
 
 async function livePublicProductionChecks({
   rootDir = root,
+  expectedRelease = null,
   publicUrl = process.env.MIA_CLOUD_PUBLIC_URL || "https://mia.gifgif.cn",
   timeoutMs = Number(process.env.MIA_AUDIT_TIMEOUT_MS || 10000),
   fetchImpl = fetch
 } = {}) {
   const baseUrl = normalizeBaseUrl(publicUrl);
-  const expected = readExpectedRelease({
+  const expected = expectedRelease || readExpectedRelease({
     manifestPath: path.join(rootDir, "dist", "mia-cloud-release", "manifest.json")
   });
   const controller = new AbortController();
@@ -536,26 +598,7 @@ function runAudit({ rootDir = root } = {}) {
       checkSource(rootDir, "crates/mia-core-cloud/tests/cloud_service.rs", /run_result[\s\S]*done by core/, "Rust Core bridge lifecycle test covers result envelopes"),
       checkSource(rootDir, "tests/serve-cloud-bridge.test.js", /auto-selects the only online device|runs on the explicitly selected online device|requires explicit device selection/, "same-account bridge dispatch tests")
     ]),
-    item("cloud.release-package", "可部署 release 包、doctor/smoke/handoff/transfer bundle", [
-      checkPackageScript(rootDir, "cloud:release", "node scripts/build-cloud-release.js"),
-      checkPackageScript(rootDir, "cloud:deploy:dry-run", "MIA_DEPLOY_DRY_RUN=1 bash scripts/deploy-cloud-release.sh"),
-      checkPackageScript(rootDir, "cloud:deploy:ssh-diagnose", "node scripts/diagnose-deploy-ssh.js"),
-      checkPackageScript(rootDir, "cloud:blockers", "node scripts/print-cloud-blockers.js"),
-      checkPackageScript(rootDir, "cloud:audit", "node scripts/audit-cloud-productization.js --live"),
-      checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),
-      checkPackageScript(rootDir, "cloud:prod:verify:e2e", "MIA_SMOKE_REQUIRE_BRIDGE=1 node scripts/verify-cloud-production.js"),
-      checkPackageScript(rootDir, "cloud:site-verify", "node scripts/verify-site-verification.js"),
-      checkReleaseManifest(rootDir),
-      checkReleaseArchiveChecksum(rootDir),
-      checkReleaseHandoffFresh(rootDir),
-      checkTransferBundleFresh(rootDir),
-      checkPackagedDesktopPermissionGate(rootDir),
-      checkSource(rootDir, "scripts/build-cloud-release.js", /README\.md[\s\S]*install-cloud-release-local\.sh[\s\S]*doctor-cloud\.js[\s\S]*smoke-cloud\.js[\s\S]*verify-site-verification\.js[\s\S]*diagnose-deploy-ssh\.js/, "release package includes operator assets"),
-      checkSource(rootDir, "dist/mia-cloud-release/README.md", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "release README documents same-account bridge without remote approval gate"),
-      checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /same Mia Cloud account[\s\S]*does not require a separate local approval click[\s\S]*Agent permission mode remains/, "transfer bundle documents same-account bridge without remote approval gate"),
-      checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /readSshAgentStatus[\s\S]*ssh-add/, "handoff reports ssh-agent status and ssh-add recovery"),
-      checkSource(rootDir, "scripts/print-cloud-release-handoff.js", /sshServerDiagnosticsCommand[\s\S]*authorized_keys[\s\S]*sshd -T/, "handoff includes VPS-side SSH diagnostics")
-    ]),
+    cloudReleasePackageRequirement(rootDir),
     item("gate.production-deploy", "生产部署和公网 smoke", [
       checkPackageScript(rootDir, "cloud:deploy", "bash scripts/deploy-cloud-release.sh"),
       checkPackageScript(rootDir, "cloud:prod:verify", "node scripts/verify-cloud-production.js"),

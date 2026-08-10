@@ -69,6 +69,17 @@ function dataElements(html, datasetKey, attrName = datasetKey) {
 
 function loadTasksPanel(options = {}) {
   const source = fs.readFileSync(path.join(root, "src/renderer/tasks/tasks-panel.js"), "utf8");
+  const taskSnapshot = {
+    cards: [],
+    chips: [],
+    emptyKind: "",
+    modeTabs: [],
+    newTask: null,
+    pageDirection: 0,
+    preview: null
+  };
+  const taskPublications = [];
+  const dialogSnapshot = { dialog: { kind: "closed" } };
   const elements = new Map([
     ["taskModeToggle", new MockElement("taskModeToggle")],
     ["taskChipRow", new MockElement("taskChipRow")],
@@ -87,6 +98,16 @@ function loadTasksPanel(options = {}) {
       hydrateAvatarMedia() {}
     },
     miaBotManager: { allOwnedBots: () => options.bots || [] },
+    miaReactDialogs: {
+      publish: (patch) => Object.assign(dialogSnapshot, patch)
+    },
+    miaReactTasks: {
+      publish: (patch) => {
+        taskPublications.push(patch);
+        Object.assign(taskSnapshot, patch);
+      }
+    },
+    miaSocial: options.miaSocial || {},
     mia: options.mia,
     addEventListener() {},
     requestAnimationFrame: (fn) => fn()
@@ -113,7 +134,13 @@ function loadTasksPanel(options = {}) {
     requestAnimationFrame: (fn) => fn()
   });
   vm.runInContext(source, context, { filename: "src/renderer/tasks/tasks-panel.js" });
-  return { panel: mockWindow.miaTasksPanel, elements };
+  return {
+    dialogSnapshot,
+    elements,
+    panel: mockWindow.miaTasksPanel,
+    taskPublications,
+    taskSnapshot
+  };
 }
 
 test("task panel render entry points are inert before dependencies are injected", () => {
@@ -222,7 +249,7 @@ test("task unread updates both rail and bottom navigation badges", () => {
 });
 
 test("task history groups runs into one unread card per task", () => {
-  const { panel, elements } = loadTasksPanel();
+  const { panel, taskSnapshot } = loadTasksPanel();
   const state = {
     runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
     tasks: [{
@@ -258,21 +285,46 @@ test("task history groups runs into one unread card per task", () => {
   });
 
   panel.renderTaskView();
-  assert.match(elements.get("taskModeToggle").innerHTML, /data-mode="history"[\s\S]*task-mode-unread/);
-  assert.match(elements.get("taskModeToggle").innerHTML, /data-mode="history"[\s\S]*task-mode-count">1</);
+  const historyTab = taskSnapshot.modeTabs.find((tab) => tab.id === "history");
+  assert.deepEqual(
+    { active: historyTab.active, count: historyTab.count, label: historyTab.label, unread: historyTab.unread },
+    { active: false, count: 1, label: "历史", unread: 1 }
+  );
 
   state.taskMode = "history";
   panel.renderTaskView();
-  assert.equal((tasksContent.innerHTML.match(/task-history-card/g) || []).length, 1);
-  assert.match(tasksContent.innerHTML, /task-history-card[\s\S]*该吃饭了。[\s\S]*执行 2 次[\s\S]*task-card-unread/);
-  assert.doesNotMatch(tasksContent.innerHTML, /旧的失败/);
-  assert.match(elements.get("taskChipRow").innerHTML, /data-history-filter="all"[\s\S]*<span>1<\/span>/);
-  assert.match(elements.get("taskChipRow").innerHTML, /data-history-filter="ok"[\s\S]*<span>1<\/span>/);
-  assert.match(elements.get("taskChipRow").innerHTML, /data-history-filter="failed"[\s\S]*<span>0<\/span>/);
+  assert.equal(taskSnapshot.cards.length, 1);
+  const [card] = taskSnapshot.cards;
+  assert.deepEqual(
+    {
+      botLabel: card.botLabel,
+      meta: card.meta,
+      statusText: card.statusText,
+      title: card.title,
+      type: card.type,
+      unread: card.unread
+    },
+    {
+      botLabel: "nhnh",
+      meta: "该吃饭了。",
+      statusText: "完成 · 06/02 18:20 · 执行 2 次",
+      title: "吃饭提醒",
+      type: "history",
+      unread: 1
+    }
+  );
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(taskSnapshot.chips.map(({ active, count, id, label }) => ({ active, count, id, label })))),
+    [
+      { active: true, count: 1, id: "all", label: "全部" },
+      { active: false, count: 1, id: "ok", label: "成功" },
+      { active: false, count: 0, id: "failed", label: "失败/错过" }
+    ]
+  );
 });
 
-test("active tasks empty state uses the schedule lottie for any empty active list", () => {
-  const { panel } = loadTasksPanel();
+test("active tasks publish the schedule empty state rendered by the React task portal", () => {
+  const { panel, taskSnapshot } = loadTasksPanel();
   const state = {
     runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
     tasks: [{
@@ -306,13 +358,15 @@ test("active tasks empty state uses the schedule lottie for any empty active lis
 
   panel.renderTaskView();
 
-  assert.match(tasksContent.innerHTML, /class="tasks-empty tasks-empty-active"/);
-  assert.match(tasksContent.innerHTML, /data-lottie="task-schedule"/);
-  assert.match(tasksContent.innerHTML, /data-lottie-path="\.\/assets\/lottie\/task-schedule\.tgs"/);
-  assert.match(tasksContent.innerHTML, /data-lottie-format="tgs"/);
-  assert.match(tasksContent.innerHTML, /data-lottie-trigger="loop"/);
-  assert.match(tasksContent.innerHTML, /还没有活跃任务/);
-  assert.doesNotMatch(tasksContent.innerHTML, /tasks-empty-emoji|没有匹配的活跃任务/);
+  assert.equal(taskSnapshot.emptyKind, "active");
+  const taskPortal = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
+  assert.match(taskPortal, /className="tasks-empty tasks-empty-active"/);
+  assert.match(taskPortal, /data-lottie="task-schedule"/);
+  assert.match(taskPortal, /data-lottie-path="\.\/assets\/lottie\/task-schedule\.tgs"/);
+  assert.match(taskPortal, /data-lottie-format="tgs"/);
+  assert.match(taskPortal, /data-lottie-trigger="loop"/);
+  assert.match(taskPortal, /还没有活跃任务/);
+  assert.doesNotMatch(taskPortal, /tasks-empty-emoji|没有匹配的活跃任务/);
 });
 
 test("task schedule empty-state lottie asset is bundled as valid TGS", () => {
@@ -330,7 +384,7 @@ test("task create shows Core schedule validation errors instead of owning future
   assert.doesNotMatch(source, /执行时间必须在未来/);
   assert.doesNotMatch(source, /at\.getTime\(\)\s*<=\s*Date\.now\(\)/);
   assert.match(source, /function taskCreateErrorMessage\(error\)/);
-  assert.match(source, /showError\(taskCreateErrorMessage\(e\)\)/);
+  assert.match(source, /return taskCreateErrorMessage\(e\)/);
 });
 
 test("task create sends declarative schedule intent instead of renderer-owned cron", () => {
@@ -388,7 +442,7 @@ test("task mode and history chips are stable across unchanged renders", () => {
 });
 
 test("pending task detail does not reveal its original instruction", () => {
-  const { panel, elements } = loadTasksPanel();
+  const { panel, taskSnapshot } = loadTasksPanel();
   const state = {
     runtime: { bots: [{ id: "nhnh", key: "nhnh", name: "nhnh" }] },
     tasks: [{
@@ -425,10 +479,19 @@ test("pending task detail does not reveal its original instruction", () => {
 
   panel.renderTaskView();
 
-  const detailHtml = elements.get("taskPreviewBody").innerHTML;
-  assert.match(detailHtml, /等待首次执行/);
-  assert.doesNotMatch(detailHtml, /该发布新版本了/);
-  assert.doesNotMatch(detailHtml, /提醒我发布新版本/);
+  assert.equal(taskSnapshot.preview.title, "发布提醒");
+  assert.equal(taskSnapshot.preview.runs.length, 1);
+  assert.deepEqual(
+    {
+      outputHtml: taskSnapshot.preview.runs[0].outputHtml,
+      outputText: taskSnapshot.preview.runs[0].outputText,
+      pending: taskSnapshot.preview.runs[0].pending
+    },
+    { outputHtml: "", outputText: "", pending: true }
+  );
+  assert.doesNotMatch(JSON.stringify(taskSnapshot.preview), /该发布新版本了|提醒我发布新版本/);
+  const taskPortal = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
+  assert.match(taskPortal, /if \(run\.pending\) return <section className="task-output-pending">等待首次执行<\/section>/);
 });
 
 test("task detail stacks every real run as a chronological chat bubble", () => {
@@ -439,7 +502,7 @@ test("task detail stacks every real run as a chronological chat bubble", () => {
     avatarImage: "https://example.test/mia.png",
     avatarCrop: { x: 48, y: 52, zoom: 1.1 }
   };
-  const { panel, elements } = loadTasksPanel({ bots: [executorBot] });
+  const { panel, taskSnapshot } = loadTasksPanel({ bots: [executorBot] });
   const state = {
     runtime: { bots: [executorBot] },
     tasks: [{
@@ -476,23 +539,31 @@ test("task detail stacks every real run as a chronological chat bubble", () => {
 
   panel.renderTaskView();
 
-  const detailHtml = elements.get("taskPreviewBody").innerHTML;
-  assert.match(detailHtml, /class="task-detail-card"/);
-  assert.equal((detailHtml.match(/class="task-output-row message assistant"/g) || []).length, 2);
-  assert.equal((detailHtml.match(/class="avatar task-output-avatar"/g) || []).length, 2);
-  assert.equal((detailHtml.match(/data-test-avatar-image="https:\/\/example\.test\/mia\.png"/g) || []).length, 2);
-  assert.equal((detailHtml.match(/aria-label="打开对话"/g) || []).length, 2);
-  assert.ok(detailHtml.indexOf("旧的提醒") < detailHtml.indexOf("该吃饭啦，别饿着肚子忙～"));
-  assert.match(detailHtml, /class="bubble task-output-bubble"[\s\S]*旧的提醒/);
-  assert.match(detailHtml, /class="bubble task-output-bubble"[\s\S]*该吃饭啦，别饿着肚子忙～/);
-  assert.match(detailHtml, /data-jump-conversation="c-cloud-1"/);
-  assert.doesNotMatch(detailHtml, /原始指令|历史记录|task-disclosure|data-run-id/);
-  assert.doesNotMatch(detailHtml, /task-detail-sidebar|task-detail-main|data-action="run-now"|运行一次/);
-  assert.doesNotMatch(elements.get("taskPreviewActions").innerHTML, /data-action="run-now"|运行一次/);
+  const preview = taskSnapshot.preview;
+  assert.equal(preview.runs.length, 2);
+  assert.deepEqual(
+    preview.runs.map((run) => ({
+      avatarImage: run.avatar.image,
+      jump: typeof run.jump,
+      outputHtml: run.outputHtml,
+      pending: run.pending
+    })),
+    [
+      { avatarImage: "https://example.test/mia.png", jump: "function", outputHtml: "旧的提醒", pending: false },
+      { avatarImage: "https://example.test/mia.png", jump: "function", outputHtml: "该吃饭啦，别饿着肚子忙～", pending: false }
+    ]
+  );
+  const taskPortal = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
+  assert.match(taskPortal, /className="task-detail-card"/);
+  assert.match(taskPortal, /className="task-output-row message assistant"/);
+  assert.match(taskPortal, /className="avatar task-output-avatar"/);
+  assert.match(taskPortal, /className="bubble task-output-bubble"/);
+  assert.match(taskPortal, /onClick=\{run\.jump\} aria-label="打开对话"/);
+  assert.doesNotMatch(taskPortal, /原始指令|历史记录|task-disclosure|data-run-id|task-detail-sidebar|task-detail-main|run-now|运行一次/);
 });
 
 test("opening a history task card shows all outputs without a nested history control", () => {
-  const { panel, elements } = loadTasksPanel();
+  const { panel, taskSnapshot } = loadTasksPanel();
   const state = {
     runtime: { bots: [{ id: "mia", key: "mia", name: "Mia" }] },
     tasks: [{
@@ -529,9 +600,10 @@ test("opening a history task card shows all outputs without a nested history con
 
   panel.renderTaskView();
 
-  const detailHtml = elements.get("taskPreviewBody").innerHTML;
-  assert.match(detailHtml, /class="bubble task-output-bubble"[\s\S]*旧的真实输出/);
-  assert.match(detailHtml, /class="bubble task-output-bubble"[\s\S]*最新输出/);
-  assert.ok(detailHtml.indexOf("旧的真实输出") < detailHtml.indexOf("最新输出"));
-  assert.doesNotMatch(detailHtml, /run-detail-output|返回任务|data-action="run-now"|原始指令|历史记录|data-run-id/);
+  assert.deepEqual(
+    taskSnapshot.preview.runs.map((run) => run.outputHtml),
+    ["旧的真实输出", "最新输出"]
+  );
+  const taskPortal = fs.readFileSync(path.join(root, "src/renderer/react/components/Tasks.tsx"), "utf8");
+  assert.doesNotMatch(taskPortal, /run-detail-output|返回任务|run-now|原始指令|历史记录|data-run-id/);
 });

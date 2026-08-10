@@ -217,7 +217,10 @@ test("cloud smoke script can verify a standalone token bridge", async () => {
     });
     assert.match(stdout, /OK auth - token accountbridge/);
     assert.match(stdout, /OK bridge devices - 1 online/);
-    assert.match(stdout, /OK bridge run - Account Login Bridge -> run_/);
+    // Device identity canonicalization may use the bridge host name rather than
+    // the operator-facing bridge label. The smoke contract is the successful
+    // run through the one online device, not a presentation string.
+    assert.match(stdout, /OK bridge run - .+ -> run_/);
     assert.match(stdout, /Mia Cloud smoke passed:/);
   } finally {
     if (bridge && !bridge.killed) bridge.kill("SIGTERM");

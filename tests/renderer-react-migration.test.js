@@ -170,11 +170,12 @@ test("React owns the chat header, composer interaction, feature routes, and dial
     "Contacts",
     "Skills",
     "Tasks",
-    "SettingsCompat",
-    "Dialogs"
+    "SettingsCompat"
   ]) {
     assert.match(main, new RegExp(`lazy\\(\\(\\) => import\\("\\./components/${lazyEntry}"\\)\\)`));
   }
+  assert.match(main, /const dialogPortalsModule = import\("\.\/components\/Dialogs"\);/);
+  assert.match(main, /const DialogPortals = lazy\(\(\) => dialogPortalsModule\);/);
 
   assert.match(main, /portal\("composerAttachments", <ComposerAttachments \/>/);
   assert.match(main, /portal\("slashCommandMenu", <SlashCommandMenu \/>/);

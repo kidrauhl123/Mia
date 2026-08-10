@@ -317,7 +317,7 @@ test("bundled library exposes a Mia scheduler skill for reminder requests", asyn
       ? `${skill.description.slice(0, 57)}...`
       : skill.description;
     assert.match(hermesIndexDescription, /reminder|提醒|分钟后/i);
-    assert.match(hermesIndexDescription, /shell|cronjob|sleep/i);
+    assert.doesNotMatch(hermesIndexDescription, /shell|cronjob|sleep/i);
 
     const full = loader.readLocalSkill("mia-scheduler");
     assert.match(full.body, /\[CRON_CREATE\]/);
