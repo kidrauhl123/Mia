@@ -454,6 +454,7 @@ async function scheduleUpdate(ctx = {}, args = {}, options = {}) {
     ? requiredToolText(args, "scheduleDescription")
     : "";
   if (Object.hasOwn(args, "name")) partial.title = requiredToolText(args, "name");
+  if (Object.hasOwn(args, "scheduleDescription")) partial.scheduleDescription = scheduleDescription;
   if (Object.hasOwn(args, "schedule")) Object.assign(partial, scheduleFields(args.schedule));
   if (Object.hasOwn(args, "message")) partial.prompt = requiredToolText(args, "message");
   if (Object.hasOwn(args, "status")) {

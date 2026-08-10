@@ -134,6 +134,7 @@ function rowToTask(row, runs = [], nextFireNow = nowMs()) {
     id: row.id,
     userId: row.user_id,
     title: row.title || "未命名任务",
+    scheduleDescription: row.schedule_description || "",
     botId: row.bot_id,
     conversationId: row.conversation_id,
     sessionId: row.session_id || row.conversation_id,
@@ -159,7 +160,7 @@ function createCloudTasksStore(db, options = {}) {
   const now = options.nowMs || nowMs;
 
   const taskColumns = `
-    id, user_id, title, bot_id, conversation_id, session_id, origin_message_id,
+    id, user_id, title, schedule_description, bot_id, conversation_id, session_id, origin_message_id,
     trigger_json, timezone, prompt, fire_mode, delivery_text, status, runtime_kind, runtime_config_json,
     target_device_id, next_fire_at, created_at, updated_at
   `;
@@ -175,11 +176,11 @@ function createCloudTasksStore(db, options = {}) {
   const insertTask = db.prepare(`
     INSERT INTO scheduled_tasks (
       ${taskColumns}
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateTask = db.prepare(`
     UPDATE scheduled_tasks SET
-      title = ?, bot_id = ?, conversation_id = ?, session_id = ?, origin_message_id = ?,
+      title = ?, schedule_description = ?, bot_id = ?, conversation_id = ?, session_id = ?, origin_message_id = ?,
       trigger_json = ?, timezone = ?, prompt = ?, fire_mode = ?, delivery_text = ?, status = ?, runtime_kind = ?,
       runtime_config_json = ?, target_device_id = ?, next_fire_at = ?, updated_at = ?
     WHERE user_id = ? AND id = ?
@@ -226,6 +227,7 @@ function createCloudTasksStore(db, options = {}) {
       id: idFactory("t"),
       userId: String(userId),
       title: String(normalizedInput.title || "未命名任务"),
+      scheduleDescription: String(normalizedInput.scheduleDescription || ""),
       botId: String(normalizedInput.botId),
       conversationId,
       sessionId,
@@ -248,6 +250,7 @@ function createCloudTasksStore(db, options = {}) {
       task.id,
       task.userId,
       task.title,
+      task.scheduleDescription,
       task.botId,
       task.conversationId,
       task.sessionId,
@@ -304,6 +307,7 @@ function createCloudTasksStore(db, options = {}) {
     merged.nextFireAt = activeNextFire(merged, merged.updatedAt);
     updateTask.run(
       String(merged.title || "未命名任务"),
+      String(merged.scheduleDescription || ""),
       String(merged.botId),
       String(merged.conversationId),
       String(merged.sessionId),

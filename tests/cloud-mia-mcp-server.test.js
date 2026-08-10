@@ -187,6 +187,7 @@ test("cloud Mia MCP exposes conversation-scoped scheduler tools backed by cloud 
           conversationId: body.conversationId,
           sessionId: body.sessionId,
           originMessageId: body.originMessageId,
+          scheduleDescription: body.scheduleDescription,
           trigger: body.trigger || { type: "oneshot", at: "2026-08-10T03:02:00.000Z" },
           timezone: body.timezone,
           prompt: body.prompt,
@@ -199,6 +200,7 @@ test("cloud Mia MCP exposes conversation-scoped scheduler tools backed by cloud 
       } else if (req.method === "PATCH" && req.url === "/api/tasks/task_current") {
         const task = tasks.find((item) => item.id === "task_current");
         if (body.title) task.title = body.title;
+        if (Object.hasOwn(body, "scheduleDescription")) task.scheduleDescription = body.scheduleDescription;
         if (body.prompt) task.prompt = body.prompt;
         if (body.trigger) task.trigger = body.trigger;
         if (body.status) task.status = body.status;
@@ -275,6 +277,7 @@ test("cloud Mia MCP exposes conversation-scoped scheduler tools backed by cloud 
 
     const listed = await callTool("schedule_list_current", {}, { env });
     assert.deepEqual(listed.jobs.map((job) => job.id), ["task_current"]);
+    assert.equal(listed.jobs[0].scheduleDescription, "2 分钟后");
 
     const updated = await callTool("schedule_update", {
       jobId: "task_current",
@@ -285,13 +288,25 @@ test("cloud Mia MCP exposes conversation-scoped scheduler tools backed by cloud 
     }, { env });
     assert.equal(updated.job.name, "午饭提醒");
     assert.equal(updated.job.schedule, "0 12 * * *");
+    assert.equal(updated.job.scheduleDescription, "每天中午 12 点");
     assert.equal(updated.job.status, "paused");
     const patchRequest = requests.find((request) => request.method === "PATCH");
     assert.deepEqual(patchRequest.body, {
       title: "午饭提醒",
+      scheduleDescription: "每天中午 12 点",
       trigger: { type: "cron", cron: "0 12 * * *" },
       status: "paused"
     });
+
+    const descriptionOnlyUpdated = await callTool("schedule_update", {
+      jobId: "task_current",
+      scheduleDescription: "工作日中午 12 点"
+    }, { env });
+    assert.equal(descriptionOnlyUpdated.job.scheduleDescription, "工作日中午 12 点");
+    const descriptionPatchRequest = requests.filter((request) => request.method === "PATCH").at(-1);
+    assert.deepEqual(descriptionPatchRequest.body, { scheduleDescription: "工作日中午 12 点" });
+    const listedAfterDescriptionUpdate = await callTool("schedule_list_current", {}, { env });
+    assert.equal(listedAfterDescriptionUpdate.jobs[0].scheduleDescription, "工作日中午 12 点");
 
     await assert.rejects(
       callTool("schedule_delete", { jobId: "task_foreign" }, { env }),
@@ -391,11 +406,20 @@ test("cloud Mia MCP creates a durable task that fires back into the same bot con
     assert.equal(tasks[0].botId, "meal_bot");
     assert.equal(tasks[0].conversationId, conversation.id);
     assert.equal(tasks[0].originMessageId, "origin_meal_reminder");
+    assert.equal(tasks[0].scheduleDescription, "2 分钟后");
     assert.equal(tasks[0].trigger.type, "oneshot");
     assert.ok(Date.parse(tasks[0].trigger.at) >= before + 119_000);
 
     const listed = await callTool("schedule_list_current", {}, { env });
     assert.deepEqual(listed.jobs.map((job) => job.id), [tasks[0].id]);
+    assert.equal(listed.jobs[0].scheduleDescription, "2 分钟后");
+
+    const updated = await callTool("schedule_update", {
+      jobId: tasks[0].id,
+      scheduleDescription: "3 分钟后"
+    }, { env });
+    assert.equal(updated.job.scheduleDescription, "3 分钟后");
+    assert.equal(server.mia.cloudTasksService.get(userId, tasks[0].id).scheduleDescription, "3 分钟后");
 
     await server.mia.cloudTasksService.runNow(userId, tasks[0].id);
     assert.equal(agentCalls.length, 1);
