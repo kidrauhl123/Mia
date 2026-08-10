@@ -1030,7 +1030,7 @@ test("src/web/styles.css carries desktop-style rich bubble formatting", () => {
   assert.match(css, /\.bubble code\.inline-code\s*\{[\s\S]*?cursor:\s*default;/);
 });
 
-test("message text cursor script loads before app.js and uses caret hit testing", () => {
+test("message text cursor script loads before each renderer bootstrap and uses caret hit testing", () => {
   const webHtml = fs.readFileSync(path.join(ROOT, "src/web/app/index.html"), "utf8");
   const desktopHtml = fs.readFileSync(path.join(ROOT, "src/renderer/index.html"), "utf8");
   const source = fs.readFileSync(path.join(ROOT, "src/shared/message-text-cursor.js"), "utf8");
@@ -1038,12 +1038,12 @@ test("message text cursor script loads before app.js and uses caret hit testing"
   const webCursorIdx = webHtml.indexOf("shared/message-text-cursor.js");
   const webAppIdx = webHtml.indexOf("../app.js");
   const desktopCursorIdx = desktopHtml.indexOf("../shared/message-text-cursor.js");
-  const desktopAppIdx = desktopHtml.indexOf("./app.js");
+  const desktopAppIdx = desktopHtml.indexOf("./react-dist/renderer.js");
 
   assert.ok(webCursorIdx >= 0, "web app must load message text cursor hit testing");
   assert.ok(webCursorIdx < webAppIdx, "web cursor hit testing must load before app.js");
   assert.ok(desktopCursorIdx >= 0, "desktop renderer must load message text cursor hit testing");
-  assert.ok(desktopCursorIdx < desktopAppIdx, "desktop cursor hit testing must load before app.js");
+  assert.ok(desktopCursorIdx < desktopAppIdx, "desktop cursor hit testing must load before the React renderer bootstrap");
   assert.match(source, /caretPositionFromPoint|caretRangeFromPoint/);
   assert.match(source, /pointHitsTextNode/);
   assert.match(source, /TEXT_HIT_CLASS\s*=\s*"text-hit"/);

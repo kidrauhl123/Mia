@@ -276,6 +276,25 @@ function fakeEl(tagName = "div") {
   return new FakeNode(tagName);
 }
 
+function mcpActionName(action = {}) {
+  const id = String(action.id || "");
+  return id.slice(id.lastIndexOf(":") + 1);
+}
+
+function mcpTargetId(card = {}) {
+  const id = String(card.id || "");
+  const separator = id.indexOf(":");
+  return separator >= 0 ? id.slice(separator + 1) : id;
+}
+
+function dialogValues(form) {
+  const values = {};
+  for (const field of childNodes(form)) {
+    if (field.name) values[field.name] = field.value;
+  }
+  return values;
+}
+
 function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {}) {
   let listCalls = 0;
   let marketplaceCalls = 0;
@@ -283,6 +302,16 @@ function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {
   const alerts = [];
   const confirms = [];
   const document = createFakeDocument();
+  const els = {
+    skillPageTitle: fakeEl("h1"),
+    skillChipRow: fakeEl("div"),
+    skillCardGrid: fakeEl("div")
+  };
+  let layoutCalls = 0;
+  let gridSignature = "";
+  let chipsSignature = "";
+  let activeDialogNode = null;
+  let messageNode = null;
   const mcp = {
     list: async () => {
       listCalls += 1;
@@ -310,6 +339,134 @@ function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {
     },
     ...mcpOverrides
   };
+
+  const skillSnapshot = {
+    cards: [],
+    chips: [],
+    emptyText: ""
+  };
+
+  const syncDialogNodes = () => {
+    document.body.children = [];
+    if (activeDialogNode) document.body.appendChild(activeDialogNode);
+    if (messageNode) document.body.appendChild(messageNode);
+  };
+
+  const renderDialog = (dialog) => {
+    if (!dialog || dialog.kind === "closed") {
+      activeDialogNode = null;
+      syncDialogNodes();
+      return;
+    }
+    const host = new FakeNode("section", { role: "dialog" }, document);
+    if (dialog.kind === "mcp-form") {
+      const initial = dialog.initial || {};
+      const type = String(initial.type || "stdio");
+      const selected = (value) => type === value ? " selected" : "";
+      host.innerHTML = `
+        <form data-mcp-form>
+          <input name="name" value="${escapeHtml(initial.name)}">
+          <input name="description" value="${escapeHtml(initial.description)}">
+          <select name="type">
+            <option value="stdio"${selected("stdio")}>stdio</option>
+            <option value="http"${selected("http")}>http</option>
+            <option value="sse"${selected("sse")}>sse</option>
+            <option value="streamable_http"${selected("streamable_http")}>streamable_http</option>
+          </select>
+          <input name="command" value="${escapeHtml(initial.command)}">
+          <textarea name="args">${escapeHtml(initial.args)}</textarea>
+          <textarea name="env">${escapeHtml(initial.env)}</textarea>
+          <input name="url" value="${escapeHtml(initial.url)}">
+          <textarea name="headers">${escapeHtml(initial.headers)}</textarea>
+          <input name="bearerTokenEnvVar" value="${escapeHtml(initial.bearerTokenEnvVar)}">
+        </form>`;
+      const form = host.querySelector("[data-mcp-form]");
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void dialog.submit(dialogValues(form));
+      });
+    } else if (dialog.kind === "mcp-template") {
+      const fields = Array.isArray(dialog.fields) ? dialog.fields : [];
+      host.innerHTML = `<form data-mcp-template-form>${fields.map((field) => (
+        `<label>${escapeHtml(field.label)}<input name="${escapeHtml(field.key)}" type="${field.secret ? "password" : "text"}"></label>`
+      )).join("")}</form>`;
+      const form = host.querySelector("[data-mcp-template-form]");
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        void dialog.submit(dialogValues(form));
+      });
+    }
+    activeDialogNode = host;
+    syncDialogNodes();
+  };
+
+  const renderMessage = (message) => {
+    if (!message) {
+      messageNode = null;
+      syncDialogNodes();
+      return;
+    }
+    messageNode = new FakeNode("section", { role: "alertdialog" }, document);
+    messageNode.innerHTML = `<div data-mcp-alert>${escapeHtml(message.text)}</div>`;
+    syncDialogNodes();
+  };
+
+  const renderGrid = () => {
+    const cards = Array.isArray(skillSnapshot.cards) ? skillSnapshot.cards : [];
+    const signature = JSON.stringify({
+      cards: cards.map((card) => ({
+        actions: (card.actions || []).map((action) => ({
+          className: action.className,
+          disabled: action.disabled,
+          id: action.id,
+          label: action.label
+        })),
+        className: card.className,
+        description: card.description,
+        id: card.id,
+        statusClass: card.statusClass,
+        statusLabel: card.statusLabel,
+        title: card.title
+      })),
+      emptyText: skillSnapshot.emptyText
+    });
+    if (signature !== gridSignature) {
+      gridSignature = signature;
+      els.skillCardGrid.innerHTML = cards.length
+        ? cards.map((card) => {
+          const targetId = mcpTargetId(card);
+          const actions = (card.actions || []).map((action) => (
+            `<button class="${escapeHtml(action.className)}" data-mcp-action="${escapeHtml(mcpActionName(action))}" data-mcp-id="${escapeHtml(targetId)}">${escapeHtml(action.label)}</button>`
+          )).join("");
+          return `<article class="${escapeHtml(card.className)}" data-mcp-id="${escapeHtml(targetId)}"><strong>${escapeHtml(card.title)}</strong><p>${escapeHtml(card.description)}</p><span class="mcp-connect-status mcp-connect-status-${escapeHtml(card.statusClass)}">${escapeHtml(card.statusLabel)}</span>${actions}</article>`;
+        }).join("")
+        : `<div class="skill-empty-state">${escapeHtml(skillSnapshot.emptyText)}</div>`;
+      for (const button of els.skillCardGrid.querySelectorAll("[data-mcp-action]")) {
+        const targetId = button.dataset.mcpId;
+        const actionName = button.dataset.mcpAction;
+        const card = cards.find((item) => mcpTargetId(item) === targetId);
+        const action = card?.actions?.find((item) => mcpActionName(item) === actionName);
+        if (action) button.addEventListener("click", () => { void action.run(); });
+      }
+    }
+    layoutCalls += 1;
+  };
+
+  const renderChips = () => {
+    const chips = Array.isArray(skillSnapshot.chips) ? skillSnapshot.chips : [];
+    const signature = JSON.stringify(chips.map((chip) => ({ id: chip.id, label: chip.label })));
+    if (signature === chipsSignature) return;
+    chipsSignature = signature;
+    els.skillChipRow.innerHTML = chips.map((chip) => (
+      `<button data-mcp-toolbar-action="${escapeHtml(mcpActionName(chip))}">${escapeHtml(chip.label)}</button>`
+    )).join("");
+    const buttons = els.skillChipRow.querySelectorAll("[data-mcp-toolbar-action]");
+    buttons.forEach((button, index) => {
+      const chip = chips[index];
+      if (chip) button.addEventListener("click", () => { chip.select(); });
+    });
+  };
+
   const context = {
     console,
     document,
@@ -320,18 +477,25 @@ function createMcpHarness({ state, mcpOverrides = {}, confirmResult = true } = {
         confirms.push(String(message || ""));
         return confirmResult;
       },
+      miaReactDialogs: {
+        publish: (patch) => {
+          if (Object.prototype.hasOwnProperty.call(patch, "dialog")) renderDialog(patch.dialog);
+          if (Object.prototype.hasOwnProperty.call(patch, "message")) renderMessage(patch.message);
+        }
+      },
+      miaReactSkills: {
+        publish: (patch) => {
+          Object.assign(skillSnapshot, patch);
+          if (Object.prototype.hasOwnProperty.call(patch, "chips")) renderChips();
+          if (Object.prototype.hasOwnProperty.call(patch, "cards") || Object.prototype.hasOwnProperty.call(patch, "emptyText")) renderGrid();
+        }
+      },
       mia: { mcp }
     }
   };
   vm.createContext(context);
   vm.runInContext(read("src/renderer/mcp/mcp-library.js"), context, { filename: "mcp-library.js" });
 
-  const els = {
-    skillPageTitle: fakeEl("h1"),
-    skillChipRow: fakeEl("div"),
-    skillCardGrid: fakeEl("div")
-  };
-  let layoutCalls = 0;
   context.window.miaMcpLibrary.initMcpLibrary({
     state,
     els,
@@ -371,7 +535,9 @@ test("ability library exposes MCP service mode and loads MCP renderer script", (
 
   assert.match(appState, /skillCapabilityMode:\s*"market"/);
   assert.match(appState, /mcp:\s*\{/);
-  assert.match(skillLibrary, /data-skill-mode="mcp"/);
+  assert.match(skillLibrary, /id:\s*"mcp"/);
+  assert.match(skillLibrary, /window\.miaReactSkills\?\.publish\?\./);
+  assert.match(read("src/renderer/react/components/Skills.tsx"), /onClick=\{tab\.select\}/);
   assert.match(skillLibrary, /window\.miaMcpLibrary\.renderMcpLibrary/);
   assert.match(html, /styles\/mcp\.css/);
   assert.match(html, /mcp\/mcp-library\.js/);
@@ -391,7 +557,7 @@ test("mcp renderer includes flat connection oauth and custom actions", () => {
   assert.match(src, /disconnectMcpServer/);
   assert.match(src, /oauth\.login/);
   assert.match(src, /oauth\.logout/);
-  assert.match(src, /data-mcp-toolbar-action="create"/);
+  assert.match(src, /id:\s*"mcp:create"/);
   assert.match(src, /connect-server/);
   assert.match(src, /disconnect-server/);
   assert.match(src, /oauth-login/);

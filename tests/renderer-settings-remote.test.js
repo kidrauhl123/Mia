@@ -252,20 +252,22 @@ test("settings account card includes the mobile scan qr shell and shows it only 
   assert.deepEqual(els.cloudMobileScanCard.classList.toggles.at(-1), ["hidden", true]);
 
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const mobileLogin = fs.readFileSync(path.join(root, "src/renderer/settings/cloud-mobile-login-controller.js"), "utf8");
+  const dialogs = fs.readFileSync(path.join(root, "src/renderer/react/components/Dialogs.tsx"), "utf8");
   assert.match(html, /id="cloudMobileScanCard"/);
   assert.match(html, />在手机端继续</);
   assert.match(html, /id="cloudMobileScanRefresh"/);
   assert.match(html, /id="cloudMobileScanQr"/);
-  assert.match(html, /id="cloudLoginApproveDialog"/);
-  assert.match(html, /允许这台设备登录当前账号/);
+  assert.match(dialogs, /id="cloudLoginApproveDialog"/);
+  assert.match(mobileLogin, /允许这台设备登录当前账号/);
 });
 
 test("mobile scan confirmation polling stays responsive without hard-coded long delay", () => {
-  const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
+  const controllerSource = fs.readFileSync(path.join(root, "src/renderer/settings/cloud-mobile-login-controller.js"), "utf8");
 
-  assert.match(appSource, /const CLOUD_MOBILE_SCAN_PENDING_POLL_MS = 700;/);
-  assert.match(appSource, /pollCloudMobileScanPending\(\)\.catch\(\(\) => \{\}\);\s*\n\s*\}, CLOUD_MOBILE_SCAN_PENDING_POLL_MS\);/);
-  assert.doesNotMatch(appSource, /pollCloudMobileScanPending\(\)\.catch\(\(\) => \{\}\);\s*\n\s*\}, 1500\);/);
+  assert.match(controllerSource, /const POLL_MS = 700;/);
+  assert.match(controllerSource, /poll\(\)\.catch\(\(\) => \{\}\);\s*\n\s*\}, POLL_MS\);/);
+  assert.doesNotMatch(controllerSource, /poll\(\)\.catch\(\(\) => \{\}\);\s*\n\s*\}, 1500\);/);
 });
 
 test("settings account card caches stale-main IPC failures without flashing raw errors", async () => {

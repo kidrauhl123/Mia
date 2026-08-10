@@ -23,6 +23,14 @@ import {
 import type { SkillSourceLogo } from "../stores/skills";
 import type { AvatarView, StatusBadgeView } from "../stores/contacts";
 
+declare global {
+  interface Window {
+    miaSlotText?: {
+      flash?(element: HTMLElement, text: string, options?: Record<string, unknown>): void;
+    };
+  }
+}
+
 function SourceLogo({ logo }: { logo: SkillSourceLogo | null }) {
   if (!logo) return null;
   const className = `skill-source-logo skill-source-logo-${logo.key}`;
@@ -238,6 +246,7 @@ function AddFriendDialog({ dialog }: { dialog: AddFriendDialogView }) {
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [copyLabel, setCopyLabel] = useState("复制");
+  const copyButtonRef = useRef<HTMLButtonElement>(null);
   const send = async () => {
     if (sending) return;
     setSending(true);
@@ -251,6 +260,10 @@ function AddFriendDialog({ dialog }: { dialog: AddFriendDialogView }) {
   };
   const copy = async () => {
     await dialog.copyUid();
+    if (copyButtonRef.current && window.miaSlotText?.flash) {
+      window.miaSlotText.flash(copyButtonRef.current, "已复制", { restingText: "复制", revertAfter: 1200 });
+      return;
+    }
     setCopyLabel("已复制");
     window.setTimeout(() => setCopyLabel("复制"), 1200);
   };
@@ -275,7 +288,7 @@ function AddFriendDialog({ dialog }: { dialog: AddFriendDialogView }) {
             <div className="group-create-section-header"><span className="group-create-section-title">我的 UID</span></div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
               <span style={{ fontWeight: 500, fontVariantNumeric: "tabular-nums" }}>{dialog.myUid || "—"}</span>
-              <button type="button" className="button-soft" style={{ fontSize: 12, padding: "3px 8px" }} onClick={copy}>{copyLabel}</button>
+              <button ref={copyButtonRef} type="button" className="button-soft" style={{ fontSize: 12, padding: "3px 8px" }} onClick={copy}>{copyLabel}</button>
             </div>
           </section>
           <section className="group-create-section">

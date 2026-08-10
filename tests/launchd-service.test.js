@@ -92,7 +92,14 @@ test("startCore re-enables a disabled LaunchAgent before bootstrapping", async (
 });
 
 test("daemon launch agent carries the Core environment and labels", (t) => {
-  const { runtime, service } = setup(t, { defaultApp: () => true });
+  const { runtime, service } = setup(t, {
+    defaultApp: () => true,
+    env: {
+      HERMES_LANGUAGE: "zh",
+      MIA_CORE_BIN: "/tmp/mia-core",
+      PATH: "/usr/local/bin:/usr/bin"
+    }
+  });
 
   const daemonEnv = service.coreEnvironment();
   const plist = service.coreLaunchAgentPlist();
@@ -139,7 +146,12 @@ test("daemon launch agent expands GUI app PATH with common CLI directories", (t)
 test("launchd default resolver uses configured Core host and port", (t) => {
   const { service } = setup(t, {
     defaultApp: () => true,
-    coreSettings: () => ({ host: "localhost", port: 27993 })
+    coreSettings: () => ({ host: "localhost", port: 27993 }),
+    env: {
+      HERMES_LANGUAGE: "zh",
+      MIA_CORE_BIN: "/tmp/mia-core",
+      PATH: "/usr/local/bin:/usr/bin"
+    }
   });
 
   const args = service.coreProgramArguments();

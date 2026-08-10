@@ -15,21 +15,25 @@ function animatedIds(source) {
   return new Set([...match[1].matchAll(/"([^"]+)"/g)].map((item) => item[1]));
 }
 
-test("desktop and web shells load the shared slot-text runtime before app.js", () => {
+test("desktop and web shells load the shared slot-text runtime before their controller", () => {
   const desktopHtml = read("src/renderer/index.html");
   const webHtml = read("src/web/app/index.html");
+  const desktopReact = read("src/renderer/react/main.tsx");
 
   for (const html of [desktopHtml, webHtml]) {
     assert.match(html, /shared\/vendor\/slot-text\/style\.css/);
     assert.match(html, /shared\/slot-text-runtime\.js/);
-    assert.match(html, /slot-text-runtime\.js[\s\S]*app\.js/);
   }
+  assert.match(desktopHtml, /slot-text-runtime\.js[\s\S]*react-dist\/renderer\.js/);
+  assert.match(desktopReact, /appScript\.src = "\.\/app\.js"/);
+  assert.match(webHtml, /slot-text-runtime\.js[\s\S]*app\.js/);
   assert.match(desktopHtml, /vendor\/slot-text\/style\.css[\s\S]*\.\/styles\.css/);
   assert.match(webHtml, /vendor\/slot-text\/style\.css[\s\S]*\.\.\/styles\.css/);
 });
 
 test("desktop status labels opt into slot text through the shared text helper", () => {
   const app = read("src/renderer/app.js");
+  const sessionMenu = read("src/renderer/chat/session-menu-controller.js");
   const modelSettings = read("src/renderer/settings/model-settings.js");
   const ids = animatedIds(app);
 
@@ -39,7 +43,7 @@ test("desktop status labels opt into slot text through the shared text helper", 
     [...ids].sort(),
     ["activeChatMeta", "currentSessionTitle", "modelSwitchStatus"].sort()
   );
-  assert.match(app, /setAnimatedText\(els\.currentSessionTitle,\s*next/);
+  assert.match(sessionMenu, /setAnimatedText\(els\.currentSessionTitle,\s*next/);
   assert.match(app, /setText\(metaEl,\s*tiles\.length \? `群聊 · \$\{tiles\.length\} 人` : "群聊"\)/);
   assert.doesNotMatch(app, /metaEl\.textContent = "私聊"/);
   assert.match(app, /flashAnimatedText\(button,\s*"已复制"/);
@@ -68,8 +72,11 @@ test("code copy buttons keep real text content for slot animation", () => {
   assert.doesNotMatch(webCss, /\.message-code-copy\.copied::before/);
 });
 
-test("social UID copy button flashes through slot text", () => {
+test("social UID copy button flashes through slot text in the React dialog", () => {
   const social = read("src/renderer/social/social.js");
+  const dialogs = read("src/renderer/react/components/Dialogs.tsx");
 
-  assert.match(social, /window\.miaSlotText\?\.flash/);
+  assert.match(social, /copyUid: async/);
+  assert.match(dialogs, /const copyButtonRef = useRef<HTMLButtonElement>\(null\)/);
+  assert.match(dialogs, /window\.miaSlotText\.flash\(copyButtonRef\.current, "已复制", \{ restingText: "复制", revertAfter: 1200 \}\)/);
 });

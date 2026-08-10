@@ -804,13 +804,15 @@ test("Mia app MCP is per-turn Rust stdio and old global-context bridges stay del
   assert.doesNotMatch(mainSource, /conversation_create_group/, "main must not inline Mia app MCP tool definitions");
 });
 
-test("scheduler uses the Aion text protocol and has no MCP bridge", () => {
+test("scheduler uses the Core task runtime and has no MCP bridge", () => {
   const mainSource = fs.readFileSync(path.join(root, "src/main.js"), "utf8");
   const profileSource = fs.readFileSync(path.join(root, "src/main/agent-runtime-profile-service.js"), "utf8");
-  const cronSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/cron_turn.rs"), "utf8");
+  const schedulerSource = fs.readFileSync(path.join(root, "crates/mia-core-app/src/scheduler.rs"), "utf8");
 
   assert.match(profileSource, /function createAgentRuntimeProfileService/, "agent runtime profile service should exist");
-  assert.match(cronSource, /MAX_CRON_CONTINUATIONS/, "Rust Core should own cron continuations");
+  assert.match(schedulerSource, /pub struct TaskScheduler/, "Rust Core should own task scheduling");
+  assert.match(schedulerSource, /execute_task_conversation_turn/, "scheduled runs should enter the Core conversation runtime");
+  assert.equal(fs.existsSync(path.join(root, "crates/mia-core-app/src/cron_turn.rs")), false, "retired cron turn module should stay deleted");
   assert.equal(fs.existsSync(path.join(root, "src/main/scheduler-mcp-bridge.js")), false);
   assert.equal(fs.existsSync(path.join(root, "src/main/scheduler-mcp-server.js")), false);
   assert.doesNotMatch(profileSource, /CODEX_BLOCKED_STATE/, "Codex should use the user's native home without private state filtering");

@@ -124,7 +124,7 @@ test("desktop shell loads and renders independently collapsible device sections"
   assert.match(app, /deviceGroup:\s*isBot\s*\?\s*window\.miaBotManager\?\.botDeviceGroup/);
   assert.match(app, /appendGroupedConversationCards/);
   assert.match(app, /deviceGroups\.orderedConversationSpecs\(specs\)/);
-  assert.match(app, /syncPersonaListActiveState\(renderedSpecs\)/);
+  assert.match(app, /window\.miaReactConversationList\.publish\(\{/);
   assert.match(moduleSource, /collapsedGroups\.(?:add|delete)\(group\.key\)/);
   assert.match(moduleSource, /conversation-device-group-items-clip/);
   assert.match(moduleSource, /devicePlatformIcon\(group\.platform\)/);

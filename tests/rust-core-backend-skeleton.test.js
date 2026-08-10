@@ -9,6 +9,14 @@ const test = require("node:test");
 
 const REPO_ROOT = path.resolve(__dirname, "..");
 
+function cargoCommand() {
+  const configured = String(process.env.CARGO || "").trim();
+  if (configured) return configured;
+  const binary = process.platform === "win32" ? "cargo.exe" : "cargo";
+  const userCargo = path.join(os.homedir(), ".cargo", "bin", binary);
+  return fs.existsSync(userCargo) ? userCargo : binary;
+}
+
 function waitForListening(child, timeoutMs = 120_000) {
   return new Promise((resolve, reject) => {
     let output = "";
@@ -85,7 +93,7 @@ test("Rust Core workspace exposes a dynamic-port health server", async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-test-"));
   const workspaceDir = path.join(dataDir, "workspace");
   const child = spawn(
-    "cargo",
+    cargoCommand(),
     [
       "run",
       "-p",
