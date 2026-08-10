@@ -2,6 +2,13 @@ const crypto = require("node:crypto");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
 const { mergeAssistantText } = require("../shared/assistant-content-blocks.js");
 
+const CLAUDE_NATIVE_CRON_TOOLS = Object.freeze([
+  "CronCreate",
+  "CronDelete",
+  "CronList",
+  "CronUpdate"
+]);
+
 let claudeAgentSdkModule = null;
 
 async function defaultClaudeAgentSdk() {
@@ -392,6 +399,7 @@ function createCloudClaudeCodeClient(deps = {}) {
       env: worker.env || {},
       abortController,
       tools: { type: "preset", preset: "claude_code" },
+      disallowedTools: [...CLAUDE_NATIVE_CRON_TOOLS],
       settingSources: ["project"],
       includePartialMessages: true,
       model,
@@ -530,6 +538,7 @@ function createCloudClaudeCodeClient(deps = {}) {
 }
 
 module.exports = {
+  CLAUDE_NATIVE_CRON_TOOLS,
   buildPrompt,
   claudeMessageText,
   createCloudClaudeCodeClient,

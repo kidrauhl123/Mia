@@ -9,6 +9,10 @@ const readline = require("node:readline");
 const APP_TOOLS = new Set([
   "context_snapshot",
   "memory",
+  "schedule_list_current",
+  "schedule_create",
+  "schedule_update",
+  "schedule_delete",
   "skill_list_current",
   "skill_read_current",
   "skill_search",
@@ -18,6 +22,7 @@ const APP_TOOLS = new Set([
 
 const READ_TOOLS = new Set([
   "context_snapshot",
+  "schedule_list_current",
   "skill_list_current",
   "skill_read_current",
   "skill_search",
@@ -25,9 +30,12 @@ const READ_TOOLS = new Set([
 ]);
 const WRITE_TOOLS = new Set([
   "memory",
+  "schedule_create",
+  "schedule_update",
+  "schedule_delete",
   "skill_install"
 ]);
-const DESTRUCTIVE_TOOLS = new Set(["memory"]);
+const DESTRUCTIVE_TOOLS = new Set(["memory", "schedule_delete"]);
 
 function envOf(options = {}) {
   return options.env || process.env;
@@ -99,6 +107,53 @@ function cloudToolDefinitions() {
             then: { required: ["oldText"] }
           }
         ],
+        additionalProperties: false
+      }
+    },
+    {
+      name: "schedule_list_current",
+      description: "List scheduled tasks for only the current Mia conversation.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false }
+    },
+    {
+      name: "schedule_create",
+      description: "Create a scheduled task in the current Mia conversation. The task will run with this Agent.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", minLength: 1 },
+          schedule: { anyOf: [{ type: "string", minLength: 1 }, { type: "object" }] },
+          scheduleDescription: { type: "string", minLength: 1 },
+          message: { type: "string", minLength: 1 }
+        },
+        required: ["name", "schedule", "scheduleDescription", "message"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: "schedule_update",
+      description: "Update one scheduled task in the current Mia conversation. Use an id returned by schedule_list_current.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          jobId: { type: "string", minLength: 1 },
+          name: { type: "string", minLength: 1 },
+          schedule: { anyOf: [{ type: "string", minLength: 1 }, { type: "object" }] },
+          scheduleDescription: { type: "string", minLength: 1 },
+          message: { type: "string", minLength: 1 },
+          status: { type: "string", enum: ["active", "paused"] }
+        },
+        required: ["jobId"],
+        additionalProperties: false
+      }
+    },
+    {
+      name: "schedule_delete",
+      description: "Delete one scheduled task in the current Mia conversation. Use an id returned by schedule_list_current.",
+      inputSchema: {
+        type: "object",
+        properties: { jobId: { type: "string", minLength: 1 } },
+        required: ["jobId"],
         additionalProperties: false
       }
     },
@@ -298,6 +353,131 @@ function memoryResultForAgent(result = {}) {
   return output;
 }
 
+function requiredToolText(args = {}, key = "") {
+  const value = cleanText(args[key]);
+  if (!value) throw new Error(`${key} is required`);
+  return value;
+}
+
+function schedulerScope(ctx = {}) {
+  const botId = cleanText(ctx.botId || "");
+  const conversationId = cleanText(ctx.conversationId || ctx.sessionId || "").replace(/^conversation:/, "");
+  if (!botId) throw new Error("botId is required");
+  if (!conversationId) throw new Error("conversationId is required");
+  return { botId, conversationId };
+}
+
+function scheduleFields(schedule) {
+  if (typeof schedule === "string") {
+    const value = cleanText(schedule);
+    if (!value) throw new Error("schedule is required");
+    return { schedule: value };
+  }
+  if (!schedule || typeof schedule !== "object" || Array.isArray(schedule)) {
+    throw new Error("schedule is required");
+  }
+  const type = cleanText(schedule.type || schedule.kind || "").toLowerCase();
+  const cron = cleanText(schedule.cron || (type === "cron" ? schedule.expression : ""));
+  const at = cleanText(schedule.at || schedule.timestamp || "");
+  if (cron) return { trigger: { type: "cron", cron } };
+  if (at) return { trigger: { type: "oneshot", at } };
+  throw new Error("schedule object must contain cron or at");
+}
+
+function taskSchedule(task = {}) {
+  const trigger = task.trigger && typeof task.trigger === "object" ? task.trigger : {};
+  return trigger.type === "cron" ? cleanText(trigger.cron) : cleanText(trigger.at);
+}
+
+function schedulerJob(task = {}, scheduleDescription = "") {
+  return {
+    id: cleanText(task.id),
+    name: cleanText(task.title),
+    schedule: taskSchedule(task),
+    scheduleDescription: cleanText(scheduleDescription || task.scheduleDescription || ""),
+    message: cleanText(task.prompt),
+    status: cleanText(task.status || "active"),
+    timezone: cleanText(task.timezone || ""),
+    nextFireAt: task.nextFireAt == null ? null : Number(task.nextFireAt)
+  };
+}
+
+function taskInScope(task = {}, scope = {}) {
+  return cleanText(task.botId || task.bot_id) === scope.botId
+    && cleanText(task.conversationId || task.conversation_id).replace(/^conversation:/, "") === scope.conversationId;
+}
+
+async function currentScheduledTasks(ctx = {}, options = {}) {
+  const scope = schedulerScope(ctx);
+  const result = await cloudJson("GET", "/api/tasks", null, options);
+  const tasks = Array.isArray(result?.tasks) ? result.tasks : [];
+  return { scope, tasks: tasks.filter((task) => taskInScope(task, scope)) };
+}
+
+async function currentScheduledTask(ctx = {}, jobId = "", options = {}) {
+  const id = cleanText(jobId);
+  if (!id) throw new Error("jobId is required");
+  const current = await currentScheduledTasks(ctx, options);
+  const task = current.tasks.find((item) => cleanText(item.id) === id);
+  if (!task) throw new Error("scheduled task not found in this conversation");
+  return { ...current, task };
+}
+
+async function scheduleListCurrent(ctx = {}, options = {}) {
+  const current = await currentScheduledTasks(ctx, options);
+  return { jobs: current.tasks.map((task) => schedulerJob(task)) };
+}
+
+async function scheduleCreate(ctx = {}, args = {}, options = {}) {
+  const scope = schedulerScope(ctx);
+  const scheduleDescription = requiredToolText(args, "scheduleDescription");
+  const result = await cloudJson("POST", "/api/tasks", {
+    title: requiredToolText(args, "name"),
+    ...scope,
+    sessionId: cleanText(ctx.sessionId || scope.conversationId),
+    originMessageId: cleanText(ctx.originMessageId || ""),
+    ...scheduleFields(args.schedule),
+    scheduleDescription,
+    timezone: cleanText(ctx.timezone || ctx.timeZone || "Asia/Shanghai"),
+    fireMode: "agent",
+    prompt: requiredToolText(args, "message")
+  }, options);
+  if (!result?.task?.id) throw new Error("Mia Cloud did not return the created task");
+  return { job: schedulerJob(result.task, scheduleDescription) };
+}
+
+async function scheduleUpdate(ctx = {}, args = {}, options = {}) {
+  const jobId = requiredToolText(args, "jobId");
+  await currentScheduledTask(ctx, jobId, options);
+  const partial = {};
+  const scheduleDescription = Object.hasOwn(args, "scheduleDescription")
+    ? requiredToolText(args, "scheduleDescription")
+    : "";
+  if (Object.hasOwn(args, "name")) partial.title = requiredToolText(args, "name");
+  if (Object.hasOwn(args, "scheduleDescription")) partial.scheduleDescription = scheduleDescription;
+  if (Object.hasOwn(args, "schedule")) Object.assign(partial, scheduleFields(args.schedule));
+  if (Object.hasOwn(args, "message")) partial.prompt = requiredToolText(args, "message");
+  if (Object.hasOwn(args, "status")) {
+    const status = cleanText(args.status);
+    if (status !== "active" && status !== "paused") throw new Error("status must be active or paused");
+    partial.status = status;
+  }
+
+  if (!Object.keys(partial).length) {
+    throw new Error("schedule_update requires at least one field to change");
+  }
+  const result = await cloudJson("PATCH", `/api/tasks/${encodeURIComponent(jobId)}`, partial, options);
+  if (!result?.task?.id) throw new Error("Mia Cloud did not return the updated task");
+  return { job: schedulerJob(result.task, scheduleDescription) };
+}
+
+async function scheduleDelete(ctx = {}, args = {}, options = {}) {
+  const jobId = requiredToolText(args, "jobId");
+  await currentScheduledTask(ctx, jobId, options);
+  await cloudJson("DELETE", `/api/tasks/${encodeURIComponent(jobId)}`, null, options);
+  return { ok: true, jobId };
+}
+
 async function callTool(name, args = {}, options = {}) {
   const ctx = readContext(options);
   switch (name) {
@@ -316,6 +496,18 @@ async function callTool(name, args = {}, options = {}) {
 
     case "memory":
       return cloudMemoryMutation(ctx, args, options);
+
+    case "schedule_list_current":
+      return scheduleListCurrent(ctx, options);
+
+    case "schedule_create":
+      return scheduleCreate(ctx, args, options);
+
+    case "schedule_update":
+      return scheduleUpdate(ctx, args, options);
+
+    case "schedule_delete":
+      return scheduleDelete(ctx, args, options);
 
     case "skill_list_current":
       return contextSkillList(ctx);

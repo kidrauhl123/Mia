@@ -1268,6 +1268,7 @@ function migrate(db) {
       id                  TEXT PRIMARY KEY,
       user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       title               TEXT NOT NULL,
+      schedule_description TEXT NOT NULL DEFAULT '',
       bot_id              TEXT NOT NULL,
       conversation_id     TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
       session_id          TEXT NOT NULL DEFAULT '',
@@ -1733,6 +1734,15 @@ function migrate(db) {
     }
     db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (27, ?)").run(nowIso());
   }
+
+  // v28: retain the human-readable schedule requested by the agent. The
+  // trigger remains authoritative for execution, while this text is returned
+  // to the agent when it lists or edits a task.
+  if (!hasColumn(db, "scheduled_tasks", "schedule_description")) {
+    db.exec("ALTER TABLE scheduled_tasks ADD COLUMN schedule_description TEXT NOT NULL DEFAULT ''");
+  }
+  db.prepare("INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (28, ?)")
+    .run(nowIso());
 
   const insertRateCardSeed = db.prepare(`
     INSERT OR IGNORE INTO model_rate_cards (

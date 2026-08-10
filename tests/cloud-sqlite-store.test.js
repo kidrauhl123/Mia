@@ -22,6 +22,64 @@ function cleanup(dir) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+test("sqlite store migrates legacy scheduled tasks with an empty schedule description", () => {
+  const paths = tempStore();
+  const legacy = new DatabaseSync(paths.dbPath);
+  try {
+    legacy.exec(`
+      CREATE TABLE scheduled_tasks (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        bot_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        session_id TEXT NOT NULL DEFAULT '',
+        origin_message_id TEXT NOT NULL DEFAULT '',
+        trigger_json TEXT NOT NULL DEFAULT '{}',
+        timezone TEXT NOT NULL DEFAULT 'UTC',
+        prompt TEXT NOT NULL DEFAULT '',
+        fire_mode TEXT NOT NULL DEFAULT 'agent',
+        delivery_text TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        runtime_kind TEXT NOT NULL DEFAULT '',
+        runtime_config_json TEXT NOT NULL DEFAULT '{}',
+        target_device_id TEXT NOT NULL DEFAULT '',
+        next_fire_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO scheduled_tasks (
+        id, user_id, title, bot_id, conversation_id, session_id, origin_message_id,
+        trigger_json, timezone, prompt, fire_mode, delivery_text, status, runtime_kind,
+        runtime_config_json, target_device_id, next_fire_at, created_at, updated_at
+      ) VALUES (
+        'legacy_task', 'legacy_user', 'Legacy task', 'legacy_bot', 'legacy_conversation', '', '',
+        '{"type":"cron","cron":"0 9 * * *"}', 'UTC', 'legacy prompt', 'agent', '', 'active', '',
+        '{}', '', NULL, 1, 1
+      );
+    `);
+  } finally {
+    legacy.close();
+  }
+
+  const store = createCloudStore(paths);
+  try {
+    const migrated = store.getDb().prepare(`
+      SELECT schedule_description AS scheduleDescription
+      FROM scheduled_tasks
+      WHERE id = ?
+    `).get("legacy_task");
+    assert.equal(migrated.scheduleDescription, "");
+    const migration = store.getDb()
+      .prepare("SELECT version FROM schema_migrations WHERE version = 28")
+      .get();
+    assert.equal(migration.version, 28);
+  } finally {
+    store.close();
+    cleanup(paths.dataDir);
+  }
+});
+
 test("sqlite store logs in with WeChat, authenticates, and logs out a user", () => {
   const paths = tempStore();
   const store = createCloudStore(paths);

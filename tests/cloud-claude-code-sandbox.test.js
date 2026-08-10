@@ -321,6 +321,12 @@ test("cloud Claude Code client enables only turn-scoped native project skills", 
   assert.deepEqual(capture.params.options.settingSources, ["project"]);
   assert.deepEqual(capture.params.options.additionalDirectories, ["/tmp/mia-worker/workspace"]);
   assert.deepEqual(capture.params.options.skills, ["mia-scheduler"]);
+  assert.deepEqual(capture.params.options.disallowedTools, [
+    "CronCreate",
+    "CronDelete",
+    "CronList",
+    "CronUpdate"
+  ]);
 });
 
 test("cloud Claude Code client allows trusted Mia cloud stdio MCP servers", async () => {
