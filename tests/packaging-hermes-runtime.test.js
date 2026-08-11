@@ -285,6 +285,7 @@ test("Apple Silicon macOS build config labels DMG artifacts for Apple Silicon Ma
 
   assert.match(source, /artifactName:\s*"\$\{productName\}-\$\{version\}-Apple-Silicon\.\$\{ext\}"/);
   assert.match(source, /target:\s*\["dir", "zip"\]/);
+  assert.match(source, /filter: \["darwin-arm64\/\*\*\/\*"\]/);
 });
 
 test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
@@ -294,6 +295,7 @@ test("Intel macOS build config labels DMG artifacts for Intel Macs", () => {
   assert.match(source, /target:\s*\["dir", "zip"\]/);
   assert.match(source, /identity:\s*"XiaoChuan Technology Co\., Ltd\. \(S4NWU843M5\)"/);
   assert.match(source, /hardenedRuntime:\s*true/);
+  assert.match(source, /filter: \["darwin-x64\/\*\*\/\*"\]/);
 });
 
 test("custom macOS DMG script writes a Finder drag-to-Applications layout", () => {
