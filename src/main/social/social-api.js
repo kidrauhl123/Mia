@@ -113,6 +113,37 @@ function createSocialApi({ getSettings, normalizeUrl, fetchImpl = fetch, maxConc
         body: withOpId({})
       });
     },
+    async getCloudWechatClawbotStatus(channelId) {
+      return jsonRequest({
+        ...ctx(),
+        method: "GET",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}/wechat-clawbot/status`
+      });
+    },
+    async startCloudWechatClawbotLink(channelId) {
+      return jsonRequest({
+        ...ctx(),
+        method: "POST",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}/wechat-clawbot/link`,
+        body: withOpId({})
+      });
+    },
+    async submitCloudWechatClawbotPairingCode(channelId, body = {}) {
+      return jsonRequest({
+        ...ctx(),
+        method: "POST",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}/wechat-clawbot/pairing-code`,
+        body: { code: String(body?.code || "").trim() }
+      });
+    },
+    async disconnectCloudWechatClawbot(channelId) {
+      return jsonRequest({
+        ...ctx(),
+        method: "POST",
+        path: `/api/me/im-channels/${encodeURIComponent(String(channelId || ""))}/wechat-clawbot/disconnect`,
+        body: withOpId({})
+      });
+    },
     async getBotIdentity(botId) {
       return jsonRequest({ ...ctx(), method: "GET", path: `/api/me/bots/${encodeURIComponent(botId)}` });
     },

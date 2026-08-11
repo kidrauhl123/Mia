@@ -62,6 +62,12 @@ function createImChannelStore(db) {
   const selectById = db.prepare("SELECT * FROM im_channels WHERE id = ?");
   const selectByUserId = db.prepare("SELECT * FROM im_channels WHERE user_id = ? ORDER BY updated_at DESC, id DESC LIMIT ?");
   const selectByUserAndId = db.prepare("SELECT * FROM im_channels WHERE user_id = ? AND id = ?");
+  const selectEnabledByProvider = db.prepare(`
+    SELECT * FROM im_channels
+    WHERE provider = ? AND enabled = 1
+    ORDER BY updated_at DESC, id DESC
+    LIMIT ?
+  `);
   const insertChannel = db.prepare(`
     INSERT INTO im_channels (
       id, user_id, provider, bot_id, name, enabled, settings_json,
@@ -78,6 +84,11 @@ function createImChannelStore(db) {
   const updateStatusStmt = db.prepare(`
     UPDATE im_channels
     SET last_error = ?, last_event_at = COALESCE(?, last_event_at), updated_at = ?
+    WHERE id = ?
+  `);
+  const updateSecretsStmt = db.prepare(`
+    UPDATE im_channels
+    SET secrets_ciphertext = ?, updated_at = ?
     WHERE id = ?
   `);
   const insertEventClaim = db.prepare(`
@@ -149,6 +160,13 @@ function createImChannelStore(db) {
     return selectByUserId.all(String(userId || ""), cap).map((row) => channelFromRow(row));
   }
 
+  function listEnabledChannelsByProvider(provider, limit = 500, options = {}) {
+    const cap = Math.min(Math.max(Number(limit) || 500, 1), 1000);
+    return selectEnabledByProvider
+      .all(String(provider || ""), cap)
+      .map((row) => channelFromRow(row, options));
+  }
+
   function createChannel(input = {}) {
     const timestamp = nowIso();
     const id = String(input.id || randomId("imc"));
@@ -193,6 +211,11 @@ function createImChannelStore(db) {
 
   function recordChannelStatus(channelId, { lastError = "", lastEventAt = null } = {}) {
     updateStatusStmt.run(String(lastError || ""), lastEventAt ? String(lastEventAt) : null, nowIso(), String(channelId || ""));
+  }
+
+  function updateChannelSecrets(channelId, secretsCiphertext) {
+    updateSecretsStmt.run(String(secretsCiphertext || ""), nowIso(), String(channelId || ""));
+    return getChannel(channelId, { includeSecrets: true });
   }
 
   function claimInboundEvent(channelId, providerEventId) {
@@ -277,10 +300,12 @@ function createImChannelStore(db) {
     getChannel,
     getChannelForUser,
     listChannelsForUser,
+    listEnabledChannelsByProvider,
     createChannel,
     updateChannel,
     deleteChannel,
     recordChannelStatus,
+    updateChannelSecrets,
     claimInboundEvent,
     getInboundEvent,
     markInboundEvent,

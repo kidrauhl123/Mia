@@ -344,6 +344,18 @@ function registerSocialIpc({ ipcMain, socialApi, messageCache = null, getCloudUs
   ipcMain.handle(IpcChannel.SocialUpdateImChannel, cloudConfigurationCall((channelId, body) => socialApi.updateImChannel(channelId, body)));
   ipcMain.handle(IpcChannel.SocialDeleteImChannel, cloudConfigurationCall((channelId) => socialApi.deleteImChannel(channelId)));
   ipcMain.handle(IpcChannel.SocialTestImChannel, cloudConfigurationCall((channelId) => socialApi.testImChannel(channelId)));
+  ipcMain.handle(IpcChannel.SocialGetCloudWechatClawbotStatus, cloudConfigurationCall((channelId) => (
+    socialApi.getCloudWechatClawbotStatus(channelId)
+  )));
+  ipcMain.handle(IpcChannel.SocialStartCloudWechatClawbotLink, cloudConfigurationCall((channelId) => (
+    socialApi.startCloudWechatClawbotLink(channelId)
+  )));
+  ipcMain.handle(IpcChannel.SocialSubmitCloudWechatClawbotPairingCode, cloudConfigurationCall((channelId, body) => (
+    socialApi.submitCloudWechatClawbotPairingCode(channelId, body)
+  )));
+  ipcMain.handle(IpcChannel.SocialDisconnectCloudWechatClawbot, cloudConfigurationCall((channelId) => (
+    socialApi.disconnectCloudWechatClawbot(channelId)
+  )));
   ipcMain.handle(IpcChannel.SocialEncodeWechatClawbotQr, safeCall((content) => encodeWechatClawbotQr(content)));
   ipcMain.handle(IpcChannel.SocialSaveBotIdentity, cloudCall(async (botId, body = {}) => {
     const result = await socialApi.saveBotIdentity(botId, body);

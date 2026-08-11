@@ -15,7 +15,7 @@
       label: "微信",
       callbackPath: "",
       availability: "available",
-      transport: "device-relay"
+      transport: "runtime-owned"
     })
   });
 

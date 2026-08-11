@@ -67,6 +67,12 @@ try {
 } catch {
   ({ createImChannelSecretBox } = require("./src/cloud/im-channel-crypto.js"));
 }
+let createWechatClawbotCloudService = null;
+try {
+  ({ createWechatClawbotCloudService } = require("../src/cloud/wechat-clawbot-service.js"));
+} catch {
+  ({ createWechatClawbotCloudService } = require("./src/cloud/wechat-clawbot-service.js"));
+}
 let runtimeBindingIntents = null;
 try {
   runtimeBindingIntents = require("../src/shared/runtime-binding-intents.js");
@@ -4587,6 +4593,36 @@ async function handleRequest(req, res, context) {
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
     }
+    const cloudWechatStatusMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/wechat-clawbot\/status$/);
+    const cloudWechatLinkMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/wechat-clawbot\/link$/);
+    const cloudWechatPairingMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/wechat-clawbot\/pairing-code$/);
+    const cloudWechatDisconnectMatch = url.pathname.match(/^\/api\/me\/im-channels\/([A-Za-z0-9_.-]+)\/wechat-clawbot\/disconnect$/);
+    if (req.method === "GET" && cloudWechatStatusMatch) {
+      return writeJson(res, 200, {
+        status: context.imChannelsService.cloudWechatStatus(auth.user.id, cloudWechatStatusMatch[1])
+      });
+    }
+    if (req.method === "POST" && cloudWechatLinkMatch) {
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const status = await context.imChannelsService.startCloudWechatLink(auth.user.id, cloudWechatLinkMatch[1]);
+      const payload = { status };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
+    }
+    if (req.method === "POST" && cloudWechatPairingMatch) {
+      const body = await readJson(req);
+      const status = context.imChannelsService.submitCloudWechatPairingCode(auth.user.id, cloudWechatPairingMatch[1], body);
+      return writeJson(res, 200, { status });
+    }
+    if (req.method === "POST" && cloudWechatDisconnectMatch) {
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      const status = await context.imChannelsService.disconnectCloudWechat(auth.user.id, cloudWechatDisconnectMatch[1]);
+      const payload = { status };
+      rememberOp(context, auth.user.id, body, 200, payload);
+      return writeJson(res, 200, payload);
+    }
     // WeChat ClawBot is a device relay, not a public callback.  These routes
     // are therefore normal account-authenticated APIs used only by the
     // selected local Core.  They never accept a WeChat Bot token or context
@@ -4700,6 +4736,7 @@ async function handleRequest(req, res, context) {
         preserveEnabled: body.preserveEnabled === true || body.preserve_enabled === true,
         config
       });
+      context.wechatClawbotService?.onRuntimeChanged?.(auth.user.id, botId);
       broadcastPersistedEvent(context, auth.user.id, { type: "bot.runtime_updated", binding });
       const payload = { binding };
       rememberOp(context, auth.user.id, body, 200, payload);
@@ -5178,6 +5215,7 @@ function createMiaCloudServer(options = {}) {
     publicUrl: options.publicUrl || process.env.MIA_CLOUD_PUBLIC_URL || "",
     imChannelStore: null,
     imChannelsService: null,
+    wechatClawbotService: null,
     wechatAuth: null,
     mobileScanLogin: null,
     chatMcpApi: null
@@ -5336,12 +5374,20 @@ function createMiaCloudServer(options = {}) {
   if (context.eventLogPurgeTimer.unref) context.eventLogPurgeTimer.unref();
   context.userSettingsStore = createUserSettingsStore(context.cloudStore.getDb());
   context.imChannelStore = createImChannelStore(context.cloudStore.getDb());
+  const imChannelSecretBox = createImChannelSecretBox(
+    options.imEncryptionKey || process.env.MIA_IM_ENCRYPTION_KEY || ""
+  );
+  const isCloudWechatBot = (channel = {}) => (
+    context.runtimeBindingsStore
+      ?.getActiveBinding(String(channel.userId || ""), String(channel.botId || ""))
+      ?.runtimeKind === "cloud-claude-code"
+  );
   context.imChannelsService = createImChannelService({
     store: context.imChannelStore,
     socialStore: context.socialStore,
     messagesStore: context.messagesStore,
     botsStore: context.botsStore,
-    secretBox: createImChannelSecretBox(options.imEncryptionKey || process.env.MIA_IM_ENCRYPTION_KEY || ""),
+    secretBox: imChannelSecretBox,
     fetchImpl: options.fetchImpl || fetch,
     publicOrigin: () => publicOriginFromContext(context),
     broadcast: (userId, payload) => broadcastPersistedEvent(context, userId, payload),
@@ -5353,7 +5399,19 @@ function createMiaCloudServer(options = {}) {
       broadcastBotDmDesktopInvocationFallback(context, conversationId, message, invokedBy);
       return null;
     },
+    isCloudBot: isCloudWechatBot,
+    wechatClawbotTransport: () => context.wechatClawbotService,
     log: (message, error) => console.warn(message, error)
+  });
+  context.wechatClawbotService = createWechatClawbotCloudService({
+    store: context.imChannelStore,
+    secretBox: imChannelSecretBox,
+    fetchImpl: options.fetchImpl || fetch,
+    isCloudChannel: isCloudWechatBot,
+    receiveInbound: (channel, input) => context.imChannelsService.receiveWechatClawbotCloud(channel, input)
+  });
+  context.wechatClawbotService.start().catch((error) => {
+    console.warn("[wechat-clawbot] cloud relay startup failed:", error?.message || error);
   });
   context.wechatAuth = createWechatAuthFlow({
     cloudStore: context.cloudStore,
@@ -5394,10 +5452,15 @@ function createMiaCloudServer(options = {}) {
   const wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => handleBridgeUpgrade(req, socket, head, context, wss));
   server.on("close", () => {
+    void context.wechatClawbotService?.shutdown?.();
     context.cloudTasksService?.stop?.();
     context.cloudStore.close?.();
   });
   server.mia = context;
+  server.shutdown = async () => {
+    await context.wechatClawbotService?.shutdown?.();
+    await new Promise((resolve) => server.close(() => resolve()));
+  };
   return server;
 }
 
@@ -5406,6 +5469,16 @@ if (require.main === module) {
   server.listen(port, host, () => {
     console.log(`Mia Cloud API listening on http://${host}:${port}`);
   });
+  let stopping = false;
+  const stop = () => {
+    if (stopping) return;
+    stopping = true;
+    server.shutdown()
+      .catch((error) => console.warn("[cloud] graceful shutdown failed:", error?.message || error))
+      .finally(() => process.exit(0));
+  };
+  process.once("SIGTERM", stop);
+  process.once("SIGINT", stop);
 }
 
 module.exports = {

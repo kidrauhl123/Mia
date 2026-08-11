@@ -46,6 +46,15 @@ function fakeResponse(payload) {
   };
 }
 
+async function waitFor(predicate, { timeoutMs = 3000, intervalMs = 15 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  assert.fail("timed out waiting for expected result");
+}
+
 function createFixture() {
   const dataDir = tempDir("mia-cloud-im-channels-");
   const outbound = [];
@@ -418,5 +427,192 @@ test("微信通过受控本机中继投递，Cloud 不保存微信回复上下�
     }
   } finally {
     await destroyFixture(fixture);
+  }
+});
+
+test("云端 Bot 把微信会话、轮询和回复留在 Mia Cloud，重启后不需要本机 Core", async () => {
+  const dataDir = tempDir("mia-cloud-wechat-clawbot-");
+  const outbound = [];
+  let updateCalls = 0;
+  let server = null;
+  const fetchImpl = async (url, options = {}) => {
+    const target = String(url);
+    outbound.push({ target, options });
+    if (target.includes("get_bot_qrcode")) {
+      return fakeResponse({ qrcode: "wx_qr_1", qrcode_img_content: "weixin://cloud-qr" });
+    }
+    if (target.includes("get_qrcode_status")) {
+      return fakeResponse({
+        status: "confirmed",
+        bot_token: "cloud-wechat-bot-token",
+        ilink_bot_id: "wx_cloud_bot",
+        ilink_user_id: "wx_cloud_owner",
+        baseurl: "https://ilinkai.weixin.qq.com"
+      });
+    }
+    if (target.includes("notifystart") || target.includes("notifystop")) return fakeResponse({ ret: 0 });
+    if (target.includes("getupdates")) {
+      updateCalls += 1;
+      if (updateCalls === 1) {
+        return fakeResponse({
+          ret: 0,
+          get_updates_buf: "wx_cursor_1",
+          msgs: [{
+            message_id: "wx_cloud_message_1",
+            message_type: 1,
+            from_user_id: "wx_cloud_owner",
+            context_token: "cloud-context-token",
+            item_list: [{ type: 1, text_item: { text: "云端微信你好" } }]
+          }]
+        });
+      }
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      });
+    }
+    if (target.includes("sendmessage")) return fakeResponse({ ret: 0 });
+    throw new Error(`Unexpected provider request ${target}`);
+  };
+  const dispatcher = {
+    async handleUserMessage({ userId, conversationId, message }) {
+      const botMember = server.mia.socialStore.listConversationMembers(conversationId)
+        .find((member) => member.member_kind === "bot");
+      return server.mia.messagesStore.appendMessage({
+        conversationId,
+        senderKind: "bot",
+        senderRef: botMember.member_ref,
+        senderOwnerId: userId,
+        bodyMd: "云端 Bot 已回复",
+        triggerMessageId: message.id,
+        status: "complete"
+      });
+    }
+  };
+  server = createMiaCloudServer({
+    dataDir,
+    publicUrl: "https://mia.test",
+    imEncryptionKey: "cloud-wechat-encryption-key",
+    cloudAgentDispatcher: dispatcher,
+    fetchImpl
+  });
+  const account = loginCloudUser(server.mia.cloudStore, "cloud-wechat-user");
+  const bot = server.mia.botsStore.upsertBot(account.user.id, {
+    id: "cloud_wechat_bot",
+    displayName: "云端微信 Bot"
+  });
+  server.mia.runtimeBindingsStore.upsertBinding({
+    userId: account.user.id,
+    botId: bot.id,
+    runtimeKind: "cloud-claude-code",
+    config: {},
+    activate: true
+  });
+  const baseUrl = await listen(server);
+  try {
+    const created = await jsonRequest(baseUrl, "/api/me/im-channels", {
+      method: "POST",
+      token: account.token,
+      body: { provider: "wechat_clawbot", botId: bot.id, enabled: true, settings: {} }
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.data));
+    const channel = created.data.channel;
+    assert.equal(channel.transport, "cloud");
+    assert.equal(channel.settings.transport, "cloud");
+    assert.equal(channel.settings.relayDeviceId, "");
+
+    const linking = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/wechat-clawbot/link`, {
+      method: "POST",
+      token: account.token,
+      body: {}
+    });
+    assert.equal(linking.status, 200, JSON.stringify(linking.data));
+    assert.equal(linking.data.status.linked, false);
+    assert.equal(linking.data.status.qrUrl, "weixin://cloud-qr");
+
+    await waitFor(() => outbound.some((item) => item.target.includes("sendmessage")));
+    await server.mia.imChannelsService.idle();
+    const sent = outbound.filter((item) => item.target.includes("sendmessage"));
+    assert.equal(sent.length, 1);
+    assert.match(String(sent[0].options.body), /云端 Bot 已回复/);
+    assert.equal(String(sent[0].options.body).includes("cloud-wechat-bot-token"), false);
+
+    const status = await jsonRequest(baseUrl, `/api/me/im-channels/${channel.id}/wechat-clawbot/status`, {
+      token: account.token
+    });
+    assert.equal(status.status, 200, JSON.stringify(status.data));
+    assert.equal(status.data.status.linked, true);
+    assert.equal(JSON.stringify(status.data).includes("cloud-wechat-bot-token"), false);
+    assert.equal(JSON.stringify(status.data).includes("cloud-context-token"), false);
+
+    const stored = server.mia.cloudStore.getDb()
+      .prepare("SELECT secrets_ciphertext FROM im_channels WHERE id = ?")
+      .get(channel.id);
+    assert.notEqual(stored.secrets_ciphertext, "cloud-wechat-bot-token");
+    assert.equal(stored.secrets_ciphertext.includes("cloud-wechat-bot-token"), false);
+    const delivery = server.mia.cloudStore.getDb()
+      .prepare("SELECT recipient_json, status FROM im_channel_deliveries WHERE channel_id = ?")
+      .get(channel.id);
+    assert.equal(delivery.status, "delivered");
+    assert.equal(delivery.recipient_json.includes("cloud-context-token"), false);
+
+    const conversation = server.mia.socialStore.listConversationsForUser(account.user.id)
+      .find((item) => item.decorations?.imChannelId === channel.id);
+    const scheduledReply = server.mia.messagesStore.appendMessage({
+      conversationId: conversation.id,
+      senderKind: "bot",
+      senderRef: bot.id,
+      senderOwnerId: account.user.id,
+      bodyMd: "云端定时任务回复",
+      status: "complete"
+    });
+    const scheduledDelivery = await server.mia.imChannelsService.deliverBotReply({
+      conversationId: conversation.id,
+      message: scheduledReply
+    });
+    assert.equal(scheduledDelivery.delivered, true);
+    assert.equal(outbound.filter((item) => item.target.includes("sendmessage")).length, 2);
+
+    server.mia.runtimeBindingsStore.upsertBinding({
+      userId: account.user.id,
+      botId: bot.id,
+      runtimeKind: "desktop-local",
+      config: { agentEngine: "claude-code", deviceId: "desktop_test_device" },
+      activate: true
+    });
+    server.mia.wechatClawbotService.onRuntimeChanged(account.user.id, bot.id);
+    await waitFor(() => outbound.some((item) => item.target.includes("notifystop")));
+    assert.throws(
+      () => server.mia.wechatClawbotService.status(account.user.id, channel.id),
+      (error) => error?.code === "MIA_WECHAT_CLAWBOT_LOCAL_RUNTIME"
+    );
+
+    server.mia.runtimeBindingsStore.upsertBinding({
+      userId: account.user.id,
+      botId: bot.id,
+      runtimeKind: "cloud-claude-code",
+      config: {},
+      activate: true
+    });
+    server.mia.wechatClawbotService.onRuntimeChanged(account.user.id, bot.id);
+    await waitFor(() => server.mia.wechatClawbotService.status(account.user.id, channel.id).linked === true);
+
+    await server.shutdown();
+    server = createMiaCloudServer({
+      dataDir,
+      publicUrl: "https://mia.test",
+      imEncryptionKey: "cloud-wechat-encryption-key",
+      cloudAgentDispatcher: dispatcher,
+      fetchImpl
+    });
+    const restartedBaseUrl = await listen(server);
+    const restarted = await jsonRequest(restartedBaseUrl, `/api/me/im-channels/${channel.id}/wechat-clawbot/status`, {
+      token: account.token
+    });
+    assert.equal(restarted.status, 200, JSON.stringify(restarted.data));
+    assert.equal(restarted.data.status.linked, true);
+    assert.equal(restarted.data.status.qrUrl, "");
+  } finally {
+    if (server.listening) await server.shutdown();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });

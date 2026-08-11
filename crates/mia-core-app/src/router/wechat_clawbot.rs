@@ -76,3 +76,8 @@ pub async fn disconnect_wechat_clawbot(
             )
         })
 }
+
+pub async fn shutdown_wechat_clawbot(State(states): State<ModuleStates>) -> StatusCode {
+    states.wechat_clawbot.shutdown().await;
+    StatusCode::NO_CONTENT
+}

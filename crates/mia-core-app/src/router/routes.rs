@@ -53,8 +53,8 @@ use super::tasks::{
     update_cloud_task, update_scheduler_job, update_task_job,
 };
 use super::wechat_clawbot::{
-    disconnect_wechat_clawbot, get_wechat_clawbot_status, start_wechat_clawbot_link,
-    submit_wechat_clawbot_pairing_code,
+    disconnect_wechat_clawbot, get_wechat_clawbot_status, shutdown_wechat_clawbot,
+    start_wechat_clawbot_link, submit_wechat_clawbot_pairing_code,
 };
 
 pub fn create_router(services: &AppServices) -> Router {
@@ -280,6 +280,10 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
             post(disconnect_wechat_clawbot),
         )
         .route(
+            "/api/im-channels/wechat-clawbot/shutdown",
+            post(shutdown_wechat_clawbot),
+        )
+        .route(
             "/api/cloud/settings",
             get(get_cloud_settings).put(put_cloud_settings),
         )
@@ -377,6 +381,27 @@ mod tests {
         assert_eq!(json["linked"], false);
         assert!(json.get("token").is_none());
         assert!(json.get("contextToken").is_none());
+    }
+
+    #[tokio::test]
+    async fn wechat_clawbot_shutdown_route_is_available_before_core_stops() {
+        let mut config = AppConfig::default();
+        let temp = tempfile::tempdir().unwrap();
+        config.data_dir = temp.path().to_path_buf();
+        config.workspace_dir = config.data_dir.join("workspace");
+        let services = AppServices::from_config(&config).await.unwrap();
+        let response = create_router(&services)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/im-channels/wechat-clawbot/shutdown")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
     }
 
     #[tokio::test]

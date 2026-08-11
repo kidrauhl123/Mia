@@ -145,6 +145,8 @@ function createImChannelService({
   publicOrigin = () => "",
   broadcast = () => {},
   dispatchMessage = () => null,
+  isCloudBot = () => false,
+  wechatClawbotTransport = () => null,
   log = () => {}
 } = {}) {
   if (!store || !socialStore || !messagesStore || !botsStore || !secretBox) {
@@ -153,6 +155,17 @@ function createImChannelService({
 
   const pending = new Set();
   const providerTokens = new Map();
+
+  function cloudWechatTransport() {
+    return typeof wechatClawbotTransport === "function"
+      ? wechatClawbotTransport()
+      : wechatClawbotTransport;
+  }
+
+  function wechatTransportFor(channel = {}) {
+    if (channel.provider !== "wechat_clawbot") return "";
+    return isCloudBot(channel) ? "cloud" : "device-relay";
+  }
 
   function clearProviderTokens(channelId) {
     const id = trim(channelId);
@@ -169,8 +182,10 @@ function createImChannelService({
   function publicChannel(channel) {
     if (!channel) return null;
     const { secretsCiphertext: _secretsCiphertext, ...safe } = channel;
+    const transport = wechatTransportFor(channel);
     return {
       ...safe,
+      ...(transport ? { transport, settings: { ...(safe.settings || {}), transport } } : {}),
       providerLabel: providerLabel(channel.provider),
       callbackUrl: callbackUrl(channel)
     };
@@ -204,12 +219,12 @@ function createImChannelService({
     return secretBox.decryptJson(ciphertext);
   }
 
-  function validateEnabledChannel({ provider, enabled, settings, credentials, hasCredentials }) {
+  function validateEnabledChannel({ provider, enabled, settings, credentials, hasCredentials, transport = "" }) {
     if (!enabled) return;
     if (provider !== "wechat_clawbot" && !settings.allowAllSenders && !settings.allowedSenderIds.length) {
       throw serviceError("启用 IM 通道前，请至少填写一个可信发送者，或明确允许所有发送者。", 400, "MIA_IM_CHANNEL_SENDER_REQUIRED");
     }
-    if (provider === "wechat_clawbot" && !settings.relayDeviceId) {
+    if (provider === "wechat_clawbot" && transport !== "cloud" && !settings.relayDeviceId) {
       throw serviceError("启用微信前，请选择当前设备作为本机桥接设备。", 400, "MIA_IM_CHANNEL_RELAY_DEVICE_REQUIRED");
     }
     if (providerRequiresCloudCredentials(provider) && !hasCredentials && !hasCompleteCredentials(provider, credentials)) {
@@ -257,7 +272,10 @@ function createImChannelService({
       enabled,
       settings,
       credentials,
-      hasCredentials: false
+      hasCredentials: false,
+      transport: provider === "wechat_clawbot"
+        ? wechatTransportFor({ provider, userId, botId: bot.id })
+        : ""
     });
     const channel = store.createChannel({
       userId,
@@ -269,8 +287,11 @@ function createImChannelService({
       secretsCiphertext: credentialsPresent ? encryptedCredentials(provider, credentials) : ""
     });
     clearProviderTokens(channel.id);
-    broadcast(userId, { type: "im_channel.updated", channel: publicChannel(channel) });
-    return publicChannel(channel);
+    const stored = store.getChannel(channel.id, { includeSecrets: true });
+    const publicValue = publicChannel(stored || channel);
+    broadcast(userId, { type: "im_channel.updated", channel: publicValue });
+    cloudWechatTransport()?.onChannelChanged?.(stored || channel);
+    return publicValue;
   }
 
   function updateChannel(userId, channelId, input = {}) {
@@ -313,8 +334,14 @@ function createImChannelService({
       enabled,
       settings,
       credentials: completeCredentials,
-      hasCredentials
+      hasCredentials,
+      transport: provider === "wechat_clawbot"
+        ? wechatTransportFor({ provider, userId, botId: bot.id })
+        : ""
     });
+    if (changingProvider && existing.provider === "wechat_clawbot") {
+      cloudWechatTransport()?.onChannelDeleted?.(existing);
+    }
     const channel = store.updateChannel(userId, channelId, {
       provider,
       botId: bot.id,
@@ -325,13 +352,17 @@ function createImChannelService({
       lastError: ""
     });
     clearProviderTokens(channel.id);
-    broadcast(userId, { type: "im_channel.updated", channel: publicChannel(channel) });
-    return publicChannel(channel);
+    const stored = store.getChannel(channel.id, { includeSecrets: true });
+    const publicValue = publicChannel(stored || channel);
+    broadcast(userId, { type: "im_channel.updated", channel: publicValue });
+    cloudWechatTransport()?.onChannelChanged?.(stored || channel);
+    return publicValue;
   }
 
   function deleteChannel(userId, channelId) {
-    const existing = store.getChannelForUser(userId, channelId);
+    const existing = store.getChannelForUser(userId, channelId, { includeSecrets: true });
     if (!existing) throw serviceError("IM 通道不存在。", 404, "MIA_IM_CHANNEL_NOT_FOUND");
+    cloudWechatTransport()?.onChannelDeleted?.(existing);
     store.deleteChannel(userId, channelId);
     clearProviderTokens(existing.id);
     broadcast(userId, { type: "im_channel.deleted", channelId: existing.id });
@@ -350,6 +381,9 @@ function createImChannelService({
     const channel = store.getChannelForUser(userId, channelId, { includeSecrets: false });
     if (!channel || channel.provider !== "wechat_clawbot") {
       throw serviceError("微信通道不存在。", 404, "MIA_IM_CHANNEL_RELAY_NOT_FOUND");
+    }
+    if (wechatTransportFor(channel) !== "device-relay") {
+      throw serviceError("这个微信通道已由 Mia Cloud 托管。", 409, "MIA_IM_CHANNEL_RELAY_CLOUD_MANAGED");
     }
     const expectedDeviceId = normalizeSettings(channel.settings).relayDeviceId;
     if (!expectedDeviceId || expectedDeviceId !== normalizeRelayDeviceId(deviceId)) {
@@ -530,6 +564,22 @@ function createImChannelService({
     };
   }
 
+  function receiveWechatClawbotCloud(channel, input = {}) {
+    if (!channel || channel.provider !== "wechat_clawbot" || wechatTransportFor(channel) !== "cloud") {
+      throw serviceError("云端微信通道不可用。", 409, "MIA_IM_CHANNEL_CLOUD_WECHAT_UNAVAILABLE");
+    }
+    return acceptInbound(channel, {
+      eventId: trim(input.eventId || input.event_id),
+      senderId: trim(input.senderId || input.sender_id),
+      senderLabel: safeText(input.senderLabel || input.sender_label || input.senderId || input.sender_id, 60),
+      externalChatId: trim(input.externalChatId || input.external_chat_id || input.senderId || input.sender_id),
+      chatType: "p2p",
+      text: input.text,
+      replyRef: "",
+      recipient: input.recipient && typeof input.recipient === "object" ? input.recipient : {}
+    });
+  }
+
   function activateWechatClawbotRelay(userId, channelId, input = {}) {
     const channel = relayChannel(userId, channelId, input.deviceId || input.device_id);
     const deliveryId = trim(input.deliveryId || input.delivery_id);
@@ -615,6 +665,14 @@ function createImChannelService({
   }
 
   async function sendProviderReply(channel, delivery, message) {
+    if (channel.provider === "wechat_clawbot" && wechatTransportFor(channel) === "cloud") {
+      const transport = cloudWechatTransport();
+      if (!transport?.sendReply) {
+        throw serviceError("云端微信通道暂不可用。", 503, "MIA_IM_CHANNEL_CLOUD_WECHAT_UNAVAILABLE");
+      }
+      await transport.sendReply(channel, delivery, outboundText(message?.body_md || message?.bodyMd));
+      return;
+    }
     const credentials = normalizeCredentials(channel.provider, decodedCredentials(channel));
     const text = outboundText(message?.body_md || message?.bodyMd);
     if (channel.provider === "feishu") {
@@ -642,6 +700,9 @@ function createImChannelService({
   }
 
   function requestWechatClawbotReply(channel, delivery, message) {
+    if (wechatTransportFor(channel) !== "device-relay") {
+      throw serviceError("这个微信通道已由 Mia Cloud 托管。", 409, "MIA_IM_CHANNEL_RELAY_CLOUD_MANAGED");
+    }
     const relayDeviceId = normalizeSettings(channel.settings).relayDeviceId;
     if (!relayDeviceId) {
       throw serviceError("微信通道缺少本机桥接设备。", 400, "MIA_IM_CHANNEL_RELAY_DEVICE_REQUIRED");
@@ -670,7 +731,7 @@ function createImChannelService({
   async function deliverKnownReply(channel, delivery, message) {
     if (!channel || !channel.enabled) return { delivered: false, ignored: "channel_disabled" };
     try {
-      if (channel.provider === "wechat_clawbot") {
+      if (channel.provider === "wechat_clawbot" && wechatTransportFor(channel) === "device-relay") {
         const requested = requestWechatClawbotReply(channel, delivery, message);
         if (!requested.requested) return { delivered: false, deliveryId: delivery.id, ignored: requested.ignored };
         store.recordChannelStatus(channel.id, { lastError: "" });
@@ -713,11 +774,19 @@ function createImChannelService({
       return { delivered: false, ignored: "provider_does_not_support_conversation_output" };
     }
 
+    const cloudManaged = wechatTransportFor(channel) === "cloud";
+    const cloudRecipient = cloudManaged
+      ? cloudWechatTransport()?.conversationReplyRecipient?.(channel, normalizedConversationId)
+      : null;
+    if (cloudManaged && !cloudRecipient) {
+      return { delivered: false, ignored: "wechat_context_unavailable" };
+    }
+
     const delivery = store.createDelivery({
       channelId: channel.id,
       conversationId: normalizedConversationId,
       triggerMessageId: outputMessageId,
-      recipient: { relayMode: "conversation_output" },
+      recipient: cloudRecipient || { relayMode: "conversation_output" },
       status: "pending"
     });
     if (!delivery) return { delivered: false, ignored: "delivery_unavailable" };
@@ -731,6 +800,15 @@ function createImChannelService({
     const channel = store.getChannelForUser(userId, channelId, { includeSecrets: true });
     if (!channel) throw serviceError("IM 通道不存在。", 404, "MIA_IM_CHANNEL_NOT_FOUND");
     if (channel.provider === "wechat_clawbot") {
+      if (wechatTransportFor(channel) === "cloud") {
+        const status = cloudWechatTransport()?.status?.(userId, channel.id);
+        return {
+          ok: true,
+          message: "",
+          channel: publicChannel(store.getChannel(channel.id)),
+          status: status || null
+        };
+      }
       const relayDeviceId = normalizeSettings(channel.settings).relayDeviceId;
       if (!relayDeviceId) {
         throw serviceError("请先选择本机桥接设备，再连接微信。", 400, "MIA_IM_CHANNEL_RELAY_DEVICE_REQUIRED");
@@ -755,6 +833,30 @@ function createImChannelService({
     while (pending.size) await Promise.allSettled([...pending]);
   }
 
+  function cloudWechatStatus(userId, channelId) {
+    const transport = cloudWechatTransport();
+    if (!transport?.status) throw serviceError("云端微信通道暂不可用。", 503, "MIA_IM_CHANNEL_CLOUD_WECHAT_UNAVAILABLE");
+    return transport.status(userId, channelId);
+  }
+
+  async function startCloudWechatLink(userId, channelId) {
+    const transport = cloudWechatTransport();
+    if (!transport?.startLink) throw serviceError("云端微信通道暂不可用。", 503, "MIA_IM_CHANNEL_CLOUD_WECHAT_UNAVAILABLE");
+    return transport.startLink(userId, channelId);
+  }
+
+  function submitCloudWechatPairingCode(userId, channelId, input) {
+    const transport = cloudWechatTransport();
+    if (!transport?.submitPairingCode) throw serviceError("云端微信通道暂不可用。", 503, "MIA_IM_CHANNEL_CLOUD_WECHAT_UNAVAILABLE");
+    return transport.submitPairingCode(userId, channelId, input);
+  }
+
+  async function disconnectCloudWechat(userId, channelId) {
+    const transport = cloudWechatTransport();
+    if (!transport?.disconnect) throw serviceError("云端微信通道暂不可用。", 503, "MIA_IM_CHANNEL_CLOUD_WECHAT_UNAVAILABLE");
+    return transport.disconnect(userId, channelId);
+  }
+
   return {
     listProviders,
     listChannels: (userId, limit) => store.listChannelsForUser(userId, limit).map(publicChannel),
@@ -764,8 +866,13 @@ function createImChannelService({
     testChannel,
     receiveFeishuCallback,
     receiveWechatClawbotRelay,
+    receiveWechatClawbotCloud,
     activateWechatClawbotRelay,
     acknowledgeWechatClawbotRelay,
+    cloudWechatStatus,
+    startCloudWechatLink,
+    submitCloudWechatPairingCode,
+    disconnectCloudWechat,
     deliverBotReply,
     idle,
     publicChannel

@@ -41,7 +41,7 @@ test("IM channel contract only exposes Feishu and WeChat", () => {
   assert.equal(nodeContract.isSupportedImChannelProvider("wechat_clawbot"), true);
   assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").label, "微信");
   assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").availability, "available");
-  assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").transport, "device-relay");
+  assert.equal(nodeContract.getImChannelProvider("wechat_clawbot").transport, "runtime-owned");
   assert.deepEqual(Object.keys(nodeContract.IM_CHANNEL_PROVIDERS), ["feishu", "wechat_clawbot"]);
   assert.deepEqual(plain(browserContract.IM_CHANNEL_PROVIDERS), plain(nodeContract.IM_CHANNEL_PROVIDERS));
 });

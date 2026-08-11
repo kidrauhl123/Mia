@@ -4,7 +4,6 @@
 
 .im-channel-settings-head,
 .im-channel-card-head,
-.im-channel-connection-head,
 .im-channel-actions,
 .im-channel-editor-actions {
   display: flex;
@@ -23,37 +22,50 @@
 
 .im-channel-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .im-channel-provider-card,
-.im-channel-editor {
+.im-channel-editor,
+.im-channel-bot-picker {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface) 96%, transparent);
 }
 
 .im-channel-provider-card {
-  padding: 14px 15px;
+  padding: 16px;
 }
 
 .im-channel-card-head {
-  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
 
-.im-channel-card-head strong,
-.im-channel-connection-head strong,
-.im-channel-editor-head strong {
-  color: var(--text);
-  font-size: 14px;
+.im-channel-provider-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 10px;
 }
 
-.im-channel-card-head p,
-.im-channel-clawbot-status p,
-.im-channel-field-note {
-  margin: 4px 0 0;
+.im-channel-provider-icon {
+  display: block;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+}
+
+.im-channel-provider-name {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.im-channel-clawbot-status p {
+  margin: 3px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
@@ -89,12 +101,21 @@
 }
 
 .im-channel-connection-head {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
+  gap: 8px;
+}
+
+.im-channel-connection-head strong,
+.im-channel-editor-head strong {
+  color: var(--text);
+  font-size: 14px;
 }
 
 .im-channel-provider-actions {
   justify-content: flex-end;
-  margin-top: 2px;
+  margin-top: 12px;
 }
 
 .im-channel-actions {
@@ -122,10 +143,55 @@
   white-space: nowrap;
 }
 
+.im-channel-wechat-body {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.im-channel-bot-row {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  gap: 10px;
+}
+
+.im-channel-bot-avatar {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.im-channel-bot-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.im-channel-bot-change {
+  margin-left: auto;
+  padding: 3px 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+
+.im-channel-bot-change:hover {
+  color: var(--text);
+}
+
 .im-channel-clawbot-status {
   display: grid;
+  justify-items: start;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .im-channel-clawbot-status p {
@@ -133,7 +199,7 @@
 }
 
 .im-channel-clawbot-qr {
-  width: min(180px, 100%);
+  width: min(176px, 100%);
   aspect-ratio: 1;
   padding: 6px;
   border-radius: 8px;
@@ -168,7 +234,8 @@
   padding: 0 9px;
 }
 
-.im-channel-editor {
+.im-channel-editor,
+.im-channel-bot-picker {
   padding: 16px;
 }
 
@@ -178,9 +245,13 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
 }
 
-.im-channel-editor .icon-button {
+.im-channel-editor .icon-button,
+.im-channel-bot-picker .icon-button {
   width: 28px;
   height: 28px;
   font-size: 14px;
@@ -218,10 +289,6 @@
 
 .im-channel-callback-field .im-channel-callback {
   margin-top: 0;
-}
-
-.im-channel-field-note {
-  margin-top: 12px;
 }
 
 .im-channel-access {
@@ -280,6 +347,46 @@
   color: var(--danger);
 }
 
+.im-channel-bot-choices {
+  display: grid;
+  gap: 6px;
+}
+
+.im-channel-bot-choice {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  gap: 10px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.im-channel-bot-choice:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.im-channel-bot-choice.selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.im-channel-bot-choice:disabled {
+  opacity: .6;
+}
+
+.im-channel-bot-check {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 14px;
+}
+
 .im-channel-error,
 .im-channel-loading {
   margin: 10px 0;
@@ -300,7 +407,6 @@
     grid-column: auto;
   }
 
-  .im-channel-card-head,
   .im-channel-callback,
   .im-channel-pairing {
     align-items: stretch;

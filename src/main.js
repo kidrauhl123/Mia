@@ -101,6 +101,7 @@ const {
 const { createMiaCoreHttpClientCache } = require("./shared/mia-core-http-client.js");
 const { createMiaCoreCompatibilityClient } = require("./main/mia-core/compat-client.js");
 const { createMiaCoreLocalEventsClient } = require("./shared/mia-core-event-client.js");
+const { createWechatRelayShutdown } = require("./main/mia-core/graceful-shutdown.js");
 const { createMiaCoreProcessLauncher } = require("./main/mia-core/process-launcher.js");
 const { createMiaCoreResolver } = require("./main/mia-core/process-resolver.js");
 const { coreRequestShouldWaitForStreamingEvents } = require("./shared/mia-core-request-policy.js");
@@ -848,6 +849,7 @@ authService = createAuthService({
 });
 let remoteControlRouter = null;
 let miaCoreControlServer = null;
+let wechatRelayShutdown = null;
 let miaCoreCompatibilityClient = null;
 let agentPermissionProxy = null;
 let cloudEventSocketRuntime = null;
@@ -1254,6 +1256,12 @@ async function stopDaemonService() {
     } catch {
       // Stop should still clean up after a failed in-flight start.
     }
+  }
+  if (!IS_CORE_PROCESS && wechatRelayShutdown) {
+    await wechatRelayShutdown.prepareForCoreStop({
+      settings: settingsStore.coreSettings(),
+      runtimeHome: runtimePaths().home
+    });
   }
   await launchdService.cleanupLegacyNodeCore();
   if (shouldUseLaunchdForCore() && !IS_CORE_PROCESS) {
@@ -2323,6 +2331,12 @@ miaCoreControlServer = createMiaCoreControlServer({
   remoteRouter: () => remoteControlRouter,
   fetchImpl: fetch,
   timeoutSignal: (timeoutMs) => AbortSignal.timeout(timeoutMs)
+});
+
+wechatRelayShutdown = createWechatRelayShutdown({
+  ping: (...args) => miaCoreControlServer.ping(...args),
+  fetchImpl: fetch,
+  appendLog: appendDaemonLog
 });
 
 miaCoreCompatibilityClient = createMiaCoreCompatibilityClient({

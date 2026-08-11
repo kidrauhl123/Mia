@@ -46,6 +46,11 @@ const MAX_COMMAND_RECEIPTS: usize = 128;
 const MAX_CONVERSATION_SESSIONS: usize = 50;
 const CONVERSATION_SESSION_LIST_LIMIT: usize = 10;
 const MAX_RETRY_DELIVERIES_PER_CYCLE: usize = 4;
+const SHUTDOWN_NOTIFY_TIMEOUT: Duration = Duration::from_secs(3);
+const RELAY_STATE_VERSION: u8 = 1;
+const RELAY_STATE_REAUTH_REQUIRED: &str = "reauth_required";
+const RELAY_STATE_REASON_STALE_TOKEN: &str = "stale_token";
+const RELAY_STATE_REASON_INVALID_LOCAL_STATE: &str = "invalid_local_state";
 
 #[derive(Clone)]
 pub struct WechatClawbotService {
@@ -128,6 +133,16 @@ struct RelaySession {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RelayStateRecord {
+    version: u8,
+    channel_id: String,
+    state: String,
+    reason: String,
+    recorded_at_ms: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct DeliveryContext {
     to_user_id: String,
     context_token: String,
@@ -194,6 +209,16 @@ impl WechatClawbotService {
         if let Some(runtime) = self.runtime.lock().await.get(&channel_id) {
             return Ok(status_from_runtime(&channel_id, runtime));
         }
+        if self.reauth_required(&channel_id) {
+            return Ok(WechatClawbotStatusResponse {
+                channel_id,
+                device_id: String::new(),
+                state: RELAY_STATE_REAUTH_REQUIRED.into(),
+                message: "微信授权已失效，请重新连接。".into(),
+                linked: false,
+                qr_url: None,
+            });
+        }
         match self.load_session(&channel_id) {
             Ok(session) if session_is_usable(&session) => Ok(WechatClawbotStatusResponse {
                 channel_id,
@@ -240,8 +265,16 @@ impl WechatClawbotService {
         {
             return Ok(status_from_runtime(&channel_id, runtime));
         }
+        if let Ok(session) = self.load_session(&channel_id)
+            && session.device_id == device_id
+            && !self.reauth_required(&channel_id)
+        {
+            self.set_linked_runtime(&session).await;
+            self.start_monitor(session).await;
+            return self.status(&channel_id).await;
+        }
 
-        let qr = self.request_qrcode().await?;
+        let qr = self.request_qrcode(&channel_id).await?;
         let qrcode =
             value_string(&qr, "qrcode").ok_or_else(|| anyhow!("微信未返回可用二维码。"))?;
         let qrcode_url = value_string(&qr, "qrcode_img_content")
@@ -317,6 +350,7 @@ impl WechatClawbotService {
             runtime.message = "已断开微信 ClawBot，并删除本机连接凭据。".into();
         }
         self.remove_session(&channel_id)?;
+        self.clear_reauth_state(&channel_id)?;
         if let Some(session) = saved_session {
             let service = self.clone();
             tokio::spawn(async move {
@@ -349,6 +383,7 @@ impl WechatClawbotService {
             };
             if !session_is_usable(&session)
                 || clean_identifier(&session.channel_id, "channelId").is_err()
+                || self.reauth_required(&session.channel_id)
             {
                 continue;
             }
@@ -388,11 +423,40 @@ impl WechatClawbotService {
         }
     }
 
-    async fn request_qrcode(&self) -> Result<Value> {
+    pub async fn shutdown(&self) {
+        let channels = self.stop_monitors_for_shutdown().await;
+        let sessions = channels
+            .into_iter()
+            .filter_map(|channel_id| self.load_session(&channel_id).ok())
+            .collect::<Vec<_>>();
+        let _ = tokio::time::timeout(SHUTDOWN_NOTIFY_TIMEOUT, async {
+            for session in sessions {
+                let _ = self.notify_session_stop(&session).await;
+            }
+        })
+        .await;
+    }
+
+    async fn stop_monitors_for_shutdown(&self) -> Vec<String> {
+        let mut channels = Vec::new();
+        let mut runtimes = self.runtime.lock().await;
+        for (channel_id, runtime) in runtimes.iter_mut() {
+            if let Some(abort) = runtime.monitor_abort.take() {
+                abort.abort();
+            }
+            runtime.monitor_running = false;
+            if runtime.linked {
+                channels.push(channel_id.clone());
+            }
+        }
+        channels
+    }
+
+    async fn request_qrcode(&self, channel_id: &str) -> Result<Value> {
         let url = api_url(WECHAT_API_BASE, "ilink/bot/get_bot_qrcode?bot_type=3")?;
         self.post_wechat_json(
             url,
-            json!({ "local_token_list": [] }),
+            json!({ "local_token_list": self.local_token_list(channel_id) }),
             None,
             Duration::from_secs(20),
         )
@@ -448,7 +512,10 @@ impl WechatClawbotService {
                                 }
                             }
                         }
-                        "expired" | "verify_code_blocked" => match self.request_qrcode().await {
+                        "expired" | "verify_code_blocked" => match self
+                            .request_qrcode(&channel_id)
+                            .await
+                        {
                             Ok(qr) => {
                                 let qrcode = value_string(&qr, "qrcode");
                                 let qrcode_url = value_string(&qr, "qrcode_img_content");
@@ -531,15 +598,27 @@ impl WechatClawbotService {
                                     active_conversation_session_id: String::new(),
                                     command_receipts: Vec::new(),
                                 };
-                                if self.write_session(&session).is_ok() {
-                                    self.set_linked_runtime(&session).await;
-                                    self.start_monitor(session).await;
-                                } else {
-                                    self.set_login_failure(
-                                        &channel_id,
-                                        "无法安全保存微信连接凭据。",
-                                    )
-                                    .await;
+                                match self.write_session(&session) {
+                                    Ok(()) if self.load_session(&channel_id).is_ok() => {
+                                        self.set_linked_runtime(&session).await;
+                                        self.start_monitor(session).await;
+                                    }
+                                    Ok(()) => {
+                                        tracing::error!(channel_id = %channel_id, "WeChat ClawBot credential verification failed after saving");
+                                        self.set_login_failure(
+                                            &channel_id,
+                                            "无法验证本机微信连接凭据。",
+                                        )
+                                        .await;
+                                    }
+                                    Err(_) => {
+                                        tracing::error!(channel_id = %channel_id, "WeChat ClawBot credential save failed");
+                                        self.set_login_failure(
+                                            &channel_id,
+                                            "无法安全保存微信连接凭据。",
+                                        )
+                                        .await;
+                                    }
                                 }
                             } else {
                                 self.set_login_failure(
@@ -635,10 +714,15 @@ impl WechatClawbotService {
                     match api_url(&session.base_url, "ilink/bot/getupdates") {
                         Ok(url) => url,
                         Err(_) => {
+                            self.mark_reauth_required(
+                                &channel_id,
+                                RELAY_STATE_REASON_INVALID_LOCAL_STATE,
+                            )
+                            .await;
                             self.set_monitor_message(
                                 &channel_id,
                                 "reauth_required",
-                                "微信连接地址无效，请重新连接。",
+                                "微信授权状态无效，请重新连接。",
                                 false,
                             )
                             .await;
@@ -679,11 +763,12 @@ impl WechatClawbotService {
             let ret = value_i64(&value, "ret").unwrap_or(0);
             let errcode = value_i64(&value, "errcode").unwrap_or(0);
             if errcode == -14 || ret == -14 {
-                let _ = self.remove_session(&channel_id);
+                self.mark_reauth_required(&channel_id, RELAY_STATE_REASON_STALE_TOKEN)
+                    .await;
                 self.set_monitor_message(
                     &channel_id,
                     "reauth_required",
-                    "微信登录已失效，请重新扫码连接。",
+                    "微信授权已失效，请重新连接。",
                     false,
                 )
                 .await;
@@ -1322,6 +1407,13 @@ impl WechatClawbotService {
             .join(format!("{:x}.json", digest.finalize()))
     }
 
+    fn state_path(&self, channel_id: &str) -> PathBuf {
+        let mut digest = Sha256::new();
+        digest.update(channel_id.as_bytes());
+        self.session_dir()
+            .join(format!("{:x}.state.json", digest.finalize()))
+    }
+
     fn load_session(&self, channel_id: &str) -> Result<RelaySession> {
         let bytes = fs::read(self.session_path(channel_id))
             .map_err(|_| anyhow!("本机微信连接凭据不可用。"))?;
@@ -1333,16 +1425,39 @@ impl WechatClawbotService {
         Ok(session)
     }
 
+    fn local_token_list(&self, channel_id: &str) -> Vec<String> {
+        self.load_session(channel_id)
+            .map(|session| vec![session.token])
+            .unwrap_or_default()
+    }
+
     fn write_session(&self, session: &RelaySession) -> Result<()> {
         if !session_is_usable(session) {
             return Err(anyhow!("invalid local WeChat session"));
         }
+        self.clear_reauth_state(&session.channel_id)?;
+        self.write_private_json(self.session_path(&session.channel_id), session)
+    }
+
+    fn write_reauth_state(&self, channel_id: &str, reason: &str) -> Result<()> {
+        self.write_private_json(
+            self.state_path(channel_id),
+            &RelayStateRecord {
+                version: RELAY_STATE_VERSION,
+                channel_id: channel_id.into(),
+                state: RELAY_STATE_REAUTH_REQUIRED.into(),
+                reason: reason.into(),
+                recorded_at_ms: unix_ms(),
+            },
+        )
+    }
+
+    fn write_private_json<T: Serialize>(&self, target: PathBuf, value: &T) -> Result<()> {
         let directory = self.session_dir();
         fs::create_dir_all(&directory)?;
         set_private_directory(&directory)?;
-        let target = self.session_path(&session.channel_id);
         let temporary = directory.join(format!(".{}.tmp", Uuid::new_v4()));
-        let encoded = serde_json::to_vec(session)?;
+        let encoded = serde_json::to_vec(value)?;
         fs::write(&temporary, encoded)?;
         set_private_file(&temporary)?;
         if fs::rename(&temporary, &target).is_err() {
@@ -1351,6 +1466,44 @@ impl WechatClawbotService {
         }
         set_private_file(&target)?;
         Ok(())
+    }
+
+    fn reauth_required(&self, channel_id: &str) -> bool {
+        fs::read(self.state_path(channel_id))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<RelayStateRecord>(&bytes).ok())
+            .is_some_and(|state| {
+                state.version == RELAY_STATE_VERSION
+                    && state.channel_id == channel_id
+                    && state.state == RELAY_STATE_REAUTH_REQUIRED
+                    && matches!(
+                        state.reason.as_str(),
+                        RELAY_STATE_REASON_STALE_TOKEN | RELAY_STATE_REASON_INVALID_LOCAL_STATE
+                    )
+            })
+    }
+
+    fn clear_reauth_state(&self, channel_id: &str) -> Result<()> {
+        let target = self.state_path(channel_id);
+        match fs::remove_file(target) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(anyhow!("无法清除本机微信授权状态。")),
+        }
+    }
+
+    async fn mark_reauth_required(&self, channel_id: &str, reason: &str) {
+        let lock = self.channel_lock(channel_id).await;
+        let _guard = lock.lock().await;
+        let credentials_cleared = self.remove_session(channel_id).is_ok();
+        let state_recorded = self.write_reauth_state(channel_id, reason).is_ok();
+        tracing::error!(
+            channel_id = %channel_id,
+            reason,
+            credentials_cleared,
+            state_recorded,
+            "WeChat ClawBot authorization requires reauthentication"
+        );
     }
 
     fn remove_session(&self, channel_id: &str) -> Result<()> {
@@ -1874,6 +2027,151 @@ fn set_private_file(_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{AppConfig, AppServices};
+
+    fn test_session() -> RelaySession {
+        RelaySession {
+            version: 1,
+            channel_id: "imc_channel".into(),
+            device_id: "device_local".into(),
+            account_id: "account".into(),
+            owner_user_id: "wx_owner".into(),
+            base_url: "https://ilinkai.weixin.qq.com".into(),
+            token: "test-token".into(),
+            ..RelaySession::default()
+        }
+    }
+
+    fn test_config(data_dir: &Path) -> AppConfig {
+        let mut config = AppConfig::default();
+        config.data_dir = data_dir.to_path_buf();
+        config.workspace_dir = data_dir.join("workspace");
+        config
+    }
+
+    #[tokio::test]
+    async fn local_authorization_survives_core_recreation() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = test_config(temp.path());
+        let session = test_session();
+        let initial = AppServices::from_config(&config).await.unwrap();
+
+        initial.wechat_clawbot.write_session(&session).unwrap();
+        assert!(
+            initial
+                .wechat_clawbot
+                .session_path(&session.channel_id)
+                .is_file()
+        );
+        assert!(
+            initial
+                .wechat_clawbot
+                .status(&session.channel_id)
+                .await
+                .unwrap()
+                .linked
+        );
+        drop(initial);
+
+        let restarted = AppServices::from_config(&config).await.unwrap();
+        let status = restarted
+            .wechat_clawbot
+            .status(&session.channel_id)
+            .await
+            .unwrap();
+        assert!(status.linked);
+        assert_eq!(status.state, "linked");
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_keeps_authorization_for_the_next_core() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = test_config(temp.path());
+        let session = test_session();
+        let services = AppServices::from_config(&config).await.unwrap();
+
+        services.wechat_clawbot.write_session(&session).unwrap();
+        {
+            let mut runtimes = services.wechat_clawbot.runtime.lock().await;
+            runtimes.insert(
+                session.channel_id.clone(),
+                RelayRuntime {
+                    device_id: session.device_id.clone(),
+                    linked: true,
+                    monitor_running: true,
+                    ..RelayRuntime::default()
+                },
+            );
+        }
+
+        let stopped = services.wechat_clawbot.stop_monitors_for_shutdown().await;
+        assert_eq!(stopped, vec![session.channel_id.clone()]);
+        assert!(
+            services
+                .wechat_clawbot
+                .session_path(&session.channel_id)
+                .is_file()
+        );
+        assert!(
+            !services
+                .wechat_clawbot
+                .runtime
+                .lock()
+                .await
+                .get(&session.channel_id)
+                .unwrap()
+                .monitor_running
+        );
+    }
+
+    #[tokio::test]
+    async fn qr_reuses_the_local_authorization_token() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = test_config(temp.path());
+        let session = test_session();
+        let services = AppServices::from_config(&config).await.unwrap();
+
+        services.wechat_clawbot.write_session(&session).unwrap();
+        let local_tokens = services
+            .wechat_clawbot
+            .local_token_list(&session.channel_id);
+
+        assert_eq!(local_tokens.len(), 1);
+        assert!(!local_tokens[0].is_empty());
+    }
+
+    #[tokio::test]
+    async fn stale_authorization_is_durable_but_never_retains_credentials() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = test_config(temp.path());
+        let session = test_session();
+        let initial = AppServices::from_config(&config).await.unwrap();
+
+        initial.wechat_clawbot.write_session(&session).unwrap();
+        initial
+            .wechat_clawbot
+            .mark_reauth_required(&session.channel_id, RELAY_STATE_REASON_STALE_TOKEN)
+            .await;
+        assert!(
+            !initial
+                .wechat_clawbot
+                .session_path(&session.channel_id)
+                .exists()
+        );
+        let marker = fs::read(initial.wechat_clawbot.state_path(&session.channel_id)).unwrap();
+        assert!(!String::from_utf8_lossy(&marker).contains(&session.token));
+        drop(initial);
+
+        let restarted = AppServices::from_config(&config).await.unwrap();
+        let status = restarted
+            .wechat_clawbot
+            .status(&session.channel_id)
+            .await
+            .unwrap();
+        assert!(!status.linked);
+        assert_eq!(status.state, RELAY_STATE_REAUTH_REQUIRED);
+        assert_eq!(status.message, "微信授权已失效，请重新连接。");
+    }
 
     #[test]
     fn local_session_ids_are_hashed_and_not_the_channel_name() {
