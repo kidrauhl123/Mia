@@ -186,5 +186,5 @@ test("cloud release builder can publish desktop installers as web downloads", ()
   assert.match(source, /web\/assets\/mia-logo\.png/);
   assert.match(source, /function shouldCopyReleaseEntry/);
   assert.match(source, /\.DS_Store/);
-  assert.match(source, /filter: shouldCopyReleaseEntry/);
+  assert.match(source, /filter: \(sourcePath\) => shouldCopyReleaseEntry\(sourcePath\)/);
 });
