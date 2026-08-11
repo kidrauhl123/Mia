@@ -21,10 +21,18 @@ function shouldCopyReleaseEntry(sourcePath) {
   return path.basename(sourcePath) !== ".DS_Store";
 }
 
-function copyDir(source, target) {
+function copyDir(source, target, options = {}) {
   fs.rmSync(target, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.cpSync(path.join(root, source), target, { recursive: true, filter: shouldCopyReleaseEntry });
+  const exclude = options.exclude || (() => false);
+  fs.cpSync(path.join(root, source), target, {
+    recursive: true,
+    filter: (sourcePath) => shouldCopyReleaseEntry(sourcePath) && !exclude(sourcePath)
+  });
+}
+
+function isWebDownloadsSource(sourcePath) {
+  return sourcePath === path.join(root, "src", "web", "downloads");
 }
 
 function newestReleaseArtifact(sourcePatterns) {
@@ -949,7 +957,7 @@ function main() {
   copyDir("src/main/prompts", path.join(apiDir, "src", "main", "prompts"));
   copyFile("src/permission-modes.js", path.join(apiDir, "src", "permission-modes.js"));
   copyDir("skills", path.join(apiDir, "skills"));
-  copyDir("src/web", webDir);
+  copyDir("src/web", webDir, { exclude: isWebDownloadsSource });
   const desktopDownloads = copyDesktopDownloadArtifacts();
   rewriteWebDownloadLinks(desktopDownloads);
   copyDir("src/renderer/assets/model-icons", path.join(webDir, "assets", "model-icons"));
