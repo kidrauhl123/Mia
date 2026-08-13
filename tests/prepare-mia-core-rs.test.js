@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { test } = require("node:test");
 
 const {
@@ -15,6 +16,28 @@ const {
   targetArchFromContext,
   targetPlatformFromContext
 } = require("../scripts/prepare-mia-core-rs.js");
+const { coreSourceFingerprint } = require("../scripts/mia-core-source-fingerprint.js");
+
+function sha256(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function buildInfo(rootDir, version) {
+  return { releaseVersion: version, sourceFingerprint: coreSourceFingerprint(rootDir) };
+}
+
+function releaseManifest(rootDir, version, platform, arch, archiveText, binaryText) {
+  return {
+    tag_name: version,
+    version,
+    sourceFingerprint: coreSourceFingerprint(rootDir),
+    assets: [{
+      name: miaCoreAssetName(platform, arch, version),
+      sha256: sha256(archiveText),
+      binarySha256: sha256(binaryText)
+    }]
+  };
+}
 
 test("prepareMiaCoreRs copies an explicit Rust Core binary into bundled resources", async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-explicit-"));
@@ -29,6 +52,7 @@ test("prepareMiaCoreRs copies an explicit Rust Core binary into bundled resource
       {
         rootDir,
         env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3", MIA_MANAGED_RESOURCES_PREPARE: "0" },
+        readCoreBuildInfo: () => buildInfo(rootDir, "v1.2.3"),
         execFileSync: () => {
           built = true;
         }
@@ -48,6 +72,72 @@ test("prepareMiaCoreRs copies an explicit Rust Core binary into bundled resource
   }
 });
 
+test("prepareMiaCoreRs omits stale managed ACP resources by default", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-on-demand-"));
+  try {
+    const source = path.join(rootDir, "target", "release", process.platform === "win32" ? "mia-core.exe" : "mia-core");
+    const runtimeKey = `${process.platform}-${os.arch()}`;
+    const staleRoot = path.join(rootDir, "resources", "bundled-mia-core", runtimeKey, "managed-resources");
+    const staleResource = path.join(
+      staleRoot,
+      "acp",
+      "codex-acp",
+      "1.1.4",
+      runtimeKey,
+      "manifest.json"
+    );
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, "fake rust core\n", { mode: 0o755 });
+    fs.mkdirSync(path.dirname(staleResource), { recursive: true });
+    fs.writeFileSync(staleResource, "{}\n");
+    const calls = [];
+
+    const result = await prepareMiaCoreRs(
+      { arch: os.arch() === "arm64" ? 3 : 1, electronPlatformName: process.platform },
+      {
+        rootDir,
+        env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
+        readCoreBuildInfo: () => buildInfo(rootDir, "v1.2.3"),
+        execFileSync: (...args) => calls.push(args)
+      }
+    );
+
+    assert.equal(result.managedResources.skipped, true);
+    assert.equal(result.managedResources.reason, "on-demand");
+    assert.equal(calls.length, 0);
+    assert.equal(fs.existsSync(staleRoot), false);
+    const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(result.dest), "manifest.json"), "utf8"));
+    assert.deepEqual(manifest.files, [path.basename(result.dest)]);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("prepareMiaCoreRs rejects a local Core built from different source", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-stale-local-"));
+  try {
+    const source = path.join(rootDir, "target", "release", "mia-core");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, "stale core\n", { mode: 0o755 });
+    await assert.rejects(
+      prepareMiaCoreRs(
+        { arch: 1, electronPlatformName: "darwin" },
+        {
+          rootDir,
+          env: { MIA_CORE_RS_BIN: source, MIA_CORE_VERSION: "v1.2.3" },
+          readCoreBuildInfo: () => ({
+            releaseVersion: "v1.2.3",
+            sourceFingerprint: "f".repeat(64)
+          })
+        }
+      ),
+      /source fingerprint does not match/
+    );
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is supplied", async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-rs-download-"));
   try {
@@ -57,6 +147,14 @@ test("prepareMiaCoreRs downloads a prebuilt Mia Core release when no override is
       { arch: 1, electronPlatformName: "darwin" },
       {
         rootDir,
+        releaseManifest: releaseManifest(
+          rootDir,
+          "v9.8.7",
+          "darwin",
+          "x64",
+          "fake archive\n",
+          "downloaded rust core\n"
+        ),
         env: {
           MIA_CORE_VERSION: "v9.8.7",
           MIA_CORE_RELEASE_BASE_URL: "https://cdn.example/mia-core",
@@ -104,6 +202,14 @@ test("prepareMiaCoreRs uses host tools to download and extract a Windows Core du
       { arch: 1, electronPlatformName: "win32" },
       {
         rootDir,
+        releaseManifest: releaseManifest(
+          rootDir,
+          "v9.8.7",
+          "win32",
+          "x64",
+          "fake zip archive\n",
+          "downloaded windows rust core\n"
+        ),
         env: {
           MIA_CORE_VERSION: "v9.8.7",
           MIA_CORE_RELEASE_BASE_URL: "https://cdn.example/mia-core",
@@ -155,9 +261,11 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
       { arch: os.arch() === "arm64" ? 3 : 1, electronPlatformName: process.platform },
       {
         rootDir,
+        readCoreBuildInfo: () => buildInfo(rootDir, "v1.2.3"),
         env: {
           MIA_CORE_RS_BIN: source,
           MIA_CORE_VERSION: "v1.2.3",
+          MIA_MANAGED_RESOURCES_PREPARE: "1",
           MIA_MANAGED_RESOURCES_CORE_BIN: "/tmp/host-mia-core"
         },
         hostPlatform: process.platform,
@@ -222,9 +330,11 @@ test("prepareMiaCoreRs prepares cross-arch ACP resources with a host Core and ta
       { arch: 3, electronPlatformName: "darwin" },
       {
         rootDir,
+        readCoreBuildInfo: () => buildInfo(rootDir, "v1.2.3"),
         env: {
           MIA_CORE_RS_BIN: targetCore,
           MIA_CORE_VERSION: "v1.2.3",
+          MIA_MANAGED_RESOURCES_PREPARE: "1",
           MIA_MANAGED_RESOURCES_CORE_BIN: hostCore
         },
         hostPlatform: "darwin",

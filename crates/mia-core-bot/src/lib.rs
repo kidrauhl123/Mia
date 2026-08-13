@@ -3732,7 +3732,14 @@ struct DeviceTarget {
     id: String,
     display_name: String,
     status_label: String,
-    engines: Vec<String>,
+    engines: Vec<LocalRuntimeEngine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LocalRuntimeEngine {
+    id: String,
+    ready: bool,
+    setup_action: Option<String>,
 }
 
 fn runtime_target_options_from_request(
@@ -3755,6 +3762,7 @@ fn runtime_target_options_from_request(
             selected: active.runtime_kind == "cloud-claude-code",
             disabled,
             disabled_reason: disabled.then(|| "Mia Cloud 运行内核未同步".to_string()),
+            setup_action: None,
         });
         groups.push(BotRuntimeTargetGroup {
             id: "cloud-claude-code".to_string(),
@@ -3771,7 +3779,7 @@ fn runtime_target_options_from_request(
         || local
             .engines
             .iter()
-            .any(|engine| engine == &active.agent_engine);
+            .any(|engine| engine.id == active.agent_engine);
     let active_target_disabled = !active_local_engine_available;
     groups.push(BotRuntimeTargetGroup {
         id: local.id.clone(),
@@ -3786,12 +3794,13 @@ fn runtime_target_options_from_request(
                     runtime_kind: "desktop-local",
                     device_id: &local.id,
                     device_name: &local.display_name,
-                    agent_engine: engine,
+                    agent_engine: &engine.id,
                     selected: active.runtime_kind == "desktop-local"
                         && active.device_id == local.id
-                        && active.agent_engine == *engine,
+                        && active.agent_engine == engine.id,
                     disabled: false,
                     disabled_reason: None,
+                    setup_action: engine.setup_action.clone(),
                 })
             })
             .collect(),
@@ -3806,6 +3815,7 @@ fn runtime_target_options_from_request(
             selected: true,
             disabled: active_target_disabled,
             disabled_reason: active_target_disabled.then(|| "本机尚未启用可用的 Agent".to_string()),
+            setup_action: None,
         }),
         runtime_label: runtime_target_label(&active, &bot, &runtime),
         runs_on_other_device: runtime_target_runs_on_other_device(&active, &runtime),
@@ -3821,6 +3831,7 @@ struct RuntimeTargetOptionInput<'a> {
     selected: bool,
     disabled: bool,
     disabled_reason: Option<String>,
+    setup_action: Option<String>,
 }
 
 fn runtime_target_option(input: RuntimeTargetOptionInput<'_>) -> BotRuntimeTargetOption {
@@ -3865,6 +3876,7 @@ fn runtime_target_option(input: RuntimeTargetOptionInput<'_>) -> BotRuntimeTarge
         selected: input.selected,
         disabled: input.disabled,
         disabled_reason: input.disabled_reason,
+        setup_action: input.setup_action,
     }
 }
 
@@ -4198,16 +4210,47 @@ fn is_placeholder_device_name(value: &str) -> bool {
 fn local_runtime_engine_ids(
     runtime: &Map<String, Value>,
     engine_capabilities: &Map<String, Value>,
-) -> Vec<String> {
+) -> Vec<LocalRuntimeEngine> {
     ["hermes", "claude-code", "codex"]
         .into_iter()
-        .filter(|engine| {
-            inventory_engine_usable(runtime, engine)
+        .filter_map(|engine| {
+            let ready = inventory_engine_usable(runtime, engine)
                 || legacy_engine_available(runtime, engine)
-                || capability_engine_available(engine_capabilities, engine)
+                || capability_engine_available(engine_capabilities, engine);
+            if ready {
+                return Some(LocalRuntimeEngine {
+                    id: engine.to_string(),
+                    ready: true,
+                    setup_action: None,
+                });
+            }
+            inventory_engine_setup_action(runtime, engine).map(|action| LocalRuntimeEngine {
+                id: engine.to_string(),
+                ready: false,
+                setup_action: Some(action),
+            })
         })
-        .map(str::to_string)
         .collect()
+}
+
+fn inventory_engine_setup_action(runtime: &Map<String, Value>, engine: &str) -> Option<String> {
+    runtime
+        .get("agentInventory")
+        .and_then(Value::as_object)
+        .and_then(|inventory| inventory.get("agents"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .find(|agent| {
+            first_map_string(agent, &["id"])
+                .and_then(|value| supported_agent_engine(&value))
+                .as_deref()
+                == Some(engine)
+        })
+        .filter(|agent| bool_field(agent, "installed"))
+        .and_then(|agent| first_map_string(agent, &["installAction", "install_action"]))
+        .filter(|action| !action.is_empty())
 }
 
 fn inventory_engine_usable(runtime: &Map<String, Value>, engine: &str) -> bool {

@@ -12,7 +12,7 @@ function packageJson() {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 }
 
-test("desktop release packages prepare bundled ACP resources without building Hermes backups", () => {
+test("desktop release packages keep agent runtimes on demand without building Hermes backups", () => {
   const pkg = packageJson();
 
   assert.doesNotMatch(pkg.scripts.prepack || "", /hermes:runtime/);
@@ -21,17 +21,24 @@ test("desktop release packages prepare bundled ACP resources without building He
   assert.doesNotMatch(pkg.scripts["dist:mac:intel"], /hermes:runtime/);
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
   assert.equal(pkg.scripts["dist:win"], "node scripts/build-win.js");
+  assert.match(pkg.scripts.pack, /pack-desktop-dir\.js/);
+  assert.match(pkg.scripts["dist:mac"], /MIA_MANAGED_RESOURCES_PREPARE=0/);
+  assert.match(pkg.scripts["dist:mac:intel"], /MIA_MANAGED_RESOURCES_PREPARE=0/);
+  assert.match(pkg.scripts["dist:mac"], /--managed-resources forbidden/);
+  assert.match(pkg.scripts["dist:mac:intel"], /--managed-resources forbidden/);
 });
 
-test("electron-builder keeps ACP resources inside the bundled Rust Core directory", () => {
+test("electron-builder includes only the target Rust Core and no agent runtime", () => {
   const pkg = packageJson();
   const arm64 = fs.readFileSync(path.join(root, "electron-builder.mac-arm64.js"), "utf8");
   const intel = fs.readFileSync(path.join(root, "electron-builder.mac-intel.js"), "utf8");
+  const windows = fs.readFileSync(path.join(root, "electron-builder.win.js"), "utf8");
 
   assert.match(JSON.stringify(pkg.build || {}), /resources\/bundled-mia-core/);
-  for (const source of [arm64, intel]) {
+  for (const source of [arm64, intel, windows]) {
     assert.doesNotMatch(source, /vendor\/hermes-runtime|resources\/managed-resources|to:\s*["']hermes-runtime|to:\s*["']managed-resources/);
   }
+  assert.match(windows, /filter: \["win32-x64\/\*\*\/\*"\]/);
 });
 
 test("engine backups have an independent pinned archive and manifest builder", () => {
@@ -107,6 +114,7 @@ test("packaged Mia Core is prepared from a prebuilt Rust Core release", () => {
   assert.match(source, /"resources",\s+"bundled-mia-core"/);
   assert.match(source, /prepareManagedAgentResources/);
   assert.match(source, /bundledManagedResourcesPath/);
+  assert.match(source, /bundleManagedResources/);
 });
 
 test("desktop package keeps AgentSession ACP SDK as a production dependency", () => {
@@ -197,6 +205,10 @@ test("desktop packaging scripts clean stale release artifacts before building", 
       assert.equal(pkg.scripts[scriptName], "node scripts/build-win.js");
       continue;
     }
+    if (scriptName === "pack") {
+      assert.equal(pkg.scripts[scriptName], "npm run clean:release && node scripts/pack-desktop-dir.js");
+      continue;
+    }
     assert.match(
       pkg.scripts[scriptName],
       new RegExp(`(^|&& )npm run clean:release && .*electron-builder`),
@@ -227,21 +239,27 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
 
   const winBuilder = fs.readFileSync(path.join(root, "scripts", "build-win.js"), "utf8");
+  const desktopDirBuilder = fs.readFileSync(path.join(root, "scripts", "pack-desktop-dir.js"), "utf8");
   assert.doesNotMatch(winBuilder, /build-hermes-runtime\.sh|resolveGitBash/);
   assert.match(winBuilder, /clean-release\.js/);
   assert.match(winBuilder, /electron-builder/);
   assert.match(winBuilder, /"--win", "nsis", "--publish", "never"/);
+  assert.match(winBuilder, /electron-builder\.win\.js/);
   assert.match(winBuilder, /Update\.\\\$\{ext\}/);
   assert.match(winBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"0"/);
-  assert.match(winBuilder, /verifyPackage\("required"\)/);
   assert.match(winBuilder, /verifyPackage\("forbidden"\)/);
-  assert.match(winBuilder, /bundleStash = path\.join\(root,/);
-  assert.doesNotMatch(winBuilder, /bundleStash = path\.join\(bundleRoot,/);
+  assert.doesNotMatch(winBuilder, /verifyPackage\("required"\)/);
+  assert.doesNotMatch(winBuilder, /bundleStash|bundleTarget|bundleRoot/);
   assert.match(winBuilder, /verify-packaged-mia-core\.js/);
   assert.match(winBuilder, /"--platform",\s+"win32"/);
   assert.match(winBuilder, /"--tidy"/);
   assert.match(winBuilder, /ELECTRON_MIRROR/);
   assert.match(winBuilder, /ELECTRON_BUILDER_BINARIES_MIRROR/);
+  assert.match(desktopDirBuilder, /electron-builder\.mac-arm64\.js/);
+  assert.match(desktopDirBuilder, /electron-builder\.mac-intel\.js/);
+  assert.match(desktopDirBuilder, /electron-builder\.win\.js/);
+  assert.match(desktopDirBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"0"/);
+  assert.match(desktopDirBuilder, /--managed-resources/);
 });
 
 test("Windows release workflow builds Rust Core natively and publishes durable assets", () => {
@@ -252,11 +270,10 @@ test("Windows release workflow builds Rust Core natively and publishes durable a
   assert.match(workflow, /source_ref:/);
   assert.match(workflow, /node-version:\s*"22"/);
   assert.match(workflow, /rustup toolchain install stable --profile minimal/);
-  assert.match(workflow, /cargo build --release --locked --target x86_64-pc-windows-msvc -p mia-core-app --bin mia-core/);
+  assert.match(workflow, /Build and package Windows Mia Core archive/);
   assert.match(workflow, /MIA_CORE_RS_BIN:/);
   assert.match(workflow, /target\/x86_64-pc-windows-msvc\/release\/mia-core\.exe/);
-  assert.match(workflow, /Package Windows Mia Core archive/);
-  assert.match(workflow, /MIA_CORE_RELEASE_SKIP_BUILD: "1"/);
+  assert.doesNotMatch(workflow, /MIA_CORE_RELEASE_SKIP_BUILD: "1"/);
   assert.match(workflow, /dist\/mia-core-release\/\*\*/);
   assert.match(workflow, /actions\/upload-artifact@v4/);
   assert.match(workflow, /gh release upload/);

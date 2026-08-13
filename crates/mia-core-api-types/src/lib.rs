@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 pub struct HealthResponse {
     pub ok: bool,
     pub version: String,
+    pub core_release_version: String,
+    pub core_source_fingerprint: String,
     pub pid: u32,
     pub data_dir: String,
     pub runtime_home: String,
@@ -910,6 +912,8 @@ pub struct BotRuntimeTargetOption {
     pub selected: bool,
     pub disabled: bool,
     pub disabled_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_action: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

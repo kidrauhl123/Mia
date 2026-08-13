@@ -91,7 +91,9 @@ function compactRuntime(runtime = {}) {
         const item = objectValue(agent);
         return {
           id: agentId(firstText(item.id, item.engine)),
-          usableInMia: Boolean(item.usableInMia ?? item.usable_in_mia)
+          installed: Boolean(item.installed),
+          usableInMia: Boolean(item.usableInMia ?? item.usable_in_mia),
+          installAction: firstText(item.installAction, item.install_action)
         };
       }).filter((agent) => agent.id)
     },

@@ -392,7 +392,7 @@ test("desktop update publisher injects versioned release notes into mac feed", (
   assert.match(readScript("scripts/publish-win-update.js"), /attachDesktopReleaseNotes/);
 });
 
-test("Windows publisher keeps the full installer separate from the lightweight update feed", () => {
+test("Windows publisher stages a Setup installer alongside the in-app update feed", () => {
   const pkg = JSON.parse(readScript("package.json"));
   const version = pkg.version;
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-win-update-publish-"));
@@ -410,7 +410,7 @@ test("Windows publisher keeps the full installer separate from the lightweight u
   }));
   fs.writeFileSync(path.join(releaseDir, updateName), "update");
   fs.writeFileSync(path.join(releaseDir, `${updateName}.blockmap`), "blockmap");
-  fs.writeFileSync(path.join(releaseDir, setupName), "full setup");
+  fs.writeFileSync(path.join(releaseDir, setupName), "setup");
 
   try {
     childProcess.execFileSync(process.execPath, [path.join(root, "scripts", "publish-win-update.js")], {

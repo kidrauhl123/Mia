@@ -68,6 +68,7 @@ function loadBotManager(options = {}) {
   const contactPatches = [];
   const mockWindow = {
     mia: options.mia || {},
+    miaBotCommands: options.miaBotCommands || {},
     miaSocial: { moduleState: { bots: [] }, pendingRequestCount: () => 0 },
     miaBotDirectory: {
       listOwnedBots: ({ identityBots }) => identityBots,
@@ -547,6 +548,101 @@ test("contact runtime target panel renders Core-owned target options", async () 
     label: group.label,
     options: Array.from(group.options, (option) => [option.engineKind, option.label, option.selected])
   })), [{ label: "本机", options: [["codex", "Codex", true]] }]);
+});
+
+test("contact runtime target selection prepares detected Codex before saving", async () => {
+  const order = [];
+  const { manager, window, contactPatches } = loadBotManager({
+    mia: {
+      installEngine: async (engineId) => {
+        order.push(`install:${engineId}`);
+        return { prepared: true };
+      },
+      scanAgents: async () => order.push("scan"),
+      runtimeStatus: async () => {
+        order.push("status");
+        return { prepared: true };
+      },
+      social: {
+        getBotRuntimeTargetOptions: async () => ({
+          ok: true,
+          data: {
+            runtimeLabel: "本机运行",
+            runsOnOtherDevice: false,
+            groups: [{
+              id: "mac-local",
+              label: "本机",
+              statusLabel: "本机",
+              runtimeKind: "desktop-local",
+              options: [
+                {
+                  runtimeKind: "desktop-local",
+                  deviceId: "mac-local",
+                  deviceName: "本机",
+                  agentEngine: "hermes",
+                  label: "Hermes",
+                  selected: true,
+                  disabled: false
+                },
+                {
+                  runtimeKind: "desktop-local",
+                  deviceId: "mac-local",
+                  deviceName: "本机",
+                  agentEngine: "codex",
+                  label: "Codex",
+                  selected: false,
+                  disabled: false,
+                  setupAction: "install-codex"
+                }
+              ]
+            }]
+          }
+        })
+      }
+    },
+    miaBotCommands: {
+      saveBotRuntimeTarget: async ({ agentEngine }) => {
+        order.push(`save:${agentEngine}`);
+        return {};
+      }
+    }
+  });
+  const state = {
+    skillsLoading: true,
+    skillLibrary: { extensions: [], skills: [] },
+    runtime: { localDevice: { id: "mac-local", name: "Studio Mac" } },
+    contactFilter: "",
+    activeContactKey: "runtime-bot",
+    savingBotCapabilities: new Set(),
+    savingBotRuntimeTargets: new Set()
+  };
+  const bot = {
+    key: "runtime-bot",
+    id: "runtime-bot",
+    name: "Runtime Bot",
+    runtimeKind: "desktop-local",
+    agentEngine: "hermes"
+  };
+  window.miaSocial.moduleState.bots = [bot];
+  manager.initBotManager({
+    state,
+    els: { contactList: mockEl(), contactDetail: mockEl(), contactPageTitle: mockEl(), contactPageMeta: mockEl() },
+    setText(el, value) { if (el) el.textContent = value; },
+    loadSkills: async () => {},
+    showNarrowContent() {},
+    render() {},
+    closeGroupContextMenu() {},
+    openEditBotDialog() {},
+    deleteBot() {},
+    setBotPinned() {}
+  });
+
+  manager.renderContactDetail(bot);
+  await flushAsyncWork();
+  const detail = latestContactPatch(contactPatches, (patch) => patch.detail?.kind === "bot");
+  await detail.detail.bot.runtime.groups[0].options[1].select();
+
+  assert.deepEqual(order, ["install:codex", "scan", "status", "save:codex"]);
 });
 
 test("other-device grouping uses the persisted bot target before Core options load", () => {

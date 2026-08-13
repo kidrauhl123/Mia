@@ -5,6 +5,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { resolveMiaCoreVersion } = require("./resolve-mia-core-version.js");
+const {
+  assertExpectedBuildInfo,
+  readCoreBuildInfo,
+  sha256File
+} = require("./mia-core-build-info.js");
+const { coreSourceFingerprintDetails } = require("./mia-core-source-fingerprint.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const DEFAULT_RELEASE_BASE_URL = "https://mia.gifgif.cn/downloads/mia-core";
@@ -118,6 +124,10 @@ function miaCoreDownloadUrl({ rootDir, platform, arch, tag, env = process.env })
       .replace(/\{target\}/g, rustTargetTriple(platform, arch));
   }
   return `${releaseBaseUrl(rootDir, env)}/${normalizeVersionTag(tag)}/${assetName}`;
+}
+
+function miaCoreManifestUrl({ rootDir, tag, env = process.env }) {
+  return `${releaseBaseUrl(rootDir, env)}/${normalizeVersionTag(tag)}/manifest.json`;
 }
 
 function bundledRustCorePath(rootDir, platform, arch) {
@@ -245,22 +255,12 @@ function prepareManagedAgentResources({
   arch,
   env = process.env,
   execFileSync = childProcess.execFileSync,
-  hostPlatform = process.platform,
-  hostArch = os.arch(),
-  allowCrossTarget = false,
   resourceDir = path.join(rootDir, "resources", "managed-resources")
 }) {
-  const mode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim();
-  const forced = mode === "1" || mode.toLowerCase() === "true";
-  if ((mode === "0" || mode.toLowerCase() === "false") && !forced) {
-    return { skipped: true, reason: "disabled", resourceDir: "" };
-  }
-  if (!forced && !allowCrossTarget && !canPrepareManagedResourcesForTarget({ platform, arch, hostPlatform, hostArch })) {
-    return {
-      skipped: true,
-      reason: `target ${platform}-${arch} cannot be prepared on host ${hostPlatform}-${hostArch}`,
-      resourceDir: ""
-    };
+  const mode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim().toLowerCase();
+  const forced = mode === "1" || mode === "true";
+  if (!forced) {
+    return { skipped: true, reason: mode ? "disabled" : "on-demand", resourceDir: "" };
   }
   const stagingDir = path.join(resourceDir, ".staging");
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-managed-resources-"));
@@ -430,11 +430,59 @@ function resolveLatestTag({ rootDir, env = process.env, execFileSync = childProc
   return normalizeVersionTag(tag);
 }
 
-function stageBinary({ rootDir, platform, arch, tag, sourcePath, sourceType, sourceDetail = {} }) {
+function downloadReleaseManifest({ rootDir, tag, env = process.env, execFileSync = childProcess.execFileSync }) {
+  const url = String(env.MIA_CORE_RELEASE_MANIFEST_URL || miaCoreManifestUrl({ rootDir, tag, env })).trim();
+  const output = execFileSync("curl", ["-fsSL", url], { encoding: "utf8", timeout: 30000 });
+  let manifest;
+  try {
+    manifest = JSON.parse(String(output || ""));
+  } catch {
+    throw new Error(`Mia Core release manifest is invalid JSON: ${url}`);
+  }
+  return { manifest, url };
+}
+
+function releaseAssetForTarget(manifest, { tag, platform, arch, sourceFingerprint }) {
+  const manifestTag = normalizeVersionTag(manifest?.tag_name || manifest?.tag || manifest?.version || "");
+  const expectedTag = normalizeVersionTag(tag);
+  if (manifestTag !== expectedTag) {
+    throw new Error(`Mia Core release manifest ${manifestTag} does not match required ${expectedTag}.`);
+  }
+  const manifestFingerprint = String(manifest?.sourceFingerprint || manifest?.source_fingerprint || "").trim().toLowerCase();
+  if (manifestFingerprint !== String(sourceFingerprint || "").trim().toLowerCase()) {
+    throw new Error(`Mia Core ${expectedTag} was not built from the current Core source.`);
+  }
+  const assetName = miaCoreAssetName(platform, arch, expectedTag);
+  const asset = (Array.isArray(manifest?.assets) ? manifest.assets : [])
+    .find((entry) => String(entry?.name || "") === assetName);
+  if (!asset) throw new Error(`Mia Core release manifest has no asset ${assetName}.`);
+  const archiveSha256 = String(asset.sha256 || "").trim().toLowerCase();
+  const binarySha256 = String(asset.binarySha256 || asset.binary_sha256 || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(archiveSha256) || !/^[a-f0-9]{64}$/.test(binarySha256)) {
+    throw new Error(`Mia Core release asset ${assetName} has incomplete checksums.`);
+  }
+  return { ...asset, archiveSha256, binarySha256 };
+}
+
+function stageBinary({
+  rootDir,
+  platform,
+  arch,
+  tag,
+  sourcePath,
+  sourceType,
+  sourceDetail = {},
+  buildInfo,
+  expectedBinarySha256 = ""
+}) {
   const binaryName = rustCoreBinaryName(platform);
   const dest = bundledRustCorePath(rootDir, platform, arch);
   const targetDir = path.dirname(dest);
   const stat = assertReadableFile(sourcePath, "Mia Rust Core binary");
+  const binarySha256 = sha256File(sourcePath);
+  if (expectedBinarySha256 && binarySha256 !== String(expectedBinarySha256).trim().toLowerCase()) {
+    throw new Error(`Mia Core binary checksum does not match the ${normalizeVersionTag(tag)} release manifest.`);
+  }
   removeDirectorySafe(targetDir);
   ensureDirectory(targetDir);
   fs.copyFileSync(sourcePath, dest);
@@ -445,12 +493,25 @@ function stageBinary({ rootDir, platform, arch, tag, sourcePath, sourceType, sou
     arch,
     target: rustTargetTriple(platform, arch),
     version: normalizeVersionTag(tag),
+    releaseVersion: buildInfo.releaseVersion,
+    sourceFingerprint: buildInfo.sourceFingerprint,
+    binarySha256,
     generatedAt: new Date().toISOString(),
     sourceType,
     source: sourceDetail,
     files: [binaryName]
   });
-  return { platform, arch, source: sourcePath, dest, bytes, sourceType, tag: normalizeVersionTag(tag) };
+  return {
+    platform,
+    arch,
+    source: sourcePath,
+    dest,
+    bytes,
+    sourceType,
+    tag: normalizeVersionTag(tag),
+    buildInfo,
+    binarySha256
+  };
 }
 
 function stageArchive({
@@ -461,6 +522,8 @@ function stageArchive({
   archivePath,
   sourceType,
   sourceDetail,
+  buildInfo,
+  expectedBinarySha256,
   execFileSync,
   extractionPlatform = process.platform
 }) {
@@ -484,7 +547,9 @@ function stageArchive({
       tag,
       sourcePath: binaryPath,
       sourceType,
-      sourceDetail
+      sourceDetail,
+      buildInfo,
+      expectedBinarySha256
     });
   } finally {
     removeDirectorySafe(tempDir);
@@ -501,38 +566,78 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   const hostArch = normalizeArch(options.hostArch || os.arch()) || os.arch();
   const explicitSource = String(env.MIA_CORE_RS_BIN || "").trim();
   let tag = normalizeVersionTag(resolveMiaCoreVersion(rootDir, env));
+  const sourceIdentity = coreSourceFingerprintDetails(rootDir);
+  const expectedBuildInfo = {
+    releaseVersion: tag,
+    sourceFingerprint: sourceIdentity.fingerprint
+  };
+  const readBuildInfo = options.readCoreBuildInfo || readCoreBuildInfo;
 
   if (tag === "latest") {
     tag = resolveLatestTag({ rootDir, env, execFileSync });
+    expectedBuildInfo.releaseVersion = tag;
   }
 
   let result;
   if (explicitSource) {
+    const sourcePath = path.resolve(explicitSource);
+    const buildInfo = assertExpectedBuildInfo(
+      readBuildInfo(sourcePath, { env, execFileSync }),
+      expectedBuildInfo,
+      `Mia Core local binary ${sourcePath}`
+    );
     result = stageBinary({
       rootDir,
       platform,
       arch,
       tag,
-      sourcePath: path.resolve(explicitSource),
+      sourcePath,
       sourceType: "local-binary",
-      sourceDetail: { path: path.resolve(explicitSource) }
+      sourceDetail: { path: sourcePath },
+      buildInfo
     });
   } else {
     const explicitArchive = String(env.MIA_CORE_RELEASE_ARCHIVE || "").trim();
     if (explicitArchive) {
+      const manifestPath = String(env.MIA_CORE_RELEASE_MANIFEST || "").trim();
+      if (!manifestPath) {
+        throw new Error("MIA_CORE_RELEASE_MANIFEST is required with MIA_CORE_RELEASE_ARCHIVE.");
+      }
+      const releaseManifest = JSON.parse(fs.readFileSync(path.resolve(manifestPath), "utf8"));
+      const releaseAsset = releaseAssetForTarget(releaseManifest, {
+        tag,
+        platform,
+        arch,
+        sourceFingerprint: sourceIdentity.fingerprint
+      });
+      const archivePath = path.resolve(explicitArchive);
+      if (sha256File(archivePath) !== releaseAsset.archiveSha256) {
+        throw new Error(`Mia Core archive checksum does not match the ${tag} release manifest.`);
+      }
       result = stageArchive({
         rootDir,
         platform,
         arch,
         tag,
-        archivePath: path.resolve(explicitArchive),
+        archivePath,
         sourceType: "local-archive",
-        sourceDetail: { path: path.resolve(explicitArchive) },
+        sourceDetail: { path: archivePath, manifest: path.resolve(manifestPath) },
+        buildInfo: expectedBuildInfo,
+        expectedBinarySha256: releaseAsset.binarySha256,
         execFileSync,
         extractionPlatform: hostPlatform
       });
     } else {
       const url = miaCoreDownloadUrl({ rootDir, platform, arch, tag, env });
+      const manifestResult = options.releaseManifest
+        ? { manifest: options.releaseManifest, url: "injected" }
+        : downloadReleaseManifest({ rootDir, tag, env, execFileSync });
+      const releaseAsset = releaseAssetForTarget(manifestResult.manifest, {
+        tag,
+        platform,
+        arch,
+        sourceFingerprint: sourceIdentity.fingerprint
+      });
       const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-download-"));
       const archivePath = path.join(tempDir, miaCoreAssetName(platform, arch, tag));
       try {
@@ -540,6 +645,9 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
         // is necessarily host-specific during cross-platform packaging.
         downloadFile(url, archivePath, { platform: hostPlatform, execFileSync });
         assertNotHtmlDownload(archivePath, url);
+        if (sha256File(archivePath) !== releaseAsset.archiveSha256) {
+          throw new Error(`Mia Core archive checksum does not match the ${tag} release manifest.`);
+        }
         result = stageArchive({
           rootDir,
           platform,
@@ -547,7 +655,9 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
           tag,
           archivePath,
           sourceType: "download",
-          sourceDetail: { url },
+          sourceDetail: { url, manifestUrl: manifestResult.url },
+          buildInfo: expectedBuildInfo,
+          expectedBinarySha256: releaseAsset.binarySha256,
           execFileSync,
           extractionPlatform: hostPlatform
         });
@@ -560,10 +670,10 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   console.log(`[prepare-mia-core-rs] staged Rust Core (${result.bytes} bytes) for ${platform}-${arch} from ${result.source} -> ${result.dest}`);
   const bundledResources = bundledManagedResourcesPath(rootDir, platform, arch);
   const managedResourcesMode = String(env.MIA_MANAGED_RESOURCES_PREPARE || "").trim().toLowerCase();
-  const managedResourcesDisabled = managedResourcesMode === "0" || managedResourcesMode === "false";
-  const managedResourcesCore = managedResourcesDisabled
-    ? { corePath: result.dest, source: result.dest, crossTarget: false, cleanup: () => {} }
-    : resolveManagedResourcesCore({
+  const bundleManagedResources = managedResourcesMode === "1" || managedResourcesMode === "true";
+  let managedResources = { skipped: true, reason: "on-demand", resourceDir: "" };
+  if (bundleManagedResources) {
+    const managedResourcesCore = resolveManagedResourcesCore({
       rootDir,
       targetCorePath: result.dest,
       tag,
@@ -574,34 +684,33 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
       hostPlatform,
       hostArch
     });
-  const npmWrapper = managedResourcesCore.crossTarget
-    ? createTargetNpmWrapper({ env, platform, arch, hostPlatform })
-    : null;
-  const managedResourcesEnv = {
-    ...env,
-    MIA_MANAGED_AGENT_RUNTIME_KEY: runtimeKey(platform, arch),
-    ...(npmWrapper ? { MIA_MANAGED_AGENT_NPM: npmWrapper.commandPath } : {})
-  };
-  let managedResources;
-  try {
-    if (managedResourcesCore.crossTarget) {
-      console.log(`[prepare-mia-core-rs] preparing ${runtimeKey(platform, arch)} ACP resources with host Core ${managedResourcesCore.source}`);
+    const npmWrapper = managedResourcesCore.crossTarget
+      ? createTargetNpmWrapper({ env, platform, arch, hostPlatform })
+      : null;
+    const managedResourcesEnv = {
+      ...env,
+      MIA_MANAGED_AGENT_RUNTIME_KEY: runtimeKey(platform, arch),
+      ...(npmWrapper ? { MIA_MANAGED_AGENT_NPM: npmWrapper.commandPath } : {})
+    };
+    try {
+      if (managedResourcesCore.crossTarget) {
+        console.log(`[prepare-mia-core-rs] preparing ${runtimeKey(platform, arch)} ACP resources with host Core ${managedResourcesCore.source}`);
+      }
+      managedResources = prepareManagedAgentResources({
+        rootDir,
+        corePath: managedResourcesCore.corePath,
+        platform,
+        arch,
+        env: managedResourcesEnv,
+        execFileSync,
+        resourceDir: bundledResources
+      });
+    } finally {
+      npmWrapper?.cleanup();
+      managedResourcesCore.cleanup();
     }
-    managedResources = prepareManagedAgentResources({
-      rootDir,
-      corePath: managedResourcesCore.corePath,
-      platform,
-      arch,
-      env: managedResourcesEnv,
-      execFileSync,
-      hostPlatform,
-      hostArch,
-      allowCrossTarget: managedResourcesCore.crossTarget,
-      resourceDir: bundledResources
-    });
-  } finally {
-    npmWrapper?.cleanup();
-    managedResourcesCore.cleanup();
+  } else if (managedResourcesMode) {
+    managedResources.reason = "disabled";
   }
   if (!managedResources.skipped) {
     includeManagedResourcesInManifest(result.dest, platform);
@@ -630,6 +739,7 @@ Object.assign(module.exports, {
   findBinaryInDir,
   miaCoreAssetName,
   miaCoreDownloadUrl,
+  miaCoreManifestUrl,
   normalizeArch,
   normalizePlatform,
   normalizeVersionTag,
@@ -638,6 +748,7 @@ Object.assign(module.exports, {
   resolveManagedResourcesCore,
   releaseBaseUrl,
   resolveLatestTag,
+  releaseAssetForTarget,
   rustTargetTriple,
   rustCoreBinaryName,
   targetArchFromContext,

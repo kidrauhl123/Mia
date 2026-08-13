@@ -28,6 +28,7 @@ enum Command {
     Serve(ServeArgs),
     PrepareManagedResources(PrepareManagedResourcesArgs),
     McpMiaStdio,
+    BuildInfo,
 }
 
 #[derive(clap::Args, Debug)]
@@ -56,14 +57,26 @@ struct PrepareManagedResourcesArgs {
     resource_dir: Option<PathBuf>,
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(io::stderr)
         .init();
 
-    match run().await {
+    // SAFETY: this runs before Tokio creates any worker threads.
+    let _ = unsafe { mia_core_runtime::enhance_process_path() };
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("MIA_CORE_STARTUP_FAILED failed to initialize async runtime: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match runtime.block_on(run()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("MIA_CORE_STARTUP_FAILED {error:#}");
@@ -78,6 +91,13 @@ async fn run() -> anyhow::Result<()> {
         Command::Serve(args) => run_serve(args).await,
         Command::PrepareManagedResources(args) => run_prepare_managed_resources(args).await,
         Command::McpMiaStdio => run_builtin_mcp_stdio().await,
+        Command::BuildInfo => {
+            println!(
+                "{}",
+                serde_json::to_string(&mia_core_app::build_info::current())?
+            );
+            Ok(())
+        }
     }
 }
 
@@ -161,6 +181,11 @@ async fn run_prepare_managed_resources(args: PrepareManagedResourcesArgs) -> any
 }
 
 fn spawn_managed_resource_preparation(config: &AppConfig) {
+    if !managed_resource_preparation_requested(
+        std::env::var("MIA_MANAGED_AGENT_PREPARE").ok().as_deref(),
+    ) {
+        return;
+    }
     let workspace_dir = config.workspace_dir.clone();
     let data_dir = config.data_dir.clone();
     tokio::spawn(async move {
@@ -182,6 +207,10 @@ fn spawn_managed_resource_preparation(config: &AppConfig) {
             tracing::warn!(resources = ?failed, "managed ACP resources are not ready yet");
         }
     });
+}
+
+fn managed_resource_preparation_requested(value: Option<&str>) -> bool {
+    matches!(value.map(str::trim), Some("1"))
 }
 
 fn absolute_path(path: PathBuf) -> anyhow::Result<PathBuf> {
@@ -298,5 +327,14 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(2), shutdown_signal(Some(u32::MAX)))
             .await
             .expect("missing parent pid should trigger shutdown promptly");
+    }
+
+    #[test]
+    fn managed_resource_preparation_requires_explicit_opt_in() {
+        assert!(!managed_resource_preparation_requested(None));
+        assert!(!managed_resource_preparation_requested(Some("0")));
+        assert!(!managed_resource_preparation_requested(Some("true")));
+        assert!(managed_resource_preparation_requested(Some("1")));
+        assert!(managed_resource_preparation_requested(Some(" 1 ")));
     }
 }

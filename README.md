@@ -48,7 +48,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 - Bot 身份统一由 Cloud 持久化：名字、头像、简介、人设、颜色、技能能力等都是同一个账号级对象。
 - 运行目标通过 runtime binding 记录：`desktop-local`、`cloud-claude-code` 等只是执行位置/引擎目标，不是两套 Bot 身份。
 - Agent 引擎：Hermes、Claude Code、Codex。
-- Claude Code / Codex 优先复用用户本机 CLI；桌面包自带固定版本的 ACP bridge，Core 启动时自动校验和准备，不要求用户手动配置 ACP。缺少本机 CLI 时仍可启用 Mia 私有稳定版。
+- Claude Code / Codex 优先复用用户本机 CLI；桌面包不内置 ACP 或 CLI 运行时。需要时才下载对应的固定、校验过的私有运行包，不要求用户手动配置 ACP。
 - Hermes 同样优先复用 PATH 上的用户安装；缺失时可从 Mia 备份源按需下载固定 Python + Hermes runtime。
 - Bot 可以挂载技能，技能来源包括内置 skill、官方库和本地 skill 目录。
 - Bot 可绑定 `cloud-claude-code` 运行目标，在云端隔离沙箱中运行，由平台统一提供 Claude Code 兼容运行时。
@@ -77,7 +77,7 @@ Mia 是一个桌面优先的多 Agent 聊天平台。
 
 ### 打包与发布
 
-- 桌面包携带 Claude/Codex 的固定 ACP bridge 资源，但不携带用户 CLI、登录态或 Hermes。Core 启动时自动校验/准备托管资源；Hermes 和缺失的本机主 CLI 仍按现有流程按需启用固定稳定备份。
+- 桌面包只携带 Rust Core，不携带 Claude、Codex 或 Hermes 运行时、登录态。用户启用某个缺失引擎时，才下载该引擎的固定稳定备份。
 - release 输出目录是 `release/`，构建前后会通过 `scripts/clean-release.js` 做清理和归档整理。
 - 桌面自动更新：`npm run release:mac` / `npm run release:win` 把 feed + 产物暂存/发布到 `https://mia.gifgif.cn/updates/`（发版要先 bump `package.json` 版本）。客户端检查到新版本后会锁定界面、显示下载进度并强制安装。历史 GitHub feed 只用于把旧包迁到新更新源，细节见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) 的"桌面自动更新"。
 - Cloud release 输出在 `dist/`，由 `scripts/build-cloud-release.js`、handoff、doctor、smoke、deploy 脚本串起来。
@@ -124,7 +124,7 @@ npm run open
 
 ### 本地 Agent 前提
 
-Mia 会先扫描系统中的 Hermes、Claude Code 和 Codex。系统版本可用时直接复用；Claude/Codex 的 ACP bridge 已随桌面包携带，并由 Core 在启动时自动校验/准备。若这是首次启动且三个本机引擎都不可用，Mia 会显示进度并自动准备私有目录中的固定 Claude Code 稳定版；不会执行全局 npm 安装、不修改 PATH，也不覆盖用户 CLI。其他缺失引擎仍可在本机引擎区点击“启用 Mia 稳定版”，从 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json` 按需下载所选引擎，校验固定版本和 SHA-256 后放进 Mia 私有目录：
+Mia 会先扫描系统中的 Hermes、Claude Code 和 Codex，系统版本可用时直接复用。缺失的引擎，或尚未缓存 ACP 运行组件的 Claude/Codex，可在本机引擎区点击“启用 Mia 稳定版”；客户端才会从 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json` 下载所选引擎，校验固定版本和 SHA-256 后放进 Mia 私有目录。不会执行全局 npm 安装、不修改 PATH，也不覆盖用户 CLI：
 
 ```bash
 hermes --version
@@ -134,7 +134,7 @@ codex --version
 
 Hermes 也遵循同一规则：优先复用用户按官方方式安装的 PATH 版本；缺失时可按需下载固定的 Hermes + Python runtime。
 
-当前桌面稳定资源固定为：Hermes `2026.7.7.2` / PyPI `0.18.2`（Python `3.11.13`）、Claude Code CLI `2.1.211` + ACP `0.59.0`、Codex CLI `0.144.5` + ACP `1.1.4`。Claude/Codex ACP 资源在打包前进入对应 Rust Core bundle；升级时需同步更新 Core pin、打包资源校验和 `npm run engine-backups:build -- <platform>-<arch>` 的独立备份清单。
+当前桌面稳定资源固定为：Hermes `2026.7.7.2` / PyPI `0.18.2`（Python `3.11.13`）、Claude Code CLI `2.1.211` + ACP `0.59.0`、Codex CLI `0.144.5` + ACP `1.1.4`。三套资源只在独立备份中发布；升级时需同步更新 Core pin 和 `npm run engine-backups:build -- <platform>-<arch>` 的备份清单。
 
 Mia 复用用户本机 Agent 时，优先保证稳定可用并遵循上游成熟配置路径。Codex 使用用户原生 `~/.codex`，Hermes 使用用户原生 `~/.hermes`，Claude Code 使用原生默认用户环境。每个伙伴的模型、推理强度由 Mia 按本次运行显式传入；权限按引擎级保存，同一引擎下所有伙伴共享。用户在 Mia 中修改权限时，Mia 只对需要用户级配置的引擎做一次 apply，例如 Codex 会更新 `~/.codex/config.toml`，Hermes 会合并更新 `~/.hermes/config.yaml`；不会在每次发消息前做配置 sync。
 

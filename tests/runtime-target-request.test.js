@@ -25,7 +25,7 @@ test("runtime target transport drops oversized renderer state and preserves Core
         agents: [
           { id: "hermes", usableInMia: true, readiness: { detail: oversizedDetail } },
           { id: "claude-code", usableInMia: true },
-          { id: "codex", usableInMia: true }
+          { id: "codex", installed: true, usableInMia: false, installAction: "install-codex" }
         ]
       },
       agentEngines: {
@@ -49,6 +49,12 @@ test("runtime target transport drops oversized renderer state and preserves Core
     request.runtime.agentInventory.agents.map((agent) => agent.id),
     ["hermes", "claude-code", "codex"]
   );
+  assert.deepEqual(request.runtime.agentInventory.agents[2], {
+    id: "codex",
+    installed: true,
+    usableInMia: false,
+    installAction: "install-codex"
+  });
   assert.deepEqual(request.engineCapabilities.engines.codex.models, [true]);
   assert.deepEqual(request.bot.targetIntent, {
     runtimeKind: "",

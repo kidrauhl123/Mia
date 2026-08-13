@@ -1,7 +1,7 @@
 // Stage or deploy the Windows in-app update feed to Mia's generic HTTPS update
 // source. electron-updater reads latest.yml from https://mia.gifgif.cn/updates/
-// and downloads the lightweight NSIS update .exe plus blockmap from the same
-// origin. The full Setup.exe is staged separately for first-time downloads.
+// and downloads the NSIS update .exe plus blockmap from the same origin.
+// Setup.exe is staged separately for first-time downloads.
 //
 // Run AFTER `npm run dist:win`. By default this writes dist/mia-updates/ only.
 // Set MIA_UPDATE_DEPLOY=1 to rsync that directory to the VPS update root.

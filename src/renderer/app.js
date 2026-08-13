@@ -5174,7 +5174,9 @@ async function initializeRuntime(options = {}) {
       renderView,
       render,
       saveBotDialog: saveBotDialogDraft,
-      openModelSettings: () => openSettingsView("model")
+      openModelSettings: () => openSettingsView("model"),
+      installEngine: (engineId) => window.mia.installEngine(engineId),
+      refreshRuntime
     });
   }
   if (window.miaTraceBlocks && window.miaTraceBlocks.initTraceBlocks) {

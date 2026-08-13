@@ -1417,6 +1417,42 @@ async fn bot_service_does_not_invent_local_agents_while_detection_is_empty_or_ch
 }
 
 #[tokio::test]
+async fn bot_service_lists_detected_codex_before_its_managed_acp_is_ready() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+    let options = service.runtime_target_options(BotRuntimeTargetOptionsRequest {
+        bot: json!({}),
+        runtime: json!({
+            "localDevice": { "id": "mac-local", "name": "Studio Mac" },
+            "agentInventory": {
+                "agents": [{
+                    "id": "codex",
+                    "installed": true,
+                    "usableInMia": false,
+                    "installAction": "install-codex",
+                    "health": "blocked"
+                }]
+            }
+        }),
+        engine_capabilities: json!({}),
+        preferred_agent_engine: Some("codex".to_string()),
+    });
+
+    let local = options
+        .groups
+        .iter()
+        .find(|group| group.id == "mac-local")
+        .unwrap();
+    assert_eq!(local.options.len(), 1);
+    assert_eq!(local.options[0].agent_engine, "codex");
+    assert!(!local.options[0].disabled);
+    assert_eq!(
+        local.options[0].setup_action.as_deref(),
+        Some("install-codex")
+    );
+}
+
+#[tokio::test]
 async fn bot_service_owns_capability_options_and_toggle_intents() {
     let db = init_database_memory().await.unwrap();
     let service = BotService::new(db.pool().clone());

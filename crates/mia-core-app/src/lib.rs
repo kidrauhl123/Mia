@@ -1,5 +1,6 @@
 //! Application crate assembling Mia Rust Core services and routes.
 
+pub mod build_info;
 pub mod builtin_mcp;
 pub mod cloud_bridge;
 pub mod codex_mia_proxy;

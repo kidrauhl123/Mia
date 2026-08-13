@@ -173,9 +173,12 @@ function createBotDialogContext({
   activeBinding,
   runtime = null,
   engineCapabilities = null,
+  installEngine = null,
   isCloudIdentityBot = null,
   listBridgeDevices = null,
-  runtimeTargetOptions = null
+  refreshRuntime = null,
+  runtimeTargetOptions = null,
+  saveBotDialog = null
 } = {}) {
   const select = new FakeSelect();
   const calls = [];
@@ -317,7 +320,10 @@ function createBotDialogContext({
     els,
     renderView() { events.push("renderView"); },
     render() {},
-    openModelSettings() { modelSettingsCalls.push("model"); }
+    saveBotDialog,
+    openModelSettings() { modelSettingsCalls.push("model"); },
+    installEngine,
+    refreshRuntime
   });
   return {
     context,
@@ -474,6 +480,102 @@ test("creating a bot renders Core-normalized local agent inventory engine choice
       .map((option) => option.agentEngine),
     ["hermes", "claude-code", "codex"]
   );
+});
+
+test("selecting a detected Codex prepares its managed runtime on demand", async () => {
+  const installs = [];
+  const { context, currentDialog } = createBotDialogContext({
+    installEngine: async (engineId) => installs.push(engineId),
+    refreshRuntime: async () => {},
+    runtime: {
+      cloud: { enabled: false, devices: [] },
+      localDevice: { id: "mac-local", name: "Work Mac" },
+      agentInventory: {
+        agents: [{
+          id: "codex",
+          installed: true,
+          usableInMia: false,
+          installAction: "install-codex"
+        }]
+      },
+      preferredAgentEngine: "codex"
+    },
+    runtimeTargetOptions: {
+      groups: [{
+        label: "Work Mac",
+        statusLabel: "本机",
+        runtimeKind: "desktop-local",
+        options: [{
+          runtimeKind: "desktop-local",
+          deviceId: "mac-local",
+          deviceName: "Work Mac",
+          agentEngine: "codex",
+          label: "Codex",
+          selected: true,
+          disabled: false,
+          setupAction: "install-codex"
+        }]
+      }]
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
+  const dialog = currentDialog();
+  const option = dialog.runtimeGroups[0].options[0];
+  assert.equal(option.disabled, false);
+
+  assert.equal(await dialog.setRuntime(option.value), "");
+  assert.deepEqual(installs, ["codex"]);
+});
+
+test("saving a bot with detected Codex prepares its managed runtime on demand", async () => {
+  const order = [];
+  const { context, currentDialog } = createBotDialogContext({
+    installEngine: async (engineId) => order.push(`install:${engineId}`),
+    refreshRuntime: async () => order.push("refresh"),
+    saveBotDialog: async ({ runtime }) => {
+      order.push(`save:${runtime.agentEngine}`);
+      return "";
+    },
+    runtime: {
+      cloud: { enabled: false, devices: [] },
+      localDevice: { id: "mac-local", name: "Work Mac" },
+      agentInventory: {
+        agents: [{
+          id: "codex",
+          installed: true,
+          usableInMia: false,
+          installAction: "install-codex"
+        }]
+      },
+      preferredAgentEngine: "codex"
+    },
+    runtimeTargetOptions: {
+      groups: [{
+        label: "Work Mac",
+        statusLabel: "本机",
+        runtimeKind: "desktop-local",
+        options: [{
+          runtimeKind: "desktop-local",
+          deviceId: "mac-local",
+          deviceName: "Work Mac",
+          agentEngine: "codex",
+          label: "Codex",
+          selected: true,
+          disabled: false,
+          setupAction: "install-codex"
+        }]
+      }]
+    }
+  });
+
+  context.window.miaBotDialog.openBotDialog();
+  await flushDialogAsyncWork();
+
+  assert.equal(await currentDialog().submit(), "");
+  assert.deepEqual(order, ["install:codex", "refresh", "save:codex"]);
+  assert.equal(currentDialog().kind, "closed");
 });
 
 test("creating a bot shows detection state without fake options while agent scan is running", async () => {

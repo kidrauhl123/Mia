@@ -852,11 +852,12 @@
     const deviceId = String(option.deviceId || option.device_id || "");
     const deviceName = String(option.deviceName || option.device_name || "");
     const title = String(option.title || "");
+    const setupAction = String(option.setupAction || option.setup_action || "");
     const saving = state?.savingBotRuntimeTargets?.has?.(bot?.key);
     const disabled = Boolean(saving || option.disabled);
     const attrs = runtimeKind === "cloud-claude-code"
       ? `data-runtime-kind="cloud-claude-code" data-agent-engine="${window.miaMarkdown.escapeHtml(agentEngine)}"`
-      : `data-runtime-kind="desktop-local" data-device-id="${window.miaMarkdown.escapeHtml(deviceId)}" data-device-name="${window.miaMarkdown.escapeHtml(deviceName)}" data-agent-engine="${window.miaMarkdown.escapeHtml(agentEngine)}"`;
+      : `data-runtime-kind="desktop-local" data-device-id="${window.miaMarkdown.escapeHtml(deviceId)}" data-device-name="${window.miaMarkdown.escapeHtml(deviceName)}" data-agent-engine="${window.miaMarkdown.escapeHtml(agentEngine)}" data-setup-action="${window.miaMarkdown.escapeHtml(setupAction)}"`;
     return `
       <button type="button" class="runtime-target-option${option.selected ? " selected" : ""}${saving ? " saving" : ""}" ${attrs} title="${window.miaMarkdown.escapeHtml(title)}" ${disabled ? "disabled" : ""}>
         ${engineLogoHtml(option.iconKind || agentEngine)}
@@ -1087,14 +1088,9 @@
           label: String(option.engineLabel || option.label || engineLabel(option.agentEngine || option.agent_engine)),
           selected: Boolean(option.selected),
           title: String(option.title || ""),
-          select: () => {
+          select: async () => {
             if (option.selected) return;
-            saveBotRuntimeTarget(bot, {
-              runtimeKind: option.runtimeKind || option.runtime_kind || "desktop-local",
-              deviceId: option.deviceId || option.device_id || "",
-              deviceName: option.deviceName || option.device_name || "",
-              agentEngine: option.agentEngine || option.agent_engine || "hermes"
-            });
+            await selectBotRuntimeTarget(bot, option);
           }
         }))
       })),
@@ -1239,6 +1235,36 @@
     }
   }
 
+  async function selectBotRuntimeTarget(bot, option = {}) {
+    const runtimeKind = option.runtimeKind || option.runtime_kind || "desktop-local";
+    const agentEngine = option.agentEngine || option.agent_engine || "hermes";
+    const setupAction = String(option.setupAction || option.setup_action || "");
+    if (setupAction) {
+      if (!state.savingBotRuntimeTargets) state.savingBotRuntimeTargets = new Set();
+      state.savingBotRuntimeTargets.add(bot.key);
+      renderContacts();
+      try {
+        const installedRuntime = await window.mia.installEngine(agentEngine);
+        if (installedRuntime) state.runtime = installedRuntime;
+        if (typeof window.mia.scanAgents === "function") await window.mia.scanAgents();
+        if (typeof window.mia.runtimeStatus === "function") state.runtime = await window.mia.runtimeStatus();
+        runtimeTargetOptionsCache().delete(bot.key);
+      } catch (error) {
+        window.alert(`启用 ${engineLabel(agentEngine)} 失败：${error.message || error}`);
+        return;
+      } finally {
+        state.savingBotRuntimeTargets.delete(bot.key);
+        renderContacts();
+      }
+    }
+    await saveBotRuntimeTarget(bot, {
+      runtimeKind,
+      deviceId: option.deviceId || option.device_id || "",
+      deviceName: option.deviceName || option.device_name || "",
+      agentEngine: runtimeKind === "cloud-claude-code" ? (agentEngine || "") : agentEngine
+    });
+  }
+
   function wireBotRuntimeTargets(bot) {
     if (!els || !els.contactDetail || !bot) return;
     const panel = els.contactDetail.querySelector(".contact-runtime-target");
@@ -1250,11 +1276,12 @@
     els.contactDetail.querySelectorAll("[data-runtime-kind]").forEach((button) => {
       button.addEventListener("click", async () => {
         if (button.classList.contains("selected")) return;
-        await saveBotRuntimeTarget(bot, {
+        await selectBotRuntimeTarget(bot, {
           runtimeKind: button.dataset.runtimeKind || "desktop-local",
           deviceId: button.dataset.deviceId || "",
           deviceName: button.dataset.deviceName || "",
-          agentEngine: button.dataset.runtimeKind === "cloud-claude-code" ? (button.dataset.agentEngine || "") : (button.dataset.agentEngine || "hermes")
+          agentEngine: button.dataset.runtimeKind === "cloud-claude-code" ? (button.dataset.agentEngine || "") : (button.dataset.agentEngine || "hermes"),
+          setupAction: button.dataset.setupAction || ""
         });
       });
     });

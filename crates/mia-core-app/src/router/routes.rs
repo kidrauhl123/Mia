@@ -355,6 +355,14 @@ mod tests {
         assert_eq!(json["daemonTarget"]["kind"], "rust-core");
         assert_eq!(json["daemonTarget"]["usesGuiAppIdentity"], false);
         assert_eq!(json["daemonTarget"]["parentPid"], 4321);
+        assert_eq!(
+            json["coreReleaseVersion"],
+            crate::build_info::CORE_RELEASE_VERSION
+        );
+        assert_eq!(
+            json["coreSourceFingerprint"],
+            crate::build_info::CORE_SOURCE_FINGERPRINT
+        );
     }
 
     #[tokio::test]

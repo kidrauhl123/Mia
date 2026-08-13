@@ -928,6 +928,11 @@ function ProfileDialog({ dialog }: { dialog: ProfileDialogView }) {
 function BotDialog({ dialog }: { dialog: BotDialogView }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const setRuntime = async (value: string) => {
+    setError("");
+    const message = await dialog.setRuntime(value);
+    if (message) setError(message);
+  };
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (saving) return;
@@ -983,7 +988,11 @@ function BotDialog({ dialog }: { dialog: BotDialogView }) {
         ) : dialog.runtimeGroups.length ? (
           <label>
             运行位置和 Agent 内核
-            <select value={dialog.runtimeValue} onChange={(event) => dialog.setRuntime(event.currentTarget.value)}>
+            <select
+              value={dialog.runtimeValue}
+              disabled={dialog.runtimePreparing}
+              onChange={(event) => void setRuntime(event.currentTarget.value)}
+            >
               {dialog.runtimeGroups.map((group) => (
                 <optgroup key={group.label} label={group.label}>
                   {group.options.map((option) => (
@@ -1034,9 +1043,9 @@ function BotDialog({ dialog }: { dialog: BotDialogView }) {
           <button
             className="primary"
             type="submit"
-            disabled={saving || dialog.runtimeLoading || dialog.runtimeSetupRequired}
+            disabled={saving || dialog.runtimeLoading || dialog.runtimePreparing || dialog.runtimeSetupRequired}
           >
-            {saving ? "保存中…" : "保存伙伴"}
+            {dialog.runtimePreparing ? "正在准备 Agent…" : saving ? "保存中…" : "保存伙伴"}
           </button>
         </footer>
       </form>
