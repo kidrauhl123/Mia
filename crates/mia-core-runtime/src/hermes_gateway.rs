@@ -484,10 +484,10 @@ impl HermesGatewayTask {
         );
         params.insert("source".into(), Value::String("mia-desktop".into()));
         params.insert("close_on_disconnect".into(), Value::Bool(false));
-        if let Some(model) = native_model_from_plan(plan) {
+        if let Some(model) = gateway_model_from_plan(plan) {
             params.insert("model".into(), Value::String(model));
         }
-        if let Some(provider) = native_provider_from_plan(plan) {
+        if let Some(provider) = gateway_provider_from_plan(plan) {
             params.insert("provider".into(), Value::String(provider));
         }
         if let Some(effort) = desired_reasoning_effort(plan)
@@ -1939,6 +1939,27 @@ fn native_provider_from_plan(plan: &RuntimeTurnPlan) -> Option<String> {
     (!provider.eq_ignore_ascii_case("mia")).then_some(provider)
 }
 
+fn gateway_model_from_plan(plan: &RuntimeTurnPlan) -> Option<String> {
+    if uses_mia_platform_proxy(plan) {
+        return plan
+            .environment
+            .get("MIA_PLATFORM_MODEL")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| desired_model(plan));
+    }
+    native_model_from_plan(plan)
+}
+
+fn gateway_provider_from_plan(plan: &RuntimeTurnPlan) -> Option<String> {
+    if uses_mia_platform_proxy(plan) {
+        return Some("custom".into());
+    }
+    native_provider_from_plan(plan)
+}
+
 fn desired_reasoning_effort(plan: &RuntimeTurnPlan) -> Option<String> {
     plan.environment
         .get("MIA_PLATFORM_REASONING_EFFORT")
@@ -2497,6 +2518,20 @@ mod tests {
         plan.environment
             .insert("MIA_PLATFORM_PROVIDER".into(), "mia".into());
         assert!(uses_mia_platform_proxy(&plan));
+    }
+
+    #[test]
+    fn mia_platform_sessions_explicitly_select_the_managed_gateway_provider_and_model() {
+        let mut plan =
+            bundled_turn_plan("hermes".into(), BTreeMap::new(), PathBuf::from("workspace"));
+        plan.provider = json!({ "provider": "mia", "model": "mia-auto" });
+        plan.environment
+            .insert("MIA_PLATFORM_PROVIDER".into(), "mia".into());
+        plan.environment
+            .insert("MIA_PLATFORM_MODEL".into(), "mia-auto".into());
+
+        assert_eq!(gateway_provider_from_plan(&plan).as_deref(), Some("custom"));
+        assert_eq!(gateway_model_from_plan(&plan).as_deref(), Some("mia-auto"));
     }
 
     #[tokio::test]

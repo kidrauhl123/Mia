@@ -422,6 +422,12 @@
     return Boolean(run?.backendObserved) && isConversationRunBusy(run);
   }
 
+  function messageIsExplicitTerminalFailure(message) {
+    const status = String(message?.status || "").trim().toLowerCase();
+    return ["cancelled", "interrupted", "error", "failed"].includes(status)
+      || Boolean(message?.error_json || message?.errorJson || message?.error);
+  }
+
   function streamSignature(run) {
     // A run with no visible content must not make the chat remount. The user
     // bubble can still be in its entrance animation when the run is created.
@@ -4302,7 +4308,10 @@
         : null;
       const hasActiveRun = Boolean(activeRun);
       const hadStreamingRun = isTerminalBotMessage && hasActiveRun;
-      const canFinishFromMessage = isTerminalBotMessage && !hasAuthoritativeBusyRun(activeRun);
+      const canFinishFromMessage = isTerminalBotMessage && (
+        !hasAuthoritativeBusyRun(activeRun)
+        || messageIsExplicitTerminalFailure(cachedMessage)
+      );
       if (canFinishFromMessage) {
         clearRunPermissions(activeRun);
         moduleState.cloudAgentRunsByConversation.delete(conversationId);

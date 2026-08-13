@@ -6704,6 +6704,41 @@ test("handleCloudEvent bot reply repaints the active header after clearing typin
   assert.equal(headerPaints, 2);
 });
 
+test("explicit failed bot reply clears a backend-observed run even if its terminal event was lost", () => {
+  const s = loadSocial();
+  s.initSocialModule({ getState: () => ({}), render: () => {}, els: {}, appendTransientChat: () => {} });
+  s.moduleState.activeConversationId = "g_failure";
+  s.moduleState.conversations = [{ id: "g_failure", type: "group", name: "Failure" }];
+  s.moduleState.messageCache.set("g_failure", {
+    messages: [{ id: "m_user", seq: 1, sender_kind: "user", sender_ref: "u_a", body_md: "hi" }],
+    maxSeq: 1
+  });
+  s.handleCloudEvent({
+    type: "cloud_agent_run_started",
+    payload: { conversationId: "g_failure", runId: "cloud_run_failure", botId: "bot_1" }
+  });
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("g_failure"), true);
+
+  s.handleCloudEvent({
+    type: "conversation.message_appended",
+    payload: {
+      conversationId: "g_failure",
+      message: {
+        id: "m_failure",
+        seq: 2,
+        sender_kind: "bot",
+        sender_ref: "bot_1",
+        body_md: "本机运行失败",
+        status: "complete",
+        error_json: JSON.stringify({ message: "provider unavailable" }),
+        trigger_message_id: "m_user"
+      }
+    }
+  });
+
+  assert.equal(s.moduleState.cloudAgentRunsByConversation.has("g_failure"), false);
+});
+
 test("handleCloudEvent materializes a cancelled cloud run before the next outgoing message", async () => {
   const s = loadSocial();
   installCloudConversationSource(s.__mockWindow);

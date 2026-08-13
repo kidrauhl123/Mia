@@ -481,6 +481,14 @@ pub async fn complete_started_cloud_bridge_run(
                         }),
                     )
                     .await?;
+                emit_cloud_run_failed(
+                    realtime,
+                    &prepared.cloud_conversation_id,
+                    &prepared.run_id,
+                    &cloud_bot_id,
+                    &error.to_string(),
+                    &body,
+                );
                 emit_persisted_assistant_message(
                     realtime,
                     &prepared,
@@ -1319,6 +1327,29 @@ fn emit_cloud_run_started(
             "botId": bot_id_from_metadata(metadata)
                 .unwrap_or_else(|| plan.bot_id.clone().unwrap_or_else(|| "mia".to_string())),
             "engine": plan.engine,
+        }),
+    );
+}
+
+fn emit_cloud_run_failed(
+    realtime: &EventBus,
+    cloud_conversation_id: &str,
+    run_id: &str,
+    bot_id: &str,
+    error: &str,
+    final_response: &str,
+) {
+    realtime.emit(
+        "cloud_agent_run_event",
+        json!({
+            "conversationId": cloud_conversation_id,
+            "runId": run_id,
+            "botId": bot_id,
+            "event": {
+                "type": "run.failed",
+                "message": error,
+                "final_response": final_response,
+            },
         }),
     );
 }
@@ -2311,6 +2342,31 @@ mod tests {
 
         let state = processor.finish().await.unwrap();
         assert_eq!(state.structured_output.text, "先持久化，再显示");
+    }
+
+    #[tokio::test]
+    async fn cloud_runtime_failure_targets_the_cloud_conversation_with_a_terminal_event() {
+        let realtime = EventBus::default();
+        let mut events = realtime.subscribe();
+
+        emit_cloud_run_failed(
+            &realtime,
+            "g_cloud",
+            "cloud_run_1",
+            "bot_1",
+            "provider unavailable",
+            "Runtime execution interrupted: provider unavailable",
+        );
+
+        let event = timeout(Duration::from_secs(1), events.recv())
+            .await
+            .expect("failure event")
+            .expect("realtime event");
+        assert_eq!(event.name, "cloud_agent_run_event");
+        assert_eq!(event.data["conversationId"], "g_cloud");
+        assert_eq!(event.data["runId"], "cloud_run_1");
+        assert_eq!(event.data["event"]["type"], "run.failed");
+        assert_eq!(event.data["event"]["message"], "provider unavailable");
     }
 
     #[cfg(unix)]
