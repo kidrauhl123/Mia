@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const root = path.join(__dirname, "..");
 const read = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
@@ -213,6 +214,16 @@ test("official assistant templates are natural assistants, not skill wrappers", 
   assert.equal(presets.some((item) => item.key === "speak-partner"), false);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "tags")), true);
   assert.equal(presets.every((item) => !Object.prototype.hasOwnProperty.call(item, "roleTitle")), true);
+  assert.deepEqual(presets.map((item) => item.conversationTag), [
+    "课程",
+    "汇报",
+    "实验",
+    "求职",
+    "事务",
+    "代码",
+    "情报",
+    "娱乐"
+  ]);
 });
 
 test("bot store fallback presets and category order match the first-release assistant taxonomy", () => {
@@ -238,6 +249,69 @@ test("bot store fallback presets and category order match the first-release assi
   assert.match(fallbackBlock, /avatar:\s*\{\s*emoji:/);
   assert.match(fallbackBlock, /token:\s*"books"/);
   assert.match(fallbackBlock, /mia-scheduler/);
+  for (const tag of ["课程", "汇报", "实验", "求职", "事务", "代码", "情报", "娱乐"]) {
+    assert.match(fallbackBlock, new RegExp(`conversationTag:\\s*"${tag}"`));
+  }
+});
+
+test("assistant conversation tags are separate from broad discovery categories and migrate untouched legacy tags", () => {
+  const bridge = read("src/renderer/bot/bot-store.js");
+  const social = read("src/renderer/social/social.js");
+
+  assert.match(bridge, /f\.conversationTag \|\| f\.conversation_tag \|\| f\.tag \|\| f\.cat \|\| f\.category/);
+  assert.match(bridge, /async function migrateLegacyConversationTags/);
+  assert.match(bridge, /currentTags\.length !== 1 \|\| currentTags\[0\] !== oldTag/);
+  assert.match(bridge, /setConversationTagNames\(conversation\.id, \[nextTag\]\)/);
+  assert.match(bridge, /migrateLegacyConversationTags \}/);
+  assert.match(social, /await global\.miaBotStore\?\.migrateLegacyConversationTags\?\.\(\)/);
+});
+
+test("legacy assistant tag migration replaces only untouched category tags", async () => {
+  const library = JSON.parse(read("resources/official-library/library.json"));
+  const tags = new Map([
+    ["botc_report", [{ name: "项目" }]],
+    ["botc_experiment", [{ name: "项目" }, { name: "重要" }]],
+    ["botc_job", [{ name: "自定义" }]]
+  ]);
+  const writes = [];
+  const window = {
+    addEventListener() {},
+    miaReactBotStore: { publish() {} },
+    miaSocial: {
+      moduleState: {
+        bots: [
+          { id: "bot_report", displayName: "项目汇报负责人" },
+          { id: "bot_experiment", displayName: "实验记录管理员" },
+          { id: "bot_job", displayName: "求职投递管家" }
+        ],
+        conversations: [
+          { id: "botc_report", type: "bot", decorations: { botId: "bot_report" } },
+          { id: "botc_experiment", type: "bot", decorations: { botId: "bot_experiment" } },
+          { id: "botc_job", type: "bot", decorations: { botId: "bot_job" } }
+        ]
+      },
+      conversationTagsFor(conversationId) {
+        return tags.get(conversationId) || [];
+      },
+      async setConversationTagNames(conversationId, names) {
+        writes.push({ conversationId, names });
+        tags.set(conversationId, names.map((name) => ({ name })));
+      }
+    }
+  };
+  vm.runInNewContext(read("src/renderer/bot/bot-store.js"), { window, console, setTimeout });
+  window.miaBotStore.initBotStore({
+    state: { skillLibrary: { botPresets: library.botPresets } },
+    els: {},
+    render() {}
+  });
+
+  const migrated = await window.miaBotStore.migrateLegacyConversationTags();
+
+  assert.equal(migrated, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)), [{ conversationId: "botc_report", names: ["汇报"] }]);
+  assert.deepEqual(tags.get("botc_experiment"), [{ name: "项目" }, { name: "重要" }]);
+  assert.deepEqual(tags.get("botc_job"), [{ name: "自定义" }]);
 });
 
 test("discover bot store presents assistant templates as context contacts", () => {

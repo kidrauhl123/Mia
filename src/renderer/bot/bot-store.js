@@ -33,7 +33,7 @@
   // capabilities.enabledSkills 要和官方库保持同一套 id，保存后会进入运行时 Skill 注入链路。
   const FALLBACK_PRESETS = [
     {
-      key: "course-tutor", cat: "学习", category: "学习", emoji: "课", c1: "#ecebfc", c2: "#5e5ce6",
+      key: "course-tutor", cat: "学习", category: "学习", conversationTag: "课程", emoji: "课", c1: "#ecebfc", c2: "#5e5ce6",
       avatar: { emoji: "📚", token: "books" },
       name: "课程助教", tagline: "课件、作业、复习和答疑的课程助手",
       line: "整理课程资料、作业要求、复习节奏和答疑线索。",
@@ -47,7 +47,7 @@
       capabilities: { enabledSkills: ["mia-official:paper-research", "mia-official:study-review", "mia-official:problem-explainer", "mia-scheduler"] }
     },
     {
-      key: "project-report-lead", cat: "项目", category: "项目", emoji: "报", c1: "#e1f3f6", c2: "#0891b2",
+      key: "project-report-lead", cat: "项目", category: "项目", conversationTag: "汇报", emoji: "报", c1: "#e1f3f6", c2: "#0891b2",
       avatar: { emoji: "🧾", token: "receipt" },
       name: "项目汇报负责人", tagline: "组会、周报、PPT 和反馈的项目助手",
       line: "整理项目材料、会议结论、反馈和下次汇报准备。",
@@ -61,7 +61,7 @@
       capabilities: { enabledSkills: ["mia-official:presentation-designer", "mia-official:document-editor", "mia-official:meeting-notes", "mia-official:spreadsheet-organizer", "mia-official:xlsx"] }
     },
     {
-      key: "experiment-records", cat: "项目", category: "项目", emoji: "数", c1: "#e4f3eb", c2: "#1a9d5a",
+      key: "experiment-records", cat: "项目", category: "项目", conversationTag: "实验", emoji: "数", c1: "#e4f3eb", c2: "#1a9d5a",
       avatar: { emoji: "🧪", token: "test-tube" },
       name: "实验记录管理员", tagline: "实验数据、图表和报告段落的整理助手",
       line: "整理实验数据、字段说明、图表输出和报告段落。",
@@ -75,7 +75,7 @@
       capabilities: { enabledSkills: ["mia-official:lab-report", "mia-official:spreadsheet-organizer", "mia-official:xlsx", "mia-official:document-editor"] }
     },
     {
-      key: "job-search-manager", cat: "项目", category: "项目", emoji: "职", c1: "#e5ecfd", c2: "#2563eb",
+      key: "job-search-manager", cat: "项目", category: "项目", conversationTag: "求职", emoji: "职", c1: "#e5ecfd", c2: "#2563eb",
       avatar: { emoji: "💼", token: "briefcase" },
       name: "求职投递管家", tagline: "简历、JD、投递和面试反馈的求职助手",
       line: "整理简历版本、岗位 JD、投递状态和面试反馈。",
@@ -89,7 +89,7 @@
       capabilities: { enabledSkills: ["mia-official:resume-interview", "mia-official:document-editor", "mia-scheduler"] }
     },
     {
-      key: "personal-secretary", cat: "事务", category: "事务", emoji: "办", c1: "#eae9fc", c2: "#4f46e5",
+      key: "personal-secretary", cat: "事务", category: "事务", conversationTag: "事务", emoji: "办", c1: "#eae9fc", c2: "#4f46e5",
       avatar: { emoji: "✅", token: "check" },
       name: "个人事务秘书", tagline: "承诺、待办、提醒和零散信息的收口助手",
       line: "整理聊天、笔记和提醒里的承诺、待办与跟进事项。",
@@ -103,7 +103,7 @@
       capabilities: { enabledSkills: ["mia-scheduler", "mia-official:meeting-notes", "mia-official:document-editor"] }
     },
     {
-      key: "repo-maintainer", cat: "代码", category: "代码", emoji: "库", c1: "#dcecff", c2: "#378add",
+      key: "repo-maintainer", cat: "代码", category: "代码", conversationTag: "代码", emoji: "库", c1: "#dcecff", c2: "#378add",
       avatar: { emoji: "🧩", token: "puzzle" },
       name: "代码仓库维护员", tagline: "测试、审查、发布和技术债的 repo 助手",
       line: "整理一个代码仓库的 bug、测试、PR 审查、发布记录和技术债。",
@@ -118,7 +118,7 @@
       capabilities: { enabledSkills: ["mia-official:problem-explainer", "mia-official:document-editor"] }
     },
     {
-      key: "open-intel-officer", cat: "情报", category: "情报", emoji: "情", c1: "#e0f2ef", c2: "#0f766e",
+      key: "open-intel-officer", cat: "情报", category: "情报", conversationTag: "情报", emoji: "情", c1: "#e0f2ef", c2: "#0f766e",
       avatar: { emoji: "🛰️", token: "satellite" },
       name: "公开情报官", tagline: "主题监测、简报和风险信号的情报助手",
       line: "追踪公开主题的新闻、公告、竞品动态、政策变化和关键风险。",
@@ -132,7 +132,7 @@
       capabilities: { enabledSkills: ["mia-official:paper-research", "mia-official:meeting-notes", "mia-official:document-editor", "mia-scheduler"] }
     },
     {
-      key: "story-campaign-host", cat: "娱乐", category: "娱乐", emoji: "剧", c1: "#f3e8ff", c2: "#a855f7",
+      key: "story-campaign-host", cat: "娱乐", category: "娱乐", conversationTag: "娱乐", emoji: "剧", c1: "#f3e8ff", c2: "#a855f7",
       avatar: { emoji: "🎲", token: "dice" },
       name: "跑团故事主持", tagline: "剧情、角色、线索和规则节奏的故事主持",
       line: "维护互动故事或跑团战役的世界观、角色、剧情线和回合记录。",
@@ -330,7 +330,56 @@
   }
 
   function defaultConversationTagName(f = {}) {
-    return String(f.cat || f.category || "推荐").trim() || "推荐";
+    return String(f.conversationTag || f.conversation_tag || f.tag || f.cat || f.category || "推荐").trim() || "推荐";
+  }
+
+  function botRecordId(bot = {}) {
+    return String(bot.id || bot.key || bot.botId || bot.bot_id || "").trim();
+  }
+
+  function botRecordName(bot = {}) {
+    return String(bot.displayName || bot.display_name || bot.name || "").trim();
+  }
+
+  function conversationBotId(conversation = {}) {
+    return String(
+      conversation.decorations?.botId
+      || conversation.decorations?.bot_id
+      || conversation.botId
+      || conversation.bot_id
+      || ""
+    ).trim();
+  }
+
+  async function migrateLegacyConversationTags() {
+    const social = window.miaSocial;
+    if (!social || typeof social.conversationTagsFor !== "function" || typeof social.setConversationTagNames !== "function") return 0;
+    const conversations = Array.isArray(social.moduleState?.conversations) ? social.moduleState.conversations : [];
+    const bots = Array.isArray(social.moduleState?.bots) ? social.moduleState.bots : [];
+    const presetByName = new Map(presets().map((preset) => [String(preset.name || "").trim(), preset]));
+    let migrated = 0;
+    for (const conversation of conversations) {
+      if (!conversation?.id || (conversation.type !== "bot" && !String(conversation.id).startsWith("botc_"))) continue;
+      const botId = conversationBotId(conversation);
+      const bot = bots.find((item) => botRecordId(item) === botId);
+      const preset = presetByName.get(botRecordName(bot));
+      if (!preset) continue;
+      const oldTag = String(preset.cat || preset.category || "").trim();
+      const nextTag = defaultConversationTagName(preset);
+      if (!oldTag || !nextTag || oldTag === nextTag) continue;
+      const currentTags = social.conversationTagsFor(conversation.id)
+        .map((tag) => String(tag?.name || tag || "").trim())
+        .filter(Boolean);
+      // Only replace the exact old auto-tag. Any user-edited or multi-tag setup is preserved.
+      if (currentTags.length !== 1 || currentTags[0] !== oldTag) continue;
+      try {
+        await social.setConversationTagNames(conversation.id, [nextTag]);
+        migrated += 1;
+      } catch (error) {
+        console.warn("[bot-store] legacy assistant tag migration failed:", error?.message || error);
+      }
+    }
+    return migrated;
   }
 
   function firstNonEmpty(...values) {
@@ -644,5 +693,5 @@
     renderGrid();
   }
 
-  window.miaBotStore = { initBotStore, renderBotStore };
+  window.miaBotStore = { initBotStore, renderBotStore, migrateLegacyConversationTags };
 })();

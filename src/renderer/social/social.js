@@ -3914,6 +3914,10 @@
       }
       // Phase 3: cross-device user settings (pin / read marks / appearance).
       await bootstrapCloudSettings();
+      // Official assistant discovery categories used to be copied verbatim into
+      // conversation tags (for example several unrelated assistants all became
+      // “项目”). Migrate only untouched legacy auto-tags after settings load.
+      await global.miaBotStore?.migrateLegacyConversationTags?.();
     } catch (err) {
       console.error("[social] bootstrapAfterLogin failed:", err);
     }

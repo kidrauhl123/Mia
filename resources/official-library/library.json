@@ -7,6 +7,7 @@
     {
       "key": "course-tutor",
       "category": "学习",
+      "conversationTag": "课程",
       "emoji": "课",
       "avatar": { "emoji": "📚", "token": "books" },
       "color": "#5e5ce6",
@@ -25,6 +26,7 @@
     {
       "key": "project-report-lead",
       "category": "项目",
+      "conversationTag": "汇报",
       "emoji": "报",
       "avatar": { "emoji": "🧾", "token": "receipt" },
       "color": "#0891b2",
@@ -43,6 +45,7 @@
     {
       "key": "experiment-records",
       "category": "项目",
+      "conversationTag": "实验",
       "emoji": "数",
       "avatar": { "emoji": "🧪", "token": "test-tube" },
       "color": "#1a9d5a",
@@ -61,6 +64,7 @@
     {
       "key": "job-search-manager",
       "category": "项目",
+      "conversationTag": "求职",
       "emoji": "职",
       "avatar": { "emoji": "💼", "token": "briefcase" },
       "color": "#2563eb",
@@ -79,6 +83,7 @@
     {
       "key": "personal-secretary",
       "category": "事务",
+      "conversationTag": "事务",
       "emoji": "办",
       "avatar": { "emoji": "✅", "token": "check" },
       "color": "#4f46e5",
@@ -97,6 +102,7 @@
     {
       "key": "repo-maintainer",
       "category": "代码",
+      "conversationTag": "代码",
       "emoji": "库",
       "avatar": { "emoji": "🧩", "token": "puzzle" },
       "color": "#378add",
@@ -116,6 +122,7 @@
     {
       "key": "open-intel-officer",
       "category": "情报",
+      "conversationTag": "情报",
       "emoji": "情",
       "avatar": { "emoji": "🛰️", "token": "satellite" },
       "color": "#0f766e",
@@ -134,6 +141,7 @@
     {
       "key": "story-campaign-host",
       "category": "娱乐",
+      "conversationTag": "娱乐",
       "emoji": "剧",
       "avatar": { "emoji": "🎲", "token": "dice" },
       "color": "#a855f7",
