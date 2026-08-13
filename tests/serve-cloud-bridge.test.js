@@ -1433,6 +1433,69 @@ test("cloud files require owner authentication", async () => {
   }
 });
 
+test("cloud reply files are downloadable by every user member of the group", async () => {
+  const dataDir = tempDataDir();
+  const server = createMiaCloudServer({ dataDir });
+  const baseUrl = await listen(server);
+  try {
+    const owner = createAccount(server, "group_file_owner");
+    const member = createAccount(server, "group_file_member");
+    const outsider = createAccount(server, "group_file_outsider");
+    const group = server.mia.socialStore.createConversation({
+      id: "g_downloadable_cloud_reply",
+      type: "group",
+      name: "Downloadable replies"
+    });
+    server.mia.socialStore.addConversationMember({
+      conversationId: group.id,
+      memberKind: "user",
+      memberRef: owner.user.id
+    });
+    server.mia.socialStore.addConversationMember({
+      conversationId: group.id,
+      memberKind: "user",
+      memberRef: member.user.id
+    });
+    const sourcePath = path.join(dataDir, "group-report.xlsx");
+    fs.writeFileSync(sourcePath, "group report", { mode: 0o600 });
+    const file = server.mia.cloudStore.saveLocalFileForUser(owner.user.id, {
+      path: sourcePath,
+      name: "group-report.xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      type: "file"
+    });
+    server.mia.messagesStore.appendMessage({
+      conversationId: group.id,
+      senderKind: "bot",
+      senderRef: "bot_report",
+      senderOwnerId: owner.user.id,
+      bodyMd: "已附上报表。",
+      attachments: [{
+        id: file.id,
+        type: file.type,
+        name: file.name,
+        mimeType: file.mimeType,
+        size: file.size,
+        url: file.url
+      }]
+    });
+
+    const downloaded = await rawFetch(baseUrl, file.url, {
+      headers: { Authorization: `Bearer ${member.token}` }
+    });
+    assert.equal(downloaded.status, 200);
+    assert.equal(await downloaded.text(), "group report");
+
+    const rejected = await rawFetch(baseUrl, file.url, {
+      headers: { Authorization: `Bearer ${outsider.token}` }
+    });
+    assert.equal(rejected.status, 404);
+  } finally {
+    await close(server);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 
 
 

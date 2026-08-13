@@ -1952,6 +1952,86 @@ test("backend group coordinator delegates a distinct task without becoming a sen
   }
 });
 
+test("routed cloud group replies archive generated files instead of exposing server paths", async () => {
+  const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-group-files-"));
+  const workerPaths = {
+    root: workerRoot,
+    home: path.join(workerRoot, "home"),
+    workspace: path.join(workerRoot, "workspace"),
+    attachments: path.join(workerRoot, "attachments")
+  };
+  try {
+    fs.mkdirSync(workerPaths.home, { recursive: true, mode: 0o700 });
+    const generatedPath = path.join(workerPaths.home, "group-report.xlsx");
+    fs.writeFileSync(generatedPath, "group xlsx bytes", { mode: 0o600 });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_report", name: "报表助手", capabilities: ["files"] });
+    const group = ctx.socialStore.createConversation({ id: "g_generated_file", type: "group", name: "Group" });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_report", ownerId: ctx.user.id });
+    for (const botId of ["bot_mia", "bot_report"]) {
+      ctx.runtimeBindingsStore.upsertBinding({
+        userId: ctx.user.id,
+        botId,
+        runtimeKind: "cloud-claude-code",
+        enabled: true,
+        config: { model: "hermes-agent" }
+      });
+    }
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: workerPaths };
+        }
+      },
+      attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
+      hermesImClient: {
+        async runChat(args) {
+          if (args.bot?.id === "group-orchestrator") {
+            return {
+              runId: "hr_group_route",
+              content: '{"delegations":[{"botId":"bot_report","task":"生成并发送报表"}]}',
+              events: []
+            };
+          }
+          return {
+            runId: "hr_group_file",
+            content: `报表已生成：${generatedPath}`,
+            events: []
+          };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: group.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "生成报表发到群里"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: group.id,
+      message
+    });
+
+    const attachments = JSON.parse(reply.attachments_json || "[]");
+    assert.equal(reply.sender_ref, "bot_report");
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].name, "group-report.xlsx");
+    assert.match(attachments[0].url, /^\/api\/files\/file_/);
+    assert.equal(Object.prototype.hasOwnProperty.call(attachments[0], "path"), false);
+    assert.doesNotMatch(reply.body_md, new RegExp(workerRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(reply.body_md, /附件「group-report\.xlsx」/);
+    assert.equal(ctx.cloudStore.getFileForUser(ctx.user.id, attachments[0].id)?.name, "group-report.xlsx");
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
+  }
+});
+
 test("coordinator delegation has no fixed three-bot cap", async () => {
   const ctx = setup();
   const calls = [];

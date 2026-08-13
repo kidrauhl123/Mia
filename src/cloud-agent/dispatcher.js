@@ -633,7 +633,7 @@ function createCloudAgentDispatcher(deps = {}) {
             runId: run.id,
             conversationId,
             botId,
-            event: redactGeneratedArtifactPathsInValue(event, [])
+            event: redactGeneratedArtifactPathsInValue(event, [], worker.paths || {})
           });
         });
         result = await agentClient.runChat({
@@ -757,10 +757,11 @@ function createCloudAgentDispatcher(deps = {}) {
           result: resultForArtifacts
         })
         : [];
-      const replyContent = redactGeneratedArtifactPaths(result.content || "", replyAttachments);
+      const replyContent = redactGeneratedArtifactPaths(result.content || "", replyAttachments, worker.paths || {});
       const replyContentBlocks = redactGeneratedArtifactPathsInValue(
         contentBlocks.payload(replyContent),
-        replyAttachments
+        replyAttachments,
+        worker.paths || {}
       );
       const rawReplyTrace = trace.payload();
       const hasProcessBlocks = replyContentBlocks.some((block) => block?.type && block.type !== "text");
@@ -769,7 +770,8 @@ function createCloudAgentDispatcher(deps = {}) {
         rawReplyTrace || hasProcessBlocks
           ? { ...(rawReplyTrace || {}), duration: processDuration }
           : null,
-        replyAttachments
+        replyAttachments,
+        worker.paths || {}
       );
       const hasRequestedFileDelivery = workerFileArtifactsForDeliveryRequest(inputText).length > 0;
       const finalReplyContent = hasRequestedFileDelivery && replyAttachments.length && shouldReplaceWithFileDeliveryReply(replyContent)
