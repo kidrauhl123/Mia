@@ -6449,13 +6449,36 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
   animation-delay: calc(0ms - var(--agent-run-animation-age, 0ms));
 }
 
+.agent-run-status.is-loading .agent-run-status-orb-dot:not(.is-inactive) {
+  animation: agentRunPhaseOrb 1700ms ease-in-out infinite;
+  animation-delay: calc(var(--agent-run-orb-delay, 0ms) - var(--agent-run-animation-age, 0ms));
+  will-change: opacity, transform;
+}
+
+.agent-run-status.is-loading .agent-run-status-orb-dot.is-core {
+  animation-name: agentRunPhaseOrbCore;
+}
+
 @keyframes agent-run-status-orb-pulse {
   0%, 100% { opacity: 0.72; transform: scale(0.96); }
   50% { opacity: 1; transform: scale(1); }
 }
 
+@keyframes agentRunPhaseOrb {
+  0%, 100% { opacity: 0.08; transform: scale(0.76); }
+  34% { opacity: 0.34; transform: scale(0.9); }
+  50% { opacity: 0.96; transform: scale(1.18); }
+  66% { opacity: 0.34; transform: scale(0.9); }
+}
+
+@keyframes agentRunPhaseOrbCore {
+  0%, 100% { opacity: 0.28; transform: scale(0.9); }
+  50% { opacity: 0.68; transform: scale(1.12); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .agent-run-status.is-loading .agent-run-status-loader {
+  .agent-run-status.is-loading .agent-run-status-loader,
+  .agent-run-status.is-loading .agent-run-status-orb-dot:not(.is-inactive) {
     animation: none;
   }
 }
@@ -6542,6 +6565,8 @@ body.onboarding-window .setup-guide.ready .setup-footer { animation-delay: 0.13s
 /* Live window resizing already invalidates the full viewport. Pause the
  * continuously repainting status effects until the resize gesture settles. */
 body.window-resizing .agent-run-status.is-loading .agent-run-status-label,
+body.window-resizing .agent-run-status.is-loading .agent-run-status-loader,
+body.window-resizing .agent-run-status.is-loading .agent-run-status-orb-dot:not(.is-inactive),
 body.window-resizing .agent-run-status-loading-dots span,
 body.window-resizing .typing-dots i,
 body.window-resizing .trace-row[data-status="run"] > summary > .trace-glyph,

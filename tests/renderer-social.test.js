@@ -5889,6 +5889,7 @@ test("renderConversationChat renders active cloud run status at the bottom of th
   assert.match(chat.children[0].innerHTML, /data-orb-row="2" data-orb-col="2"/);
   assert.match(chat.children[0].innerHTML, /data-orb-ring="0"/);
   assert.match(chat.children[0].innerHTML, /data-orb-angle="0"/);
+  assert.match(chat.children[0].innerHTML, /--agent-run-orb-delay:-?\d+ms/);
   assert.match(chat.children[0].innerHTML, /agent-run-status-loading-dots/);
   assert.match(chat.children[0].innerHTML, /--agent-run-animation-age:\d+ms/);
   assert.doesNotMatch(chat.children[0].innerHTML, /正在执行 shell/);

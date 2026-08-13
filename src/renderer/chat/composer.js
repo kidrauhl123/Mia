@@ -1078,17 +1078,20 @@
       });
   }
 
-  function expandComposerPathRefsForSend(text, attachments = []) {
+  function expandComposerPathRefsForSend(text, attachments = [], options = {}) {
     const body = String(text || "").trimEnd();
+    const allowLocalPathRefs = options.allowLocalPathRefs !== false;
     const typedRefs = state && Array.isArray(state.pathPasteRefs)
-      ? state.pathPasteRefs.filter((ref) => ref?.token && ref?.path && pathPasteTokenInText(ref.token, body))
+      ? state.pathPasteRefs.filter((ref) => allowLocalPathRefs && ref?.token && ref?.path && pathPasteTokenInText(ref.token, body))
       : [];
-    return expandPathRefsForSend(body, [...typedRefs, ...attachmentPathRefsForSend(attachments)]);
+    const attachmentRefs = allowLocalPathRefs ? attachmentPathRefsForSend(attachments) : [];
+    return expandPathRefsForSend(body, [...typedRefs, ...attachmentRefs]);
   }
 
-  function attachmentsForSend(attachments = []) {
+  function attachmentsForSend(attachments = [], options = {}) {
+    const allowLocalPathRefs = options.allowLocalPathRefs !== false;
     return (Array.isArray(attachments) ? attachments : [])
-      .filter((attachment) => !attachmentShouldSendAsPathRef(attachment))
+      .filter((attachment) => !allowLocalPathRefs || !attachmentShouldSendAsPathRef(attachment))
       .map((attachment) => {
         if (!attachment || typeof attachment !== "object") return attachment;
         const next = { ...attachment };

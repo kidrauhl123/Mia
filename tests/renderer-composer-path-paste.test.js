@@ -362,6 +362,21 @@ test("default pasted image attachments keep thumbnail UI while sending as path r
   assert.match(expanded, /^看这个 IMG1\n\n\[\[MIA_PATH_REFS_BEGIN\]\]/);
   assert.match(expanded, /IMG1: \/tmp\/mia-clipboard\/clipboard\.png/);
   assert.equal(composer.attachmentsForSend(counters.state.pendingAttachments).length, 0);
+
+  const cloudText = composer.expandComposerPathRefsForSend(
+    "看这个",
+    counters.state.pendingAttachments,
+    { allowLocalPathRefs: false }
+  );
+  const cloudAttachments = composer.attachmentsForSend(
+    counters.state.pendingAttachments,
+    { allowLocalPathRefs: false }
+  );
+  assert.equal(cloudText, "看这个");
+  assert.equal(cloudAttachments.length, 1);
+  assert.match(cloudAttachments[0].dataUrl, /^data:image\/png/);
+  assert.equal(cloudAttachments[0].pathRefOnSend, undefined);
+  assert.equal(cloudAttachments[0].pathRefToken, undefined);
 });
 
 test("composer keeps unsent drafts isolated per conversation", () => {
@@ -444,11 +459,11 @@ test("chat input accepts main-process path paste events only while focused", () 
   assert.match(appSource, /document\.activeElement !== els\.chatInput/);
   assert.match(appSource, /window\.miaComposer\.insertPathPastePayload\(payload\)/);
   assert.match(appSource, /const composerText = els\.chatInput\.value/);
-  assert.match(appSource, /window\.miaComposer\.expandComposerPathRefsForSend\(composerText,\s*pendingAttachments\)/);
+  assert.match(appSource, /window\.miaComposer\.expandComposerPathRefsForSend\([\s\S]*?composerText,[\s\S]*?pendingAttachments,[\s\S]*?\{\s*allowLocalPathRefs\s*\}/);
   assert.match(appSource, /window\.miaComposer\.clearPathPasteRefs\(\)/);
 });
 
-test("default file paste prevents browser inline image insertion and adds path-ref attachments", () => {
+test("file paste uses local path refs only for desktop-local bot conversations", () => {
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");
   const composerInputSource = fs.readFileSync(path.join(root, "src/renderer/react/components/ComposerInput.tsx"), "utf8");
   const pasteStart = appSource.indexOf("function handleComposerPaste(event)");
@@ -459,7 +474,10 @@ test("default file paste prevents browser inline image insertion and adds path-r
   assert.match(composerInputSource, /onPaste=[\s\S]*bridge\.invoke\("composerPaste", event\.nativeEvent\)/);
   assert.match(pasteHandler, /if \(event\.clipboardData\?\.files\?\.length\) \{/);
   assert.match(pasteHandler, /event\.preventDefault\(\)/);
-  assert.match(pasteHandler, /window\.miaComposer\.addComposerFiles\(event\.clipboardData\.files,\s*\{\s*pathRefs:\s*true/);
+  assert.match(pasteHandler, /window\.miaComposer\.addComposerFiles\(event\.clipboardData\.files,\s*\{[\s\S]*?pathRefs:\s*activeConversationAllowsLocalAttachmentPathRefs\(\)/);
+  assert.match(appSource, /function activeConversationAllowsLocalAttachmentPathRefs\(\)\s*\{[\s\S]*?runtimeKind === "desktop-local"/);
+  assert.match(appSource, /attachmentsForSend\(pendingAttachments,\s*\{\s*allowLocalPathRefs\s*\}\)/);
+  assert.match(appSource, /expandComposerPathRefsForSend\([\s\S]*?pendingAttachments,[\s\S]*?\{\s*allowLocalPathRefs\s*\}/);
 });
 
 test("preload exposes electron clipboard text for desktop path paste", () => {

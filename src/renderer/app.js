@@ -3844,6 +3844,10 @@ function activeConversationBotContext() {
   };
 }
 
+function activeConversationAllowsLocalAttachmentPathRefs() {
+  return activeConversationBotContext()?.runtimeKind === "desktop-local";
+}
+
 // Composer "使用": attach the skill to the conversation the user is currently
 // viewing in the messages page — no bot picker. Returns false when there is
 // no active bot conversation so the caller can prompt the user to open one.
@@ -6428,7 +6432,9 @@ els.chatForm?.addEventListener("drop", (event) => {
 function handleComposerPaste(event) {
   if (event.clipboardData?.files?.length) {
     event.preventDefault();
-    window.miaComposer.addComposerFiles(event.clipboardData.files, { pathRefs: true });
+    window.miaComposer.addComposerFiles(event.clipboardData.files, {
+      pathRefs: activeConversationAllowsLocalAttachmentPathRefs()
+    });
     return;
   }
   window.miaComposer.handleComposerPlainTextPaste(event);
@@ -6866,8 +6872,13 @@ els.chatForm.addEventListener("submit", async (event) => {
     const conversationId = window.miaSocial.getActiveConversationId();
     const composerText = els.chatInput.value;
     const pendingAttachments = [...state.pendingAttachments].slice(0, 20);
-    const attachmentsForSend = window.miaComposer.attachmentsForSend(pendingAttachments);
-    let conversationText = window.miaComposer.expandComposerPathRefsForSend(composerText, pendingAttachments);
+    const allowLocalPathRefs = activeConversationAllowsLocalAttachmentPathRefs();
+    const attachmentsForSend = window.miaComposer.attachmentsForSend(pendingAttachments, { allowLocalPathRefs });
+    let conversationText = window.miaComposer.expandComposerPathRefsForSend(
+      composerText,
+      pendingAttachments,
+      { allowLocalPathRefs }
+    );
     const skillCommand = window.miaComposer.consumeLeadingSkillCommand(conversationText);
     if (skillCommand.matched) {
       conversationText = skillCommand.text;

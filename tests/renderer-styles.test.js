@@ -236,6 +236,13 @@ test("agent run loading status keeps the shimmer on text without a container car
   assert.doesNotMatch(orbDotRule, /--accent/);
   assert.match(orbDotRule, /var\(--agent-run-status-loader-strong\)/);
 
+  const movingOrbDotRule = cssRuleBody(baseCss, ".agent-run-status.is-loading .agent-run-status-orb-dot:not(.is-inactive)");
+  assert.match(movingOrbDotRule, /animation:\s*agentRunPhaseOrb\s*1700ms\s*ease-in-out\s*infinite;/);
+  assert.match(movingOrbDotRule, /animation-delay:\s*calc\(var\(--agent-run-orb-delay,\s*0ms\) - var\(--agent-run-animation-age,\s*0ms\)\);/);
+  assert.match(movingOrbDotRule, /will-change:\s*opacity,\s*transform;/);
+  assert.match(baseCss, /@keyframes agentRunPhaseOrb\s*\{[\s\S]*?opacity:\s*0\.08;[\s\S]*?opacity:\s*0\.96;/);
+  assert.match(baseCss, /@keyframes agentRunPhaseOrbCore\s*\{[\s\S]*?opacity:\s*0\.28;[\s\S]*?opacity:\s*0\.68;/);
+
   const loadingLabelRule = cssRuleBody(baseCss, ".agent-run-status.is-loading .agent-run-status-label");
   assert.match(loadingLabelRule, /background:[\s\S]*linear-gradient/);
   assert.doesNotMatch(loadingLabelRule, /--accent/);
@@ -244,8 +251,6 @@ test("agent run loading status keeps the shimmer on text without a container car
   assert.match(loadingLabelRule, /animation:\s*agentRunStatusTextSweep\s*4\.8s\s*ease-in-out\s*infinite;/);
   assert.match(loadingLabelRule, /animation-delay:\s*calc\(var\(--agent-run-animation-age,\s*0ms\) \* -1\);/);
 
-  assert.doesNotMatch(baseCss, /animation:\s*agentRunPhaseOrb/);
-  assert.doesNotMatch(baseCss, /@keyframes agentRunPhaseOrb/);
   assert.doesNotMatch(baseCss, /@keyframes agentRunStatusSpin/);
 
   const dotRule = cssRuleBody(baseCss, ".agent-run-status-loading-dots span");

@@ -299,6 +299,7 @@
   const SCROLL_LAYOUT_OBSERVER_TIMEOUT_MS = 2200;
   const MESSAGE_FOCUS_PENDING_TTL_MS = 10000;
   const MESSAGE_FOCUS_HIGHLIGHT_MS = 2200;
+  const PHASE_ORB_CYCLE_MS = 1700;
   const PHASE_ORB_BASE_OPACITY = 0.08;
   const PHASE_ORB_OPACITY = 0.96;
   const PHASE_ORB_NEAR_OPACITY = 0.34;
@@ -1892,7 +1893,11 @@
     const ring = Math.sqrt((x * x) + (y * y));
     const angle = Math.atan2(y, x);
     const opacity = isLoading ? phaseOrbOpacityForCell(row, col, 0) : null;
-    const opacityStyle = opacity == null ? "" : ` style="opacity:${opacity}"`;
+    const normalizedAngle = ((angle + (Math.PI * 2)) % (Math.PI * 2)) / (Math.PI * 2);
+    const animationDelayMs = -Math.round((normalizedAngle * PHASE_ORB_CYCLE_MS) + (Math.max(0, ring - 1) * 90));
+    const opacityStyle = opacity == null
+      ? ""
+      : ` style="opacity:${opacity};--agent-run-orb-delay:${animationDelayMs}ms"`;
     return `data-orb-row="${row}" data-orb-col="${col}" data-orb-ring="${Number(ring.toFixed(3))}" data-orb-angle="${Number(angle.toFixed(3))}"${opacityStyle}`;
   }
 
