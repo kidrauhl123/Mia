@@ -1,6 +1,7 @@
 use axum::Json;
 use serde_json::{Value, json};
 
+use crate::build_info;
 use mia_core_api_types::HealthResponse;
 
 use super::state::ModuleStates;
@@ -12,6 +13,8 @@ pub async fn health_check(
     Json(HealthResponse {
         ok: true,
         version: state.app_version,
+        core_release_version: build_info::CORE_RELEASE_VERSION.to_string(),
+        core_source_fingerprint: build_info::CORE_SOURCE_FINGERPRINT.to_string(),
         pid: std::process::id(),
         data_dir: data_dir.clone(),
         runtime_home: data_dir,

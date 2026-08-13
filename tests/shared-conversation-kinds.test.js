@@ -1,19 +1,17 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
+const conversationKinds = require("../src/shared/conversation-kinds");
 const {
   ConversationKind,
-  GroupCoordinator,
   MemberKind,
   SenderKind,
   isGroup,
   isPrivate,
   isCloudBacked
-} = require("../src/shared/conversation-kinds");
+} = conversationKinds;
 
-test("GroupCoordinator exposes the stable built-in group identity", () => {
-  assert.equal(GroupCoordinator.id, "group-orchestrator");
-  assert.equal(GroupCoordinator.displayName, "协调者");
-  assert.equal(Object.isFrozen(GroupCoordinator), true);
+test("conversation kinds do not expose the backend group orchestrator as a member identity", () => {
+  assert.equal(Object.prototype.hasOwnProperty.call(conversationKinds, "GroupCoordinator"), false);
 });
 
 test("ConversationKind values match the literals used across the codebase", () => {

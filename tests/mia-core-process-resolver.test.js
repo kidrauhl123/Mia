@@ -299,7 +299,7 @@ test("core env overlay stamps rust-core target identity without daemon aliases",
     path.join(path.sep, "tmp", "mia-root", "runtime", "core-home", "managed-resources")
   ].join(path.delimiter));
   assert.equal(env.MIA_MANAGED_AGENT_RESOURCES_ONLY, "1");
-  assert.equal(env.MIA_MANAGED_AGENT_PREPARE, "1");
+  assert.equal(env.MIA_MANAGED_AGENT_PREPARE, "0");
   assert.equal(env.MIA_MANAGED_AGENT_NODE, "/opt/node/bin/node");
   assert.equal(env.MIA_MANAGED_AGENT_NODE_ELECTRON, "0");
   assert.equal(env.MIA_CORE_RESOURCES_PATH, "");
@@ -369,6 +369,7 @@ test("core env overlay points packaged Rust Core at extraResource official skill
   assert.equal(env.MIA_MANAGED_AGENT_RESOURCES_ONLY, undefined);
   assert.equal(env.MIA_MANAGED_AGENT_NODE, "/Applications/Mia.app/Contents/MacOS/Mia");
   assert.equal(env.MIA_MANAGED_AGENT_NODE_ELECTRON, "1");
+  assert.equal(env.MIA_MANAGED_AGENT_PREPARE, "0");
   assert.equal(env.MIA_CORE_RESOURCES_PATH, res);
 });
 

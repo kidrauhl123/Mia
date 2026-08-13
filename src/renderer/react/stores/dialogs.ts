@@ -211,6 +211,7 @@ export type BotDialogView = Readonly<{
   runtimeGroups: readonly BotRuntimeGroupView[];
   runtimeLoadError: string;
   runtimeLoading: boolean;
+  runtimePreparing: boolean;
   runtimeSetupRequired: boolean;
   runtimeValue: string;
   retryRuntime: () => void;
@@ -219,7 +220,7 @@ export type BotDialogView = Readonly<{
   setName: (value: string) => void;
   setPersona: (value: string) => void;
   setPersonaOpen: (open: boolean) => void;
-  setRuntime: (value: string) => void;
+  setRuntime: (value: string) => Promise<string>;
   submit: () => Promise<string>;
   title: string;
 }>;

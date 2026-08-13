@@ -20,7 +20,7 @@ use crate::hermes_gateway::probe_hermes_gateway_command;
 use crate::native_acp::{NativeAcpProbeErrorKind, probe_native_acp_command};
 
 const DEFAULT_AGENT_PROBE_TIMEOUT: Duration = Duration::from_secs(35);
-const VERSION_TIMEOUT: Duration = Duration::from_secs(2);
+const VERSION_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_MANAGED_ACP_PREPARE_TIMEOUT: Duration = Duration::from_secs(1_800);
 const PINNED_CLAUDE_CLI_VERSION: &str = "2.1.211";
 const PINNED_CLAUDE_SDK_VERSION: &str = "0.3.211";
@@ -244,6 +244,17 @@ impl AgentEngineScanner {
         build_inventory(agents, options.generated_at)
     }
 
+    /// Build the agent list from command and managed-runtime discovery only.
+    /// ACP handshakes stay on explicit health checks and session startup, so a
+    /// slow engine cannot hold the whole desktop agent picker open.
+    pub async fn discover(&self, options: AgentEngineScanOptions) -> AgentEngineInventory {
+        let mut agents = Vec::new();
+        for definition in agent_definitions() {
+            agents.push(self.discover_definition(definition, &options).await);
+        }
+        build_inventory(agents, options.generated_at)
+    }
+
     /// Probe one engine when a caller needs its live ACP capabilities without
     /// making an unrelated full-inventory scan.
     pub async fn scan_engine(
@@ -256,6 +267,74 @@ impl AgentEngineScanner {
             .into_iter()
             .find(|definition| definition.id == engine_id)?;
         Some(self.scan_definition(definition, &options).await)
+    }
+
+    async fn discover_definition(
+        &self,
+        definition: AgentEngineDefinition,
+        options: &AgentEngineScanOptions,
+    ) -> AgentEngineStatus {
+        let primary = self
+            .resolver
+            .resolve(definition.primary_command, options)
+            .await
+            .or_else(|| resolve_mia_stable_primary(definition, options));
+        let Some(primary) = primary else {
+            cache_agent_runtime_source(definition.id, "");
+            return missing_primary_status(definition);
+        };
+        let version = primary.version.clone();
+        cache_agent_runtime_source(definition.id, &primary.source);
+
+        let managed = resolve_managed_acp_runtime(definition, options);
+        let mut runtime_launcher = if definition.id == "hermes" && primary.source == "mia-managed" {
+            let Some(runtime) = resolve_mia_stable_hermes_gateway_runtime(options) else {
+                return blocked_status(
+                    definition,
+                    primary,
+                    version,
+                    None,
+                    "managed_hermes_missing",
+                    "Mia 稳定版 Hermes 运行组件不完整",
+                    "请重新启用 Hermes。",
+                    format!("install-{}", definition.id),
+                );
+            };
+            runtime
+        } else if let Some(runtime) = managed.runtime {
+            runtime
+        } else if definition.require_managed_acp {
+            let detail = managed_missing_detail(definition, &managed.diagnostics);
+            return blocked_status(
+                definition,
+                primary,
+                version,
+                None,
+                "managed_acp_missing",
+                &format!("{} ACP 运行组件尚未准备", definition.label),
+                &detail,
+                format!("install-{}", definition.id),
+            );
+        } else {
+            let runtime_launcher = self.resolver.resolve(definition.acp_command, options).await;
+            let Some(runtime_launcher) = runtime_launcher else {
+                return blocked_status(
+                    definition,
+                    primary,
+                    version,
+                    None,
+                    "acp_command_missing",
+                    &format!("{} ACP launcher 未检测到", definition.label),
+                    &definition.acp_display(),
+                    String::new(),
+                );
+            };
+            ResolvedAgentRuntime::system(runtime_launcher, definition.acp_args)
+        };
+        if definition.id == "hermes" {
+            runtime_launcher = as_hermes_gateway_runtime(runtime_launcher);
+        }
+        discovered_status(definition, primary, version, runtime_launcher)
     }
 
     async fn scan_definition(
@@ -315,7 +394,7 @@ impl AgentEngineScanner {
                 "managed_acp_missing",
                 &format!("{} ACP 运行组件未准备好", definition.label),
                 &detail,
-                String::new(),
+                format!("install-{}", definition.id),
             );
         } else {
             let runtime_launcher = self.resolver.resolve(definition.acp_command, options).await;
@@ -705,12 +784,14 @@ impl AgentCommandResolver for RealAgentCommandResolver {
         if path.is_empty() {
             return String::new();
         }
+        let mut environment = options.env.clone();
+        prepend_executable_parent_to_path(&mut environment, path);
         let mut command = Command::new(path);
         configure_background_command(command.as_std_mut());
         command
             .arg("--version")
             .env_clear()
-            .envs(options.env.iter());
+            .envs(environment.iter());
         match tokio::time::timeout(VERSION_TIMEOUT, command.output()).await {
             Ok(Ok(output)) => first_output_line(&output.stdout, &output.stderr),
             _ => String::new(),
@@ -872,6 +953,34 @@ fn ready_status(
         "",
         None,
     );
+    status_from_parts(
+        definition,
+        Some(primary),
+        version,
+        Some(runtime),
+        true,
+        true,
+        "system",
+        "ready",
+        String::new(),
+        readiness,
+    )
+}
+
+fn discovered_status(
+    definition: AgentEngineDefinition,
+    primary: ResolvedCommand,
+    version: String,
+    runtime: ResolvedAgentRuntime,
+) -> AgentEngineStatus {
+    let readiness = AgentEngineReadiness {
+        status: "not_checked".into(),
+        checked: false,
+        summary: format!("{} 已检测到", definition.label),
+        detail: String::new(),
+        action: String::new(),
+        error_code: None,
+    };
     status_from_parts(
         definition,
         Some(primary),
@@ -3273,6 +3382,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[tokio::test]
+    async fn reads_nvm_cli_version_with_a_finder_style_path() {
+        let root = managed_fixture_root("nvm-version-command");
+        let home = root.join("home");
+        let bin = home
+            .join(".nvm")
+            .join("versions")
+            .join("node")
+            .join("v24.15.0")
+            .join("bin");
+        let codex = bin.join("codex");
+        let node = bin.join("node");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(&codex, "#!/usr/bin/env node\n").unwrap();
+        std::fs::write(&node, "#!/bin/sh\nprintf 'codex-cli 99.0.0\\n'\n").unwrap();
+        #[cfg(unix)]
+        for executable in [&codex, &node] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let mut options = AgentEngineScanOptions::for_tests();
+        options.home_dir = Some(home.clone());
+        options.env = BTreeMap::from([
+            ("HOME".into(), path_to_string(&home)),
+            ("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into()),
+        ]);
+
+        assert_eq!(
+            RealAgentCommandResolver
+                .version(&path_to_string(&codex), &options)
+                .await,
+            "codex-cli 99.0.0"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn primary_cli_environment_selects_the_resolved_claude_binary() {
         let claude = agent_definitions()
@@ -3777,6 +3923,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn agent_discovery_lists_codex_without_running_an_acp_probe() {
+        let root = managed_fixture_root("codex-discovery");
+        let entrypoint = write_codex_managed_acp(&root);
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let scanner = AgentEngineScanner {
+            resolver: Arc::new(FakeAgentCommandResolver {
+                commands: [("codex".to_string(), "/usr/local/bin/codex".to_string())]
+                    .into_iter()
+                    .collect(),
+            }),
+            prober: Arc::new(RecordingAgentRuntimeCommandProber {
+                requests: requests.clone(),
+            }),
+        };
+
+        let inventory = scanner.discover(managed_test_options(&root)).await;
+        let codex = inventory
+            .agents
+            .iter()
+            .find(|agent| agent.id == "codex")
+            .expect("codex status");
+
+        assert!(codex.installed);
+        assert!(codex.usable_in_mia);
+        assert_eq!(codex.health, "ready");
+        assert_eq!(codex.readiness.status, "not_checked");
+        assert!(!codex.readiness.checked);
+        assert_eq!(codex.runtime.command, path_to_string(entrypoint));
+        assert!(requests.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn missing_codex_primary_cli_offers_codex_install() {
         let scanner = AgentEngineScanner::fake_for_tests([], []);
 
@@ -3821,7 +3999,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn codex_with_primary_cli_but_no_managed_acp_is_blocked_without_npx_fallback() {
+    async fn codex_with_primary_cli_but_no_managed_acp_offers_private_backup() {
         let root = managed_fixture_root("codex-missing-managed");
         let requests = Arc::new(Mutex::new(Vec::new()));
         let scanner = AgentEngineScanner {
@@ -3848,7 +4026,7 @@ mod tests {
         assert!(codex.installed);
         assert!(!codex.usable_in_mia);
         assert_eq!(codex.health, "blocked");
-        assert_eq!(codex.install_action, "");
+        assert_eq!(codex.install_action, "install-codex");
         assert_eq!(codex.runtime.source, "missing");
         assert_eq!(codex.runtime.command, "");
         assert_eq!(codex.runtime.args, Vec::<String>::new());
@@ -3856,6 +4034,7 @@ mod tests {
             codex.readiness.error_code.as_deref(),
             Some("managed_acp_missing")
         );
+        assert_eq!(codex.readiness.action, "install-codex");
         assert!(codex.readiness.detail.contains("未使用系统包管理器"));
         assert!(
             requests

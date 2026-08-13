@@ -1784,7 +1784,7 @@ test("desktop-local refuses a contaminated bot binding owned by another user", a
   }
 });
 
-test("ordinary single-bot group messages are answered by the visible coordinator", async () => {
+test("ordinary single-bot group messages are answered by the real Bot", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -1821,18 +1821,17 @@ test("ordinary single-bot group messages are answered by the visible coordinator
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "group-orchestrator");
+    assert.equal(reply.sender_ref, BOT_ID);
     assert.equal(reply.body_md, "got it");
-    assert.equal(hermesCalls.length, 1, "ordinary group messages should run only the coordinator");
-    assert.equal(hermesCalls[0].bot.id, "group-orchestrator");
-    assert.match(hermesCalls[0].input, /Group Bot roster/);
-    assert.match(hermesCalls[0].instructions, /smallest sufficient set/);
+    assert.equal(hermesCalls.length, 1, "a one-Bot group should not need a routing turn");
+    assert.equal(hermesCalls[0].bot.id, BOT_ID);
+    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("plain bot names do not bypass the group coordinator", async () => {
+test("plain bot names are privately routed to a real group Bot", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -1855,6 +1854,13 @@ test("plain bot names do not bypass the group coordinator", async () => {
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
+          if (args.bot?.id === "group-orchestrator") {
+            return {
+              runId: "hr_route",
+              content: '{"delegations":[{"botId":"bot_kongling","task":"直接回应用户是否在线"}]}',
+              events: []
+            };
+          }
           return { runId: "hr_named", content: "yes", events: [] };
         }
       }
@@ -1870,16 +1876,18 @@ test("plain bot names do not bypass the group coordinator", async () => {
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "group-orchestrator");
+    assert.equal(reply.sender_ref, "bot_kongling");
     assert.equal(reply.body_md, "yes");
-    assert.equal(hermesCalls.length, 1);
+    assert.equal(hermesCalls.length, 2);
     assert.equal(hermesCalls[0].bot.id, "group-orchestrator");
+    assert.equal(hermesCalls[1].bot.id, "bot_kongling");
+    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("group coordinator delegates a distinct task and synthesizes the result", async () => {
+test("backend group coordinator delegates a distinct task without becoming a sender", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -1908,14 +1916,11 @@ test("group coordinator delegates a distinct task and synthesizes the result", a
         async runChat(args) {
           hermesCalls.push(args);
           if (args.bot?.id === "group-orchestrator") {
-            const coordinatorCalls = hermesCalls.filter((call) => call.bot?.id === "group-orchestrator").length;
-            return coordinatorCalls === 1
-              ? {
-                  runId: "hr_c",
-                  content: '{"reply":"我请 @空铃 核对一下。","delegations":[{"botId":"bot_kongling","task":"核对关键事实并给出结论"}]}',
-                  events: []
-                }
-              : { runId: "hr_s", content: '{"reply":"综合结论：已经核对完成。"}', events: [] };
+            return {
+              runId: "hr_c",
+              content: '{"delegations":[{"botId":"bot_kongling","task":"核对关键事实并给出结论"}]}',
+              events: []
+            };
           }
           return { runId: "hr_r", content: "核对结果正常", events: [] };
         }
@@ -1932,17 +1937,98 @@ test("group coordinator delegates a distinct task and synthesizes the result", a
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "group-orchestrator");
-    assert.equal(reply.body_md, "综合结论：已经核对完成。");
+    assert.equal(reply.sender_ref, "bot_kongling");
+    assert.equal(reply.body_md, "核对结果正常");
     assert.equal(hermesCalls[0].transient, true);
     assert.equal(hermesCalls[0].gatewayWsUrl, "ws://gateway");
-    assert.deepEqual(hermesCalls.map((call) => call.bot.id), ["group-orchestrator", "bot_kongling", "group-orchestrator"]);
+    assert.deepEqual(hermesCalls.map((call) => call.bot.id), ["group-orchestrator", "bot_kongling"]);
     assert.match(hermesCalls[1].input, /核对关键事实并给出结论/);
-    assert.deepEqual(hermesCalls.map((call) => call.model), ["mia-pro", "mia-pro", "mia-pro"]);
+    assert.doesNotMatch(hermesCalls[1].input, /协调者/);
+    assert.deepEqual(hermesCalls.map((call) => call.model), ["mia-pro", "mia-pro"]);
     const messages = ctx.messagesStore.listLatestMessages(group.id, 20).messages;
-    assert.deepEqual(messages.map((item) => item.sender_ref), [ctx.user.id, "group-orchestrator", "bot_kongling", "group-orchestrator"]);
+    assert.deepEqual(messages.map((item) => item.sender_ref), [ctx.user.id, "bot_kongling"]);
   } finally {
     ctx.cleanup();
+  }
+});
+
+test("routed cloud group replies archive generated files instead of exposing server paths", async () => {
+  const ctx = setup();
+  const workerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-group-files-"));
+  const workerPaths = {
+    root: workerRoot,
+    home: path.join(workerRoot, "home"),
+    workspace: path.join(workerRoot, "workspace"),
+    attachments: path.join(workerRoot, "attachments")
+  };
+  try {
+    fs.mkdirSync(workerPaths.home, { recursive: true, mode: 0o700 });
+    const generatedPath = path.join(workerPaths.home, "group-report.xlsx");
+    fs.writeFileSync(generatedPath, "group xlsx bytes", { mode: 0o600 });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_report", name: "报表助手", capabilities: ["files"] });
+    const group = ctx.socialStore.createConversation({ id: "g_generated_file", type: "group", name: "Group" });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_report", ownerId: ctx.user.id });
+    for (const botId of ["bot_mia", "bot_report"]) {
+      ctx.runtimeBindingsStore.upsertBinding({
+        userId: ctx.user.id,
+        botId,
+        runtimeKind: "cloud-claude-code",
+        enabled: true,
+        config: { model: "hermes-agent" }
+      });
+    }
+    const dispatcher = makeDispatcher(ctx, {
+      workerManager: {
+        async ensureWorker(userId) {
+          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", paths: workerPaths };
+        }
+      },
+      attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
+      hermesImClient: {
+        async runChat(args) {
+          if (args.bot?.id === "group-orchestrator") {
+            return {
+              runId: "hr_group_route",
+              content: '{"delegations":[{"botId":"bot_report","task":"生成并发送报表"}]}',
+              events: []
+            };
+          }
+          return {
+            runId: "hr_group_file",
+            content: `报表已生成：${generatedPath}`,
+            events: []
+          };
+        }
+      }
+    });
+    const message = ctx.messagesStore.appendMessage({
+      conversationId: group.id,
+      senderKind: "user",
+      senderRef: ctx.user.id,
+      bodyMd: "生成报表发到群里"
+    });
+
+    const reply = await dispatcher.handleUserMessage({
+      userId: ctx.user.id,
+      conversationId: group.id,
+      message
+    });
+
+    const attachments = JSON.parse(reply.attachments_json || "[]");
+    assert.equal(reply.sender_ref, "bot_report");
+    assert.equal(attachments.length, 1);
+    assert.equal(attachments[0].name, "group-report.xlsx");
+    assert.match(attachments[0].url, /^\/api\/files\/file_/);
+    assert.equal(Object.prototype.hasOwnProperty.call(attachments[0], "path"), false);
+    assert.doesNotMatch(reply.body_md, new RegExp(workerRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(reply.body_md, /附件「group-report\.xlsx」/);
+    assert.equal(ctx.cloudStore.getFileForUser(ctx.user.id, attachments[0].id)?.name, "group-report.xlsx");
+  } finally {
+    ctx.cleanup();
+    fs.rmSync(workerRoot, { recursive: true, force: true });
   }
 });
 
@@ -1964,7 +2050,6 @@ test("coordinator delegation has no fixed three-bot cap", async () => {
         config: { model: "hermes-agent" }
       });
     }
-    let coordinatorCalls = 0;
     const dispatcher = makeDispatcher(ctx, {
       skillsCatalog: [{
         id: "mia-group-coordinator",
@@ -1974,18 +2059,13 @@ test("coordinator delegation has no fixed three-bot cap", async () => {
         async runChat(args) {
           calls.push(args);
           if (args.bot?.id === "group-orchestrator") {
-            coordinatorCalls += 1;
-            if (coordinatorCalls === 1) {
-              return {
-                runId: "hr_plan",
-                content: JSON.stringify({
-                  reply: "我会让四位伙伴分别处理独立部分。",
-                  delegations: botIds.map((botId, index) => ({ botId, task: `完成独立部分 ${index + 1}` }))
-                }),
-                events: []
-              };
-            }
-            return { runId: "hr_summary", content: '{"reply":"四部分已经合并完成。"}', events: [] };
+            return {
+              runId: "hr_plan",
+              content: JSON.stringify({
+                delegations: botIds.map((botId, index) => ({ botId, task: `完成独立部分 ${index + 1}` }))
+              }),
+              events: []
+            };
           }
           return { runId: `hr_${args.bot.id}`, content: `${args.bot.id} done`, events: [] };
         }
@@ -2004,20 +2084,22 @@ test("coordinator delegation has no fixed three-bot cap", async () => {
       message
     });
 
-    assert.equal(reply.sender_ref, "group-orchestrator");
-    assert.equal(reply.body_md, "四部分已经合并完成。");
+    assert.equal(reply.sender_ref, "bot_one");
     assert.deepEqual(
       calls.filter((call) => call.bot.id !== "group-orchestrator").map((call) => call.bot.id).sort(),
       botIds.slice().sort()
     );
     assert.match(calls[0].instructions, /SKILL_MARKER/);
+    assert.equal(calls.filter((call) => call.bot.id === "group-orchestrator").length, 1);
+    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("non-JSON coordinator output becomes a visible direct coordinator reply", async () => {
+test("invalid backend coordinator output falls back to a real group Bot", async () => {
   const ctx = setup();
+  const calls = [];
   try {
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
@@ -2037,6 +2119,7 @@ test("non-JSON coordinator output becomes a visible direct coordinator reply", a
     const dispatcher = makeDispatcher(ctx, {
       hermesImClient: {
         async runChat(args) {
+          calls.push(args);
           if (args.bot?.id === "group-orchestrator") return { runId: "hr_c", content: "我可以直接处理。", events: [] };
           return { runId: "hr_r", content: "fallback reply", events: [] };
         }
@@ -2053,14 +2136,16 @@ test("non-JSON coordinator output becomes a visible direct coordinator reply", a
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "group-orchestrator");
-    assert.equal(reply.body_md, "我可以直接处理。");
+    assert.ok(["bot_mia", "bot_kongling"].includes(reply.sender_ref));
+    assert.equal(reply.body_md, "fallback reply");
+    assert.deepEqual(calls.map((call) => call.bot.id), ["group-orchestrator", reply.sender_ref]);
+    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("coordinator delegates desktop-only work through bot_invocation_requested", async () => {
+test("single desktop-only group Bot is invoked without a visible coordinator", async () => {
   const ctx = setup();
   const broadcasts = [];
   const hermesCalls = [];
@@ -2076,7 +2161,6 @@ test("coordinator delegates desktop-only work through bot_invocation_requested",
       enabled: true,
       config: { model: "claude", deviceId: "device_mac" }
     });
-    let coordinatorCalls = 0;
     const dispatcher = makeDispatcher(ctx, {
       broadcastPersistedEvent(userId, event) {
         broadcasts.push({ userId, event });
@@ -2084,14 +2168,7 @@ test("coordinator delegates desktop-only work through bot_invocation_requested",
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          coordinatorCalls += 1;
-          return coordinatorCalls === 1
-            ? {
-                runId: "hr_x",
-                content: '{"reply":"我请 @Spec Master 检查。","delegations":[{"botId":"bot_spec_master","task":"检查明天的报告并返回摘要"}]}',
-                events: []
-              }
-            : { runId: "hr_summary", content: '{"reply":"报告摘要已经整理完成。"}', events: [] };
+          return { runId: "unexpected", content: "unexpected", events: [] };
         }
       }
     });
@@ -2106,15 +2183,14 @@ test("coordinator delegates desktop-only work through bot_invocation_requested",
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "group-orchestrator");
-    assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].bot.id, "group-orchestrator");
+    assert.equal(reply, null);
+    assert.equal(hermesCalls.length, 0);
     const invocation = broadcasts.find((entry) => entry.event.type === "conversation.bot_invocation_requested");
     assert.ok(invocation, "expected a desktop invocation broadcast");
     assert.equal(invocation.event.botId, "bot_spec_master");
     assert.equal(invocation.userId, ctx.user.id);
     assert.equal(invocation.event.runtimeConfig?.model, "claude");
-    assert.match(invocation.event.triggeringMessage.body_md, /检查明天的报告并返回摘要/);
+    assert.equal(invocation.event.triggeringMessage.body_md, "看下昨天的报告");
     const botReply = ctx.messagesStore.appendMessage({
       conversationId: group.id,
       senderKind: "bot",
@@ -2123,9 +2199,8 @@ test("coordinator delegates desktop-only work through bot_invocation_requested",
       bodyMd: "明天报告正常",
       triggerMessageId: message.id
     });
-    const summary = await dispatcher.handleBotMessage({ conversationId: group.id, message: botReply });
-    assert.equal(summary.sender_ref, "group-orchestrator");
-    assert.equal(summary.body_md, "报告摘要已经整理完成。");
+    assert.equal(botReply.sender_ref, "bot_spec_master");
+    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();
   }

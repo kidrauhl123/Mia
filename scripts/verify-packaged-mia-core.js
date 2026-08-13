@@ -5,12 +5,15 @@ const fs = require("node:fs");
 const net = require("node:net");
 const os = require("node:os");
 const path = require("node:path");
+const {
+  assertExpectedBuildInfo,
+  readCoreBuildInfo,
+  sha256File
+} = require("./mia-core-build-info.js");
+const { coreSourceFingerprint } = require("./mia-core-source-fingerprint.js");
 
 const root = path.join(__dirname, "..");
-// A freshly unpacked desktop Core can spend several seconds initializing its
-// managed resources. Keep the release verifier strict, but avoid treating a
-// healthy Core as a broken package solely because a busy build machine takes
-// longer than the former ten-second probe window.
+// A freshly unpacked desktop Core can take several seconds to initialize.
 const DEFAULT_TIMEOUT_MS = Number(process.env.MIA_PACKAGED_CORE_VERIFY_TIMEOUT_MS || 45000);
 const MANAGED_ACP_RESOURCE_SPECS = [
   { toolId: "claude-agent-acp", version: "0.59.0" },
@@ -184,11 +187,13 @@ function collectRequiredPaths(appPath, { platform = process.platform, arch = "" 
     `${targetPlatform}-${targetArch}`,
     rustCoreBinaryName(targetPlatform)
   );
+  const coreManifestPath = path.join(path.dirname(corePath), "manifest.json");
   const managed = managedResourceManifestPaths(resourcesPath, targetPlatform, targetArch);
   return {
     resourcesPath,
     packageJsonPath,
     corePath,
+    coreManifestPath,
     managedResourcesPath: managed.managedResourcesPath,
     requiredManagedResourcePaths: managed.manifestPaths,
     forbiddenEnginePaths: [
@@ -196,6 +201,50 @@ function collectRequiredPaths(appPath, { platform = process.platform, arch = "" 
       path.join(resourcesPath, "managed-resources")
     ]
   };
+}
+
+function readJson(filePath, label) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, "utf8"));
+  } catch (error) {
+    throw new Error(`${label} is invalid or unreadable at ${filePath}: ${error?.message || error}`);
+  }
+}
+
+function verifyStagedCoreIdentity({ rootDir, packageJsonPath, corePath, coreManifestPath }) {
+  const packageJson = readJson(packageJsonPath, "Packaged package.json");
+  const manifest = readJson(coreManifestPath, "Packaged Mia Core manifest");
+  const expected = {
+    releaseVersion: String(packageJson.miaCoreVersion || "").trim(),
+    sourceFingerprint: coreSourceFingerprint(rootDir)
+  };
+  const actual = assertExpectedBuildInfo({
+    releaseVersion: manifest.releaseVersion || manifest.version,
+    sourceFingerprint: manifest.sourceFingerprint
+  }, expected, "Packaged Mia Core manifest");
+  const expectedSha256 = String(manifest.binarySha256 || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256)) {
+    throw new Error("Packaged Mia Core manifest has no verified binary checksum.");
+  }
+  if (sha256File(corePath) !== expectedSha256) {
+    throw new Error("Packaged Mia Core binary checksum does not match its manifest.");
+  }
+  return actual;
+}
+
+function createNvmCodexFixture(homeDir, platform, fsImpl = fs) {
+  const binDir = path.join(homeDir, ".nvm", "versions", "node", "v99.0.0", "bin");
+  fsImpl.mkdirSync(binDir, { recursive: true });
+  if (platform === "win32") {
+    const codexPath = path.join(binDir, "codex.exe");
+    fsImpl.copyFileSync(process.execPath, codexPath);
+    return codexPath;
+  }
+  const nodePath = path.join(binDir, "node");
+  const codexPath = path.join(binDir, "codex");
+  fsImpl.symlinkSync(process.execPath, nodePath);
+  fsImpl.writeFileSync(codexPath, "#!/usr/bin/env node\nif (process.argv.includes('--version')) process.stdout.write('codex-cli 99.0.0\\n');\n", { mode: 0o755 });
+  return codexPath;
 }
 
 async function stopChild(child, timeoutMs = 2000) {
@@ -262,12 +311,13 @@ async function verifyPackagedMiaCore({
   rootDir = root,
   appPath = "",
   arch = "",
-  managedResources = "required",
+  managedResources = "forbidden",
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
   hostArch = os.arch(),
   platform = process.platform,
-  hostPlatform = process.platform
+  hostPlatform = process.platform,
+  readBuildInfo = readCoreBuildInfo
 } = {}) {
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch) || defaultTargetArch();
@@ -282,10 +332,11 @@ async function verifyPackagedMiaCore({
   const paths = collectRequiredPaths(resolvedAppPath, { platform: targetPlatform, arch: targetArch });
   const managedResourcesMode = ["required", "forbidden", "optional"].includes(managedResources)
     ? managedResources
-    : "required";
+    : "forbidden";
   const required = [
     paths.resourcesPath,
     paths.corePath,
+    paths.coreManifestPath,
     paths.packageJsonPath,
     ...(managedResourcesMode === "required"
       ? [paths.managedResourcesPath, ...paths.requiredManagedResourcePaths]
@@ -304,6 +355,24 @@ async function verifyPackagedMiaCore({
     };
   }
 
+
+  let expectedBuildInfo;
+  try {
+    expectedBuildInfo = verifyStagedCoreIdentity({
+      rootDir,
+      packageJsonPath: paths.packageJsonPath,
+      corePath: paths.corePath,
+      coreManifestPath: paths.coreManifestPath
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      appPath: resolvedAppPath,
+      corePath: paths.corePath,
+      error: error?.message || String(error)
+    };
+  }
+
   const embeddedManagedResources = managedResourcesMode === "forbidden"
     ? findManagedResourceDirectories(path.join(paths.resourcesPath, "bundled-mia-core"))
     : [];
@@ -312,7 +381,7 @@ async function verifyPackagedMiaCore({
       ok: false,
       appPath: resolvedAppPath,
       corePath: paths.corePath,
-      error: `Lightweight update package must not embed managed ACP resources: remove ${embeddedManagedResources.join(", ")}`
+      error: `Desktop package must not embed managed ACP resources: remove ${embeddedManagedResources.join(", ")}`
     };
   }
 
@@ -337,12 +406,14 @@ async function verifyPackagedMiaCore({
       appPath: resolvedAppPath,
       corePath: paths.corePath,
       skippedRuntimeProbe: true,
+      buildInfo: expectedBuildInfo,
       reason: `skipped runtime probe because target ${targetPlatform}-${targetArch} cannot run on ${hostPlatform}-${hostArch}`
     };
   }
 
   const verifyHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-rust-core-"));
   const workspaceDir = path.join(verifyHome, "workspace");
+  const expectedCodexPath = createNvmCodexFixture(verifyHome, targetPlatform);
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   let stdout = "";
@@ -364,9 +435,16 @@ async function verifyPackagedMiaCore({
     cwd: path.dirname(paths.corePath),
     env: {
       ...process.env,
+      HOME: verifyHome,
+      USERPROFILE: verifyHome,
+      PATH: targetPlatform === "win32"
+        ? String(process.env.SystemRoot ? `${process.env.SystemRoot}\\System32` : "")
+        : "/usr/bin:/bin:/usr/sbin:/sbin",
       MIA_CORE: "1",
       MIA_CORE_HOME: verifyHome,
-      MIA_CORE_WORKSPACE_DIR: workspaceDir
+      MIA_CORE_WORKSPACE_DIR: workspaceDir,
+      MIA_MANAGED_AGENT_PREPARE: "0",
+      MIA_MANAGED_AGENT_RESOURCES_ONLY: "1"
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -387,6 +465,58 @@ async function verifyPackagedMiaCore({
         error: health.error
       };
     }
+    let binaryBuildInfo;
+    try {
+      binaryBuildInfo = assertExpectedBuildInfo(
+        readBuildInfo(paths.corePath, { env: process.env }),
+        expectedBuildInfo,
+        "Packaged Mia Core binary"
+      );
+    } catch (error) {
+      await stopChild(child);
+      return {
+        ok: false,
+        appPath: resolvedAppPath,
+        corePath: paths.corePath,
+        error: error?.message || String(error)
+      };
+    }
+    const healthBuildInfo = {
+      releaseVersion: health.body?.coreReleaseVersion,
+      sourceFingerprint: health.body?.coreSourceFingerprint
+    };
+    try {
+      assertExpectedBuildInfo(healthBuildInfo, expectedBuildInfo, "Running packaged Mia Core");
+    } catch (error) {
+      await stopChild(child);
+      return {
+        ok: false,
+        appPath: resolvedAppPath,
+        corePath: paths.corePath,
+        error: error?.message || String(error)
+      };
+    }
+    let inventory;
+    try {
+      const response = await fetchImpl(`${baseUrl}/api/engines/agents`, { signal: AbortSignal.timeout(timeoutMs) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      inventory = await response.json();
+      const codex = (inventory?.agents || []).find((agent) => agent?.id === "codex");
+      if (!codex?.installed || path.resolve(String(codex.path || "")) !== path.resolve(expectedCodexPath)) {
+        throw new Error("packaged Core did not detect Codex from a Finder-style nvm environment");
+      }
+      if (targetPlatform !== "win32" && String(codex.version || "") !== "codex-cli 99.0.0") {
+        throw new Error(`packaged Core found nvm Codex but could not execute it: ${codex.version || "no version"}`);
+      }
+    } catch (error) {
+      await stopChild(child);
+      return {
+        ok: false,
+        appPath: resolvedAppPath,
+        corePath: paths.corePath,
+        error: error?.message || String(error)
+      };
+    }
     await stopChild(child);
     return {
       ok: true,
@@ -395,7 +525,9 @@ async function verifyPackagedMiaCore({
       baseUrl,
       stdout: stdout.trim(),
       stderr: stderr.trim(),
-      health: health.body
+      health: health.body,
+      buildInfo: binaryBuildInfo,
+      codexPath: expectedCodexPath
     };
   } finally {
     fs.rmSync(verifyHome, { recursive: true, force: true });
@@ -406,7 +538,7 @@ async function main(argv = process.argv.slice(2)) {
   let appPath = "";
   let arch = "";
   let platform = "";
-  let managedResources = "required";
+  let managedResources = "forbidden";
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--app") {
@@ -425,7 +557,7 @@ async function main(argv = process.argv.slice(2)) {
       continue;
     }
     if (value === "--managed-resources") {
-      managedResources = argv[index + 1] || "required";
+      managedResources = argv[index + 1] || "forbidden";
       index += 1;
     }
   }
@@ -459,6 +591,7 @@ module.exports = {
   normalizeArch,
   normalizePlatform,
   resolvePackagedAppPath,
+  verifyStagedCoreIdentity,
   verifyPackagedMiaCore
 };
 

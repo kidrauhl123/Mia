@@ -147,7 +147,7 @@ pub async fn agent_engines(State(states): State<ModuleStates>) -> Json<AgentEngi
     let scanner = AgentEngineScanner::real();
     Json(
         scanner
-            .scan(AgentEngineScanOptions::current(states.workspace_dir))
+            .discover(AgentEngineScanOptions::current(states.workspace_dir))
             .await,
     )
 }

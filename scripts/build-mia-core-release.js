@@ -2,7 +2,6 @@
 "use strict";
 
 const childProcess = require("node:child_process");
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -16,17 +15,17 @@ const {
   targetPlatformFromContext
 } = require("./prepare-mia-core-rs.js");
 const { resolveMiaCoreVersion } = require("./resolve-mia-core-version.js");
+const {
+  assertExpectedBuildInfo,
+  readCoreBuildInfo,
+  sha256File
+} = require("./mia-core-build-info.js");
+const { coreSourceFingerprintDetails } = require("./mia-core-source-fingerprint.js");
 
 const root = path.resolve(__dirname, "..");
 
 function ensureDirectory(dirPath) {
   fs.mkdirSync(dirPath, { recursive: true });
-}
-
-function sha256File(filePath) {
-  const hash = crypto.createHash("sha256");
-  hash.update(fs.readFileSync(filePath));
-  return hash.digest("hex");
 }
 
 function writeJson(filePath, value) {
@@ -67,11 +66,21 @@ function buildMiaCoreRelease(options = {}) {
   const assetName = miaCoreAssetName(platform, arch, tag);
   const assetPath = path.join(outDir, assetName);
   const skipBuild = env.MIA_CORE_RELEASE_SKIP_BUILD === "1";
+  const sourceIdentity = coreSourceFingerprintDetails(rootDir);
+  const expectedBuildInfo = {
+    releaseVersion: tag,
+    sourceFingerprint: sourceIdentity.fingerprint
+  };
 
   if (!skipBuild) {
     execFileSync("cargo", ["build", "--release", "--target", target, "-p", "mia-core-app", "--bin", "mia-core"], {
       cwd: rootDir,
-      env: { ...process.env, ...env },
+      env: {
+        ...process.env,
+        ...env,
+        MIA_CORE_RELEASE_VERSION: tag,
+        MIA_CORE_SOURCE_FINGERPRINT: sourceIdentity.fingerprint
+      },
       stdio: "inherit"
     });
   }
@@ -80,6 +89,12 @@ function buildMiaCoreRelease(options = {}) {
   if (!stat.isFile()) {
     throw new Error(`Mia Core release binary not found at ${binaryPath}`);
   }
+  const readBuildInfo = options.readCoreBuildInfo || readCoreBuildInfo;
+  const buildInfo = assertExpectedBuildInfo(
+    readBuildInfo(binaryPath, { env, execFileSync }),
+    expectedBuildInfo,
+    `Mia Core release binary ${binaryPath}`
+  );
 
   ensureDirectory(outDir);
   if (normalizePlatform(platform) === "win32") {
@@ -98,9 +113,17 @@ function buildMiaCoreRelease(options = {}) {
     arch: normalizeArch(arch),
     target,
     bytes,
-    sha256
+    sha256,
+    binarySha256: sha256File(binaryPath)
   };
   const existingManifest = readJsonIfExists(path.join(outDir, "manifest.json"));
+  if (existingManifest) {
+    const existingTag = normalizeVersionTag(existingManifest.tag_name || existingManifest.version || "");
+    const existingFingerprint = String(existingManifest.sourceFingerprint || "").trim().toLowerCase();
+    if (existingTag !== tag || existingFingerprint !== buildInfo.sourceFingerprint) {
+      throw new Error(`Refusing to merge Mia Core ${tag} assets built from different source.`);
+    }
+  }
   const assets = mergeReleaseAssets(existingManifest, asset);
   fs.writeFileSync(
     path.join(outDir, "mia-core-checksums.txt"),
@@ -111,13 +134,25 @@ function buildMiaCoreRelease(options = {}) {
     tag_name: tag,
     version: tag,
     generatedAt: new Date().toISOString(),
+    sourceFingerprint: buildInfo.sourceFingerprint,
+    sourceFileCount: sourceIdentity.fileCount,
     assets
   };
   writeJson(path.join(outDir, "manifest.json"), manifest);
   writeJson(path.join(path.dirname(outDir), "latest.json"), manifest);
   console.log(`[build-mia-core-release] ${assetPath}`);
   console.log(`[build-mia-core-release] sha256 ${sha256}`);
-  return { assetPath, assetName, sha256, bytes, platform: normalizePlatform(platform), arch: normalizeArch(arch), target, tag };
+  return {
+    assetPath,
+    assetName,
+    sha256,
+    bytes,
+    platform: normalizePlatform(platform),
+    arch: normalizeArch(arch),
+    target,
+    tag,
+    buildInfo
+  };
 }
 
 module.exports = { buildMiaCoreRelease };

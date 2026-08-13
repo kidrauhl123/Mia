@@ -117,7 +117,7 @@ npm run dist:win
 release/
 ```
 
-桌面包携带 Claude Code、Codex 的固定 ACP bridge，但不携带用户 CLI、登录态或 Hermes Python runtime。ACP bridge 由 Rust Core 在启动时自动校验和准备；用户点击“启用 Mia 稳定版”时，客户端才从 Mia 备份源下载缺失的主 CLI 兜底资源，校验固定版本和 SHA-256 后写入 Mia 私有目录。
+桌面包只携带 Rust Core，不携带 Claude Code、Codex、Hermes 的运行时、登录态或 Python runtime。用户点击“启用 Mia 稳定版”时，客户端才从 Mia 备份源下载所选引擎，校验固定版本和 SHA-256 后写入 Mia 私有目录。
 
 三引擎备份与桌面包分开构建、分开发布。备份归档仍需在对应目标平台先准备 Hermes runtime 和 managed ACP 资源，再运行：
 
@@ -129,11 +129,13 @@ npm run engine-backups:build -- darwin-x64
 
 产物位于 `dist/engine-backups/v1/`，包含每个引擎的 zip 和 `manifest.json`。把整个目录同步到 `/var/www/mia-web/downloads/engine-backups/v1/`，对外地址必须是 `https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json`。发布时先上传 zip，最后原子替换 manifest，避免客户端读到尚未上传完整的资源。不要把该目录加入 electron-builder 的 `extraResources`。
 
-`dist:mac`、`dist:mac:intel` 和 Windows release 现在内置了 packaged-Core gate：打包前会运行 `scripts/prepare-mia-core-rs.js`，把 release Rust Core 和目标平台的 ACP bridge 放进 `resources/bundled-mia-core/<platform>-<arch>/`；打包后会自动运行 `scripts/verify-packaged-mia-core.js`，直接启动产物里的 Rust Core 并等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
+`dist:mac`、`dist:mac:intel` 和 Windows release 现在内置了 packaged-Core gate：打包前会运行 `scripts/prepare-mia-core-rs.js`，把 release Rust Core 放进 `resources/bundled-mia-core/<platform>-<arch>/`；打包后会自动运行 `scripts/verify-packaged-mia-core.js`，确认产物没有嵌入托管 ACP 资源，并直接启动 Rust Core 等待 `/health` 成功响应。这个 gate 的目的不是“看文件在不在”，而是阻断这类真实故障：
 
 - `beforePack` 没有生成对应平台/架构的 Rust Core
 - Core 二进制缺失、不可执行或启动即崩
 - 前台 `Mia.app` 能打开，但 `127.0.0.1:27861` 永远起不来
+
+Rust Core 有变更时，先发布对应平台的 Core 归档并更新 `miaCoreVersion`，再打桌面包；否则常规打包会取到旧 Core。
 
 需要单独重跑这个 gate 时，用：
 
@@ -153,8 +155,8 @@ npm run desktop:package:verify -- --app /path/to/Mia.app
 
 - 安装或打开产物。
 - 首次启动能创建 runtime，并能完成 Hermes、Claude Code、Codex 的本机探测。
-- 若这是首次启动且三个本机引擎都不可用，确认 Mia 会显示进度并自动准备私有目录中的固定 Claude Code 稳定版；不得调用全局 npm、第三方远程安装脚本，或改写 PATH。
-- 已安装的 `claude` / `codex` 可以被优先探测并复用；其他缺失引擎由用户点击“启用 Mia 稳定版”后才下载所选引擎的 Mia 固定备份。
+- 首次启动不得下载任意 Agent runtime、调用全局 npm、第三方远程安装脚本，或改写 PATH。
+- 已安装的 `claude` / `codex` 可以被优先探测并复用；缺失引擎或缺少 ACP 运行组件时，用户点击“启用 Mia 稳定版”后才下载所选引擎的 Mia 固定备份。
 - 用户自行安装的官方 Hermes（在 PATH 上）能被优先探测并复用；缺失时“启用 Mia 稳定版”按需下载固定 Python runtime，不写用户 Python 环境。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 

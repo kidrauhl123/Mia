@@ -110,6 +110,7 @@ function attachmentRuntimeHint(worker = {}, attachments = []) {
     "Mia cloud sandbox filesystem mapping:",
     root ? `- When the prompt mentions /data/..., use the matching real path under ${root}/... in this process.` : "",
     "- When you create downloadable files, write them under the workspace or home directory and mention the final path as /data/workspace/... or /data/home/... so Mia can attach it.",
+    "- Never expose the real server filesystem path in your answer; only mention its /data/... public alias.",
     ...visible.map((attachment) => `- Attachment ${attachment.name || "attachment"}: ${attachment.path}${attachment.hostPath ? ` maps to ${attachment.hostPath}` : ""}`)
   ].filter(Boolean).join("\n");
 }

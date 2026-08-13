@@ -5,6 +5,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const { buildMiaCoreRelease } = require("../scripts/build-mia-core-release.js");
+const { coreSourceFingerprint } = require("../scripts/mia-core-source-fingerprint.js");
 
 function writeExecutable(filePath, text) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -23,10 +24,15 @@ test("buildMiaCoreRelease preserves existing architecture assets in manifests", 
       const assetPath = args[args.indexOf("-czf") + 1];
       fs.writeFileSync(assetPath, `archive ${path.basename(assetPath)}\n`);
     };
+    const buildInfo = {
+      releaseVersion: "v9.9.9",
+      sourceFingerprint: coreSourceFingerprint(rootDir)
+    };
 
     buildMiaCoreRelease({
       rootDir,
       execFileSync,
+      readCoreBuildInfo: () => buildInfo,
       env: {
         MIA_CORE_VERSION: "v9.9.9",
         MIA_CORE_RELEASE_SKIP_BUILD: "1",
@@ -38,6 +44,7 @@ test("buildMiaCoreRelease preserves existing architecture assets in manifests", 
     buildMiaCoreRelease({
       rootDir,
       execFileSync,
+      readCoreBuildInfo: () => buildInfo,
       env: {
         MIA_CORE_VERSION: "v9.9.9",
         MIA_CORE_RELEASE_SKIP_BUILD: "1",
@@ -55,6 +62,7 @@ test("buildMiaCoreRelease preserves existing architecture assets in manifests", 
       "mia-core-v9.9.9-x86_64-apple-darwin.tar.gz"
     ]);
     assert.deepEqual(latest.assets.map((asset) => asset.name), names);
+    assert.equal(manifest.sourceFingerprint, buildInfo.sourceFingerprint);
 
     const checksums = fs.readFileSync(path.join(releaseDir, "mia-core-checksums.txt"), "utf8");
     assert.match(checksums, /mia-core-v9\.9\.9-aarch64-apple-darwin\.tar\.gz/);

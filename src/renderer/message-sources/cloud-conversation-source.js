@@ -16,14 +16,14 @@
     if (typeof require === "function") return require("../../shared/avatar-resolve");
     throw new Error("cloud-conversation-source: shared/avatar-resolve.js must load first");
   }
-  const { GroupCoordinator, MemberKind, SenderKind } = global.miaConversationKinds
+  const { MemberKind, SenderKind } = global.miaConversationKinds
     || (typeof require === "function"
       ? require("../../shared/conversation-kinds")
       : {
-          GroupCoordinator: { id: "group-orchestrator", displayName: "协调者" },
           MemberKind: { Bot: "bot", User: "user" },
           SenderKind: { Bot: "bot", User: "user", System: "system" }
         });
+  const LEGACY_GROUP_ORCHESTRATOR_ID = "group-orchestrator";
 
   function hasOwn(obj, key) {
     return Boolean(obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key));
@@ -110,16 +110,13 @@
       }
       if (m.sender_kind === "bot") {
         const senderRef = botSenderRefForMessage(m);
-        const isCoordinator = senderRef === GroupCoordinator.id;
         const member = memberArr.find((mem) => mem.member_kind === "bot" && mem.member_ref === senderRef);
         const rawBot = botRecord(senderRef);
         const localBot = resolveContact({ kind: BotKind, ref: senderRef }, ctx);
         const ownedByMe = Boolean(rawBot);
         const ownAvatarIsHydrated = Boolean(rawBot && hasAvatarIdentityFields?.(rawBot));
         let displayName;
-        if (isCoordinator) {
-          displayName = GroupCoordinator.displayName;
-        } else if (ownedByMe) {
+        if (ownedByMe) {
           displayName = rawBot.displayName || rawBot.display_name || rawBot.name || localBot.displayName;
         } else if (member?.identity?.displayName) {
           displayName = member.identity.displayName;
@@ -131,9 +128,7 @@
             ? conversation.name
             : senderRef;
         }
-        const avatar = isCoordinator
-          ? { image: "", crop: null, color: "#6f63d9", text: "协" }
-          : (!ownAvatarIsHydrated && member?.identity?.avatar)
+        const avatar = (!ownAvatarIsHydrated && member?.identity?.avatar)
           ? member.identity.avatar
           : resolveAvatarForContact({
               id: botAvatarIdentityId(senderRef, rawBot || {}, member || {}),
@@ -159,7 +154,12 @@
     }
 
     function listMessages() {
-      const msgs = Array.isArray(messages) ? messages : [];
+      // Older releases persisted the private router as a fake Bot.
+      // Keep those implementation-detail rows out of the member conversation.
+      const msgs = (Array.isArray(messages) ? messages : []).filter((message) => !(
+        message?.sender_kind === SenderKind.Bot
+          && message?.sender_ref === LEGACY_GROUP_ORCHESTRATOR_ID
+      ));
       return msgs.map((m, idx) => {
         const author = authorForMessage(m);
         const isOwnUser = m.sender_kind === SenderKind.User && m.sender_ref === selfId;

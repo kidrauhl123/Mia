@@ -8,6 +8,7 @@ mod agent_engines;
 mod hermes_gateway;
 mod memory_isolation;
 mod native_acp;
+mod shell_env;
 mod task_cache;
 
 use std::collections::BTreeMap;
@@ -26,6 +27,7 @@ use mia_core_common::process::configure_background_command;
 pub use native_acp::{NativeAcpBackend, NativeAcpSessionManager};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+pub use shell_env::enhance_process_path;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
 use tokio::process::Command;

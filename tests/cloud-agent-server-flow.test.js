@@ -863,7 +863,7 @@ test("POST cloud Claude Code run cancel routes only through the cloud agent disp
   }
 });
 
-test("POST ordinary single-bot group message reaches the visible coordinator", async () => {
+test("POST ordinary single-bot group message reaches the real Bot without a visible coordinator", async () => {
   const dataDir = tempDir("mia-cloud-agent-ack-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({
@@ -908,9 +908,11 @@ test("POST ordinary single-bot group message reaches the visible coordinator", a
     await server.mia.cloudAgentDispatcher.idle();
 
     assert.equal(hermesCalls.length, 1);
-    assert.equal(hermesCalls[0].bot.id, "group-orchestrator");
-    assert.match(hermesCalls[0].input, /Group Bot roster/);
+    assert.equal(hermesCalls[0].bot.id, "mia");
+    assert.match(hermesCalls[0].input, /你是 Mia，正在一个群聊里发言/);
     assert.match(hermesCalls[0].input, /Mia/);
+    const messages = await jsonFetch(baseUrl, `/api/conversations/${group.conversation.id}/messages`, { headers: authHeaders });
+    assert.deepEqual(messages.messages.map((message) => message.sender_ref), [account.user.id, "mia"]);
   } finally {
     await close(server);
     fs.rmSync(dataDir, { recursive: true, force: true });

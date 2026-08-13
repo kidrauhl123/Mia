@@ -41,7 +41,7 @@ test("Windows NSIS upgrades use same-volume staging and release Mia Core before 
   assert.match(source, /persist-managed-resources\.ps1/);
   assert.match(source, /ReadEnvStr \$R8 "MIA_HOME"/);
   assert.match(source, /\$APPDATA\\\$\{PRODUCT_NAME\}\\runtime\\engine-home/);
-  assert.match(source, /!macro customInstall[\s\S]*?-RemoveSourceOnSuccess/);
+  assert.doesNotMatch(source, /!macro customInstall/);
 });
 
 test("Windows runtime persistence copies versioned ACP resources and removes only the bundled source", {

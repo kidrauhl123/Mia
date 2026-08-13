@@ -1,21 +1,21 @@
 "use strict";
 
-const { GroupCoordinator, MemberKind } = require("../shared/conversation-kinds.js");
+const { MemberKind } = require("../shared/conversation-kinds.js");
 const { normalizeCloudClaudeCodeModel } = require("./cloud-claude-code-model.js");
 
 const BOT_MEMBER_KIND = MemberKind.Bot;
 const COORDINATOR_SKILL_ID = "mia-group-coordinator";
 const DEFAULT_COORDINATOR_SKILL = [
-  "Act as the group's primary conversational partner.",
-  "Answer directly when delegation adds no value.",
-  "Otherwise delegate distinct tasks to the smallest sufficient set of group Bots, without a fixed count.",
-  "Keep user-facing updates concise and synthesize delegated results into one coherent answer."
+  "Act as the group's private backend router.",
+  "Never answer the user or present yourself as a group member.",
+  "Route each turn to the smallest sufficient set of real group Bots, without a fixed count.",
+  "Return only structured delegation instructions for the backend."
 ].join("\n");
 
 const ORCHESTRATOR_BOT = Object.freeze({
-  id: GroupCoordinator.id,
-  key: GroupCoordinator.id,
-  displayName: GroupCoordinator.displayName,
+  id: "group-orchestrator",
+  key: "group-orchestrator",
+  displayName: "Group Orchestrator",
   personaText: ""
 });
 
@@ -181,7 +181,6 @@ function memberName(member, members, bots) {
     return cleanText(row?.user?.displayName || row?.user?.display_name || row?.user?.username || member.sender_ref || "用户");
   }
   if (member?.sender_kind === BOT_MEMBER_KIND) {
-    if (member.sender_ref === GroupCoordinator.id) return GroupCoordinator.displayName;
     const row = members.find((item) => item.member_kind === BOT_MEMBER_KIND && item.member_ref === member.sender_ref);
     return botDisplayName(botForMember(row, bots)) || cleanText(row?.bot_name || member.sender_ref || "Bot");
   }
@@ -211,13 +210,6 @@ function normalizeDelegations(value, botMembers, fallbackTask) {
     delegations.push({ botId, task, member: memberMap.get(botId) });
   }
   return delegations;
-}
-
-function delegationUpdate(delegations, descriptors) {
-  const names = new Map(descriptors.map((item) => [item.id, item.name]));
-  return delegations.length
-    ? `我来协调，正在请 ${delegations.map((item) => `@${names.get(item.botId) || item.botId}`).join("、")} 分工处理。`
-    : "";
 }
 
 function createGroupOrchestrator({
@@ -281,17 +273,21 @@ function createGroupOrchestrator({
   async function planTurn({ userId, conversationId, conversation, message, requestedBotId = "" }) {
     if (!conversation || conversation.type !== "group") return null;
     const context = groupContext(conversationId, userId);
+    if (!context.botMembers.length) return { mode: "direct", chosen: [], delegations: [], ...context };
     const direct = directTargets(message, context.botMembers, requestedBotId);
     if (direct.length) return { mode: "direct", chosen: direct, delegations: [], reply: "", ...context };
+    if (context.botMembers.length === 1) {
+      return { mode: "direct", chosen: [context.botMembers[0]], delegations: [], ...context };
+    }
 
     const input = [
-      "Coordinate this Mia group turn using the loaded group-coordination skill.",
+      "Privately route this Mia group turn using the loaded group-coordination skill.",
       "Group Bot roster:",
       formatMembers(context.descriptors),
       "",
       "Recent group messages:",
       formatRecentMessages(
-        context.recentMessages.filter((row) => row.id !== message?.id),
+        context.recentMessages.filter((row) => row.id !== message?.id && row.sender_ref !== ORCHESTRATOR_BOT.id),
         context.members,
         context.bots
       ),
@@ -299,47 +295,22 @@ function createGroupOrchestrator({
       "Current user message:",
       cleanText(message?.body_md),
       "",
-      "Return the initial-turn JSON object required by the skill."
+      "Return the routing JSON object required by the skill."
     ].join("\n");
     const raw = await runCoordinator({ userId, conversationId, input });
     const parsed = parseJsonObject(raw);
-    const delegations = normalizeDelegations(parsed?.delegations, context.botMembers, message?.body_md);
-    let reply = cleanText(parsed?.reply);
-    if (!parsed && raw) reply = raw;
-    if (!reply && delegations.length) reply = delegationUpdate(delegations, context.descriptors);
-    if (!reply && !delegations.length) reply = "这条消息暂时没有得到有效的协调结果，请重试一次。";
-    return { mode: "coordinator", reply, delegations, ...context };
+    const chosen = normalizeDelegations(parsed?.delegations, context.botMembers, message?.body_md);
+    const delegations = chosen.length
+      ? chosen
+      : [{
+          botId: context.botMembers[0].member_ref,
+          task: cleanText(message?.body_md),
+          member: context.botMembers[0]
+        }];
+    return { mode: "delegated", delegations, ...context };
   }
 
-  async function synthesizeTurn({ userId, conversationId, originalMessage, delegations, replies }) {
-    const context = groupContext(conversationId, userId);
-    const names = new Map(context.descriptors.map((item) => [item.id, item.name]));
-    const tasks = new Map((Array.isArray(delegations) ? delegations : []).map((item) => [item.botId, item.task]));
-    const resultRows = (Array.isArray(replies) ? replies : []).map((reply) => [
-      `- @${names.get(reply.sender_ref) || reply.sender_ref}`,
-      `  assigned: ${tasks.get(reply.sender_ref) || "contribute relevant findings"}`,
-      `  result: ${cleanText(reply.body_md)}`
-    ].join("\n"));
-    const input = [
-      "Synthesize this delegated Mia group work using the loaded group-coordination skill.",
-      "Original user message:",
-      cleanText(originalMessage?.body_md),
-      "",
-      "Delegated results:",
-      resultRows.join("\n") || "- No usable result was returned.",
-      "",
-      "Return the synthesis JSON object required by the skill."
-    ].join("\n");
-    const raw = await runCoordinator({ userId, conversationId, input });
-    const parsed = parseJsonObject(raw);
-    const reply = cleanText(parsed?.reply || (!parsed ? raw : ""));
-    if (reply) return reply;
-    return resultRows.length
-      ? `分工结果已返回：\n${resultRows.map((row) => row.replace(/\n  assigned:[^\n]*/, "")).join("\n")}`
-      : "这次分工没有返回可用结果。";
-  }
-
-  return { directTargets, groupContext, planTurn, synthesizeTurn };
+  return { directTargets, groupContext, planTurn };
 }
 
 module.exports = {

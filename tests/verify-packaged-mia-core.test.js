@@ -10,18 +10,21 @@ const {
   resolvePackagedAppPath,
   verifyPackagedMiaCore
 } = require("../scripts/verify-packaged-mia-core.js");
+const { sha256File } = require("../scripts/mia-core-build-info.js");
+const { coreSourceFingerprint } = require("../scripts/mia-core-source-fingerprint.js");
 
 const LEGACY_NODE_RESOURCE = `mia-${"node"}`;
 const MANAGED_ACP_RESOURCES = [
   ["claude-agent-acp", "0.59.0"],
   ["codex-acp", "1.1.4"]
 ];
+const PROJECT_ROOT = path.join(__dirname, "..");
 
 function makeFakePackagedApp(rootDir, coreSource, {
   arch = "arm64",
   platform = "darwin",
   includeLegacyNode = false,
-  includeManagedResources = true
+  includeManagedResources = false
 } = {}) {
   const appPath = platform === "win32"
     ? path.join(rootDir, "release", "win-unpacked")
@@ -39,6 +42,7 @@ function makeFakePackagedApp(rootDir, coreSource, {
   fs.writeFileSync(path.join(unpackedPath, "package.json"), JSON.stringify({
     name: "mia",
     version: "9.9.9",
+    miaCoreVersion: "v9.9.9",
     hermes: {
       version: "2026.7.7.2",
       packageVersion: "0.18.2",
@@ -49,7 +53,18 @@ function makeFakePackagedApp(rootDir, coreSource, {
   // copying the Node binary loses the runtime-relative resources it expects.
   if (platform === "win32") fs.copyFileSync(process.execPath, corePath);
   else fs.symlinkSync(process.execPath, corePath);
+  const buildInfo = {
+    releaseVersion: "v9.9.9",
+    sourceFingerprint: coreSourceFingerprint(PROJECT_ROOT)
+  };
   fs.writeFileSync(path.join(coreDir, "serve"), coreSource);
+  fs.writeFileSync(path.join(coreDir, "manifest.json"), JSON.stringify({
+    version: buildInfo.releaseVersion,
+    releaseVersion: buildInfo.releaseVersion,
+    sourceFingerprint: buildInfo.sourceFingerprint,
+    binarySha256: sha256File(corePath),
+    files: [path.basename(corePath)]
+  }));
   if (includeLegacyNode) {
     fs.writeFileSync(path.join(resourcesPath, LEGACY_NODE_RESOURCE), "legacy node core must not be used");
   }
@@ -133,10 +148,23 @@ const readArg = (name, fallback) => {
 const host = readArg("--host", "127.0.0.1");
 const port = Number(readArg("--port", "0"));
 const dataDir = readArg("--data-dir", "");
+if (process.env.MIA_MANAGED_AGENT_PREPARE !== "0") process.exit(73);
 const server = http.createServer((req, res) => {
   if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ ok: true, version: "9.9.9", dataDir }));
+    res.end(JSON.stringify({
+      ok: true,
+      version: "9.9.9",
+      coreReleaseVersion: "v9.9.9",
+      coreSourceFingerprint: ${JSON.stringify(coreSourceFingerprint(PROJECT_ROOT))},
+      dataDir
+    }));
+    return;
+  }
+  if (req.url === "/api/engines/agents") {
+    const codexPath = require("node:path").join(process.env.HOME, ".nvm", "versions", "node", "v99.0.0", "bin", "codex");
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ agents: [{ id: "codex", installed: true, path: codexPath, version: "codex-cli 99.0.0" }] }));
     return;
   }
   res.writeHead(404);
@@ -156,7 +184,11 @@ process.on("SIGINT", () => server.close(() => process.exit(0)));
       platform,
       hostArch: arch,
       hostPlatform: platform,
-      timeoutMs: 10000
+      timeoutMs: 10000,
+      readBuildInfo: () => ({
+        releaseVersion: "v9.9.9",
+        sourceFingerprint: coreSourceFingerprint(PROJECT_ROOT)
+      })
     });
     assert.equal(result.ok, true, result.error || result.stderr || "expected packaged Core verification to pass");
     assert.match(result.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
@@ -202,23 +234,25 @@ test("verifyPackagedMiaCore rejects a package that accidentally embeds legacy to
   }
 });
 
-test("verifyPackagedMiaCore rejects a package without bundled ACP manifests", async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-managed-missing-"));
+test("verifyPackagedMiaCore rejects a desktop package that embeds managed ACP resources", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-managed-embedded-"));
   try {
-    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", { arch: "arm64", platform: "darwin" });
-    const paths = collectRequiredPaths(appPath, { platform: "darwin", arch: "arm64" });
-    fs.rmSync(paths.requiredManagedResourcePaths[0]);
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
+      arch: "arm64",
+      platform: "darwin",
+      includeManagedResources: true
+    });
 
     const result = await verifyPackagedMiaCore({ appPath, arch: "arm64", platform: "darwin", timeoutMs: 100 });
     assert.equal(result.ok, false);
-    assert.match(result.error || "", /bundled managed ACP resources/);
-    assert.match(result.error || "", /claude-agent-acp/);
+    assert.match(result.error || "", /must not embed managed ACP resources/);
+    assert.match(result.error || "", /managed-resources/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test("verifyPackagedMiaCore accepts a Core-only Windows update package", async () => {
+test("verifyPackagedMiaCore accepts a Core-only Windows desktop package", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-only-"));
   try {
     const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
@@ -230,7 +264,6 @@ test("verifyPackagedMiaCore accepts a Core-only Windows update package", async (
       appPath,
       arch: "x64",
       platform: "win32",
-      managedResources: "forbidden",
       hostPlatform: "darwin"
     });
 
@@ -241,12 +274,13 @@ test("verifyPackagedMiaCore accepts a Core-only Windows update package", async (
   }
 });
 
-test("verifyPackagedMiaCore rejects managed resources in a lightweight update package", async () => {
+test("verifyPackagedMiaCore rejects managed resources in a desktop package", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-only-extra-"));
   try {
     const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
       arch: "x64",
-      platform: "win32"
+      platform: "win32",
+      includeManagedResources: true
     });
     const result = await verifyPackagedMiaCore({
       appPath,

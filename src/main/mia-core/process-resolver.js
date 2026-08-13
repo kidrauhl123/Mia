@@ -307,6 +307,7 @@ function createMiaCoreResolver(deps = {}) {
       ? path.join(p.home, "managed-resources")
       : managedResourceRootsEnv(resources, repo, platform, arch, env.MIA_MANAGED_AGENT_RESOURCES, p.home, env.HOME || env.USERPROFILE);
     const managedNode = managedAgentNodeRuntime(pathLookup, execPath, platform, defaultAppValue, env);
+    const managedAgentPrepare = String(env.MIA_MANAGED_AGENT_PREPARE || "0");
     const selectedEnginePython = String(enginePython() || "").trim();
     const overlay = {
       MIA_CORE: "1",
@@ -319,7 +320,7 @@ function createMiaCoreResolver(deps = {}) {
       MIA_OFFICIAL_SKILLS_DIR: officialSkillsDir(resources, repo, defaultAppValue, env.MIA_OFFICIAL_SKILLS_DIR),
       MIA_MANAGED_AGENT_RESOURCES: managedResources,
       ...(defaultAppValue ? { MIA_MANAGED_AGENT_RESOURCES_ONLY: "1" } : {}),
-      MIA_MANAGED_AGENT_PREPARE: String(env.MIA_MANAGED_AGENT_PREPARE || "1"),
+      MIA_MANAGED_AGENT_PREPARE: managedAgentPrepare,
       ...(managedNode.command ? { MIA_MANAGED_AGENT_NODE: managedNode.command } : {}),
       MIA_MANAGED_AGENT_NODE_ELECTRON: managedNode.electron ? "1" : "0",
       MIA_CORE_RESOURCES_PATH: String(resources || ""),

@@ -8,6 +8,8 @@
   let render;
   let saveBotDialog;
   let openModelSettings;
+  let installEngine;
+  let refreshRuntime;
   let botDraft = null;
   let profileDraft = null;
   let returnDialog = null;
@@ -25,6 +27,8 @@
     render = deps.render;
     saveBotDialog = deps.saveBotDialog;
     openModelSettings = deps.openModelSettings;
+    installEngine = deps.installEngine;
+    refreshRuntime = deps.refreshRuntime;
   }
 
   function publish(dialog) {
@@ -407,7 +411,8 @@
       label: String(option.label || option.engineLabel || option.engine_label || engineLabel(agentEngine) || "Agent").trim(),
       selected: Boolean(option.selected),
       disabled: Boolean(option.disabled),
-      disabledReason: String(option.disabledReason || option.disabled_reason || "").trim()
+      disabledReason: String(option.disabledReason || option.disabled_reason || "").trim(),
+      setupAction: String(option.setupAction || option.setup_action || "").trim()
     };
   }
 
@@ -610,7 +615,8 @@
         disabled: Boolean(option.disabled),
         label: option.label,
         title: option.disabledReason || "",
-        value: encodeRuntimeTarget(option)
+        value: encodeRuntimeTarget(option),
+        setupAction: option.setupAction || ""
       }))
     })).filter((group) => group.options.length);
     let runtimeOptions = runtimeGroups.flatMap((group) => group.options);
@@ -694,6 +700,8 @@
     if (botDraft.runtimeSetupRequired || !botDraft.runtimeValue) {
       return "请先前往“设置 → 模型”启用并选择可用的 Agent。";
     }
+    const preparationError = await prepareSelectedRuntime();
+    if (preparationError) return preparationError;
     try {
       const error = await saveBotDialog({
         avatar: { ...botDraft.avatar },
@@ -710,6 +718,41 @@
     } catch (error) {
       console.error("Failed to save bot", error);
       return `保存伙伴失败：${error?.message || error}`;
+    }
+  }
+
+  async function prepareSelectedRuntime() {
+    if (!botDraft) return "";
+    if (botDraft.runtimePreparing) return "正在准备所选 Agent，请稍后再试。";
+    const selected = botDraft.runtimeGroups
+      .flatMap((group) => group.options || [])
+      .find((option) => option.value === botDraft.runtimeValue);
+    if (!selected?.setupAction) return "";
+    const target = parseRuntimeTargetValue(selected.value);
+    if (!target.agentEngine || typeof installEngine !== "function") {
+      return "无法准备所选 Agent。";
+    }
+    botDraft.runtimePreparing = true;
+    publishBotDialog();
+    try {
+      await installEngine(target.agentEngine);
+      if (typeof refreshRuntime === "function") await refreshRuntime();
+      clearDialogRuntimeTargetOptions();
+      botDraft.runtimeTargetCurrent = {
+        runtimeKind: target.runtimeKind,
+        deviceId: target.targetDeviceId,
+        deviceName: target.targetDeviceName,
+        agentEngine: target.agentEngine
+      };
+      renderBotRuntimeTargetSelect(botDraft.runtimeTargetCurrent, { preservePrevious: true });
+      return "";
+    } catch (error) {
+      return `启用 ${engineLabel(target.agentEngine)} 失败：${error?.message || error}`;
+    } finally {
+      if (botDraft) {
+        botDraft.runtimePreparing = false;
+        publishBotDialog();
+      }
     }
   }
 
@@ -741,6 +784,7 @@
       runtimeGroups: botDraft.runtimeGroups,
       runtimeLoadError: botDraft.runtimeLoadError,
       runtimeLoading: botDraft.runtimeLoading,
+      runtimePreparing: botDraft.runtimePreparing,
       runtimeSetupRequired: botDraft.runtimeSetupRequired,
       runtimeValue: botDraft.runtimeValue,
       setBadge: (value) => {
@@ -765,9 +809,10 @@
         botDraft.personaOpen = open;
         publishBotDialog();
       },
-      setRuntime: (value) => {
+      setRuntime: async (value) => {
         botDraft.runtimeValue = value;
         publishBotDialog();
+        return prepareSelectedRuntime();
       },
       submit: submitBotDraft,
       title: botDraft.title
@@ -812,6 +857,7 @@
       runtimeGroups: [],
       runtimeLoadError: "",
       runtimeLoading: true,
+      runtimePreparing: false,
       runtimeOptionsLoaded: false,
       runtimeSetupRequired: false,
       runtimeTargetCurrent: null,
