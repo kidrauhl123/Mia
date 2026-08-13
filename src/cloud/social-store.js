@@ -184,6 +184,7 @@ function createSocialStore(db) {
       SELECT msg.id
       FROM messages msg
       WHERE msg.conversation_id = r.id
+        AND NOT (msg.sender_kind = 'bot' AND msg.sender_ref = 'group-orchestrator')
         AND NOT EXISTS (
           SELECT 1 FROM message_hidden h
           WHERE h.user_id = ? AND h.message_id = msg.id

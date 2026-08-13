@@ -21,11 +21,6 @@
     System: "system"
   });
 
-  const GroupCoordinator = Object.freeze({
-    id: "group-orchestrator",
-    displayName: "协调者"
-  });
-
   function kindOf(conv) {
     if (!conv) return "";
     if (typeof conv === "string") return conv;
@@ -49,7 +44,6 @@
 
   return {
     ConversationKind,
-    GroupCoordinator,
     MemberKind,
     SenderKind,
     isGroup,

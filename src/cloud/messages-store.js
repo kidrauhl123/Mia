@@ -83,32 +83,38 @@ function createMessagesStore(db) {
   `);
   const selectSince = db.prepare(`
     SELECT * FROM messages WHERE conversation_id = ? AND seq > ?
+      AND NOT (sender_kind = 'bot' AND sender_ref = 'group-orchestrator')
     ORDER BY seq ASC LIMIT ?
   `);
   const selectSinceForViewer = db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = ? AND seq > ?
       AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+      AND NOT (sender_kind = 'bot' AND sender_ref = 'group-orchestrator')
     ORDER BY seq ASC LIMIT ?
   `);
   const selectLatest = db.prepare(`
     SELECT * FROM messages WHERE conversation_id = ?
+      AND NOT (sender_kind = 'bot' AND sender_ref = 'group-orchestrator')
     ORDER BY seq DESC LIMIT ?
   `);
   const selectLatestForViewer = db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = ?
       AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+      AND NOT (sender_kind = 'bot' AND sender_ref = 'group-orchestrator')
     ORDER BY seq DESC LIMIT ?
   `);
   const selectBefore = db.prepare(`
     SELECT * FROM messages WHERE conversation_id = ? AND seq < ?
+      AND NOT (sender_kind = 'bot' AND sender_ref = 'group-orchestrator')
     ORDER BY seq DESC LIMIT ?
   `);
   const selectBeforeForViewer = db.prepare(`
     SELECT * FROM messages
     WHERE conversation_id = ? AND seq < ?
       AND id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+      AND NOT (sender_kind = 'bot' AND sender_ref = 'group-orchestrator')
     ORDER BY seq DESC LIMIT ?
   `);
   const searchForViewer = db.prepare(`
@@ -120,6 +126,7 @@ function createMessagesStore(db) {
       AND cm.member_ref = ?
     WHERE m.body_md LIKE ? ESCAPE '\\'
       AND m.id NOT IN (SELECT message_id FROM message_hidden WHERE user_id = ?)
+      AND NOT (m.sender_kind = 'bot' AND m.sender_ref = 'group-orchestrator')
     ORDER BY m.created_at DESC, m.seq DESC
     LIMIT ?
   `);

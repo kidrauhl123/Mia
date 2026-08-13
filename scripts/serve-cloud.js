@@ -4211,11 +4211,6 @@ async function handleRequest(req, res, context) {
           console.warn("[im-channel] reply delivery hand-off failed", error);
         });
       }
-      if (typeof context.cloudAgentDispatcher?.handleBotMessage === "function") {
-        Promise.resolve(context.cloudAgentDispatcher.handleBotMessage({ conversationId, message })).catch((error) => {
-          console.warn("[cloud-agent] coordinator synthesis failed:", error?.message || error);
-        });
-      }
       const payload = { message, ...(message._alreadyExisted ? { deduplicated: true } : {}) };
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);

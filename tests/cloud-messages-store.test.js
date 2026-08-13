@@ -80,6 +80,44 @@ test("listMessagesSince respects limit", () => {
   } finally { teardown(ctx); }
 });
 
+test("message timelines hide legacy backend group-orchestrator rows", () => {
+  const ctx = setup();
+  try {
+    const userMessage = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "user",
+      senderRef: ctx.alice.id,
+      bodyMd: "hello"
+    });
+    ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "group-orchestrator",
+      senderOwnerId: ctx.alice.id,
+      bodyMd: "legacy routing update"
+    });
+    const botMessage = ctx.messages.appendMessage({
+      conversationId: "r-msg",
+      senderKind: "bot",
+      senderRef: "real-bot",
+      senderOwnerId: ctx.alice.id,
+      bodyMd: "real answer"
+    });
+
+    assert.deepEqual(
+      ctx.messages.listMessagesSince("r-msg", 0).map((message) => message.id),
+      [userMessage.id, botMessage.id]
+    );
+    assert.deepEqual(
+      ctx.messages.listLatestMessages("r-msg", 20, ctx.alice.id).messages.map((message) => message.id),
+      [userMessage.id, botMessage.id]
+    );
+    assert.equal(ctx.messages.searchMessagesForUser(ctx.alice.id, "legacy", 20).length, 0);
+  } finally {
+    teardown(ctx);
+  }
+});
+
 test("latest and backward pages expose the newest window without gaps", () => {
   const ctx = setup();
   try {

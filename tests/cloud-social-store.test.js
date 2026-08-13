@@ -337,6 +337,22 @@ test("listConversationsForUser includes last message sender metadata", () => {
   } finally { cleanup(ctx); }
 });
 
+test("listConversationsForUser ignores a legacy group orchestrator row for its preview", () => {
+  const ctx = makeStores();
+  try {
+    const messages = createMessagesStore(ctx.cloudStore.getDb());
+    ctx.social.createConversation({ id: "r-routing-preview", name: "Routing", avatar: null, hostMember: null, decorations: null, contextCard: null });
+    ctx.social.addConversationMember({ conversationId: "r-routing-preview", memberKind: "user", memberRef: ctx.alice.id, ownerId: null });
+    messages.appendMessage({ conversationId: "r-routing-preview", senderKind: "bot", senderRef: "real-bot", bodyMd: "real answer" });
+    messages.appendMessage({ conversationId: "r-routing-preview", senderKind: "bot", senderRef: "group-orchestrator", bodyMd: "legacy routing update" });
+
+    const row = ctx.social.listConversationsForUser(ctx.alice.id).find((item) => item.id === "r-routing-preview");
+
+    assert.equal(row.last_message_text, "real answer");
+    assert.equal(row.last_message_sender_ref, "real-bot");
+  } finally { cleanup(ctx); }
+});
+
 test("deleteConversation cascade-removes conversation_members", () => {
   const ctx = makeStores();
   try {

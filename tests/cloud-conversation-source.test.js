@@ -72,7 +72,7 @@ test("CloudConversationSource group bot message resolves bot contact via members
   assert.equal(spec.authorName, "codex");
 });
 
-test("CloudConversationSource renders the built-in group coordinator identity", () => {
+test("CloudConversationSource hides legacy messages sent by the backend group orchestrator", () => {
   const src = loadSource();
   const conversation = { id: "g_coordinated", type: "group", name: "Team" };
   const messages = [{
@@ -89,10 +89,7 @@ test("CloudConversationSource renders the built-in group coordinator identity", 
     members: [],
     ctx: { self: { id: "user_me", username: "me" }, bots: [], friends: [] }
   });
-  const spec = source.listMessages()[0];
-  assert.equal(spec.authorName, "协调者");
-  assert.equal(spec.authorIdentity.id, "group-orchestrator");
-  assert.equal(spec.avatar.text, "协");
+  assert.deepEqual(source.listMessages(), []);
 });
 
 test("CloudConversationSource hydrates own bot avatar from ctx.bots", () => {
