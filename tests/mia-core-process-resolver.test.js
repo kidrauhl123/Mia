@@ -356,7 +356,8 @@ test("core env overlay points packaged Rust Core at extraResource official skill
   const env = setup({
     defaultApp: () => false,
     resourcesPath: () => res,
-    existsSync: (candidate) => candidate === bundled
+    existsSync: (candidate) => candidate === bundled,
+    pathLookup: () => "/broken/system/node"
   }).coreEnvOverlay();
 
   assert.equal(env.MIA_OFFICIAL_SKILLS_DIR, path.join(res, "skills", "_builtin"));

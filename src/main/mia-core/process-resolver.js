@@ -102,13 +102,13 @@ function managedAgentNodeRuntime(pathLookup, execPath, platform, defaultAppValue
       electron: String(env.MIA_MANAGED_AGENT_NODE_ELECTRON || "") === "1"
     };
   }
-  for (const binary of [...new Set([nodeBinaryName(platform), "node"])]) {
-    const found = pathLookup(binary);
-    if (found) return { command: found, electron: false };
-  }
   if (!defaultAppValue) {
     const command = String(execPath() || "").trim();
     if (command) return { command, electron: true };
+  }
+  for (const binary of [...new Set([nodeBinaryName(platform), "node"])]) {
+    const found = pathLookup(binary);
+    if (found) return { command: found, electron: false };
   }
   return { command: "", electron: false };
 }

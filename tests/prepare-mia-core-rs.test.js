@@ -256,6 +256,7 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
     fs.writeFileSync(source, "fake rust core\n", { mode: 0o755 });
     const calls = [];
     const runtimeKey = `${process.platform}-${os.arch()}`;
+    let wrapperPath = "";
 
     const result = await prepareMiaCoreRs(
       { arch: os.arch() === "arm64" ? 3 : 1, electronPlatformName: process.platform },
@@ -273,6 +274,8 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
         execFileSync: (command, args, options) => {
           calls.push({ command, args, options });
           if (args[0] !== "prepare-managed-resources") return;
+          wrapperPath = options.env.MIA_MANAGED_AGENT_NPM;
+          assert.match(wrapperPath, process.platform === "win32" ? /npm-target\.cmd$/ : /npm-target$/);
           const resourceDir = args[args.indexOf("--resource-dir") + 1];
           for (const [toolId, version] of [["claude-agent-acp", "0.59.0"], ["codex-acp", "1.1.4"]]) {
             const manifestDir = path.join(resourceDir, "acp", toolId, version, runtimeKey);
@@ -284,6 +287,7 @@ test("prepareMiaCoreRs prepares and bundles managed ACP resources with Rust Core
     );
 
     assert.equal(calls.some((call) => call.args?.[0] === "prepare-managed-resources"), true);
+    assert.equal(fs.existsSync(wrapperPath), false);
     assert.equal(calls[0].command, "/tmp/host-mia-core");
     assert.equal(calls[0].options.env.MIA_MANAGED_AGENT_RESOURCES_ONLY, "1");
     assert.equal(result.managedResources.skipped, false);
@@ -345,9 +349,12 @@ test("prepareMiaCoreRs prepares cross-arch ACP resources with a host Core and ta
           assert.equal(args[0], "prepare-managed-resources");
           assert.equal(options.env.MIA_MANAGED_AGENT_RUNTIME_KEY, "darwin-arm64");
           wrapperPath = options.env.MIA_MANAGED_AGENT_NPM;
-          assert.match(wrapperPath, /npm-target\.js$/);
-          assert.match(fs.readFileSync(wrapperPath, "utf8"), /targetArch = "arm64"/);
-          assert.match(fs.readFileSync(wrapperPath, "utf8"), /targetArch, "--force"/);
+          assert.match(wrapperPath, /npm-target$/);
+          assert.match(fs.readFileSync(wrapperPath, "utf8"), new RegExp(process.execPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+          const wrapperScript = fs.readFileSync(path.join(path.dirname(wrapperPath), "npm-target.js"), "utf8");
+          assert.match(wrapperScript, /targetArch = "arm64"/);
+          assert.match(wrapperScript, /targetArch, "--force"/);
+          assert.match(wrapperScript, /spawnSync\(actualNpm\.command/);
           const resourceDir = args[args.indexOf("--resource-dir") + 1];
           for (const [toolId, version] of [["claude-agent-acp", "0.59.0"], ["codex-acp", "1.1.4"]]) {
             const manifestDir = path.join(resourceDir, "acp", toolId, version, "darwin-arm64");

@@ -296,9 +296,30 @@ function runtimeKey(platform, arch) {
   return `${normalizePlatform(platform) || platform}-${normalizeArch(arch)}`;
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+function currentNpmInvocation(env = process.env) {
+  const explicit = String(env.MIA_MANAGED_AGENT_NPM || "").trim();
+  if (explicit) {
+    return /\.[cm]?js$/i.test(explicit)
+      ? { command: process.execPath, args: [explicit] }
+      : { command: explicit, args: [] };
+  }
+  const candidates = [
+    String(env.npm_execpath || "").trim(),
+    path.resolve(path.dirname(process.execPath), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js")
+  ];
+  const npmCli = candidates.find((candidate) => candidate && fs.existsSync(candidate));
+  return npmCli
+    ? { command: process.execPath, args: [npmCli] }
+    : { command: "npm", args: [] };
+}
+
 function createTargetNpmWrapper({ env = process.env, platform, arch, hostPlatform = process.platform }) {
   const wrapperDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-target-npm-"));
-  const actualNpm = String(env.MIA_MANAGED_AGENT_NPM || "npm").trim() || "npm";
+  const actualNpm = currentNpmInvocation(env);
   const scriptPath = path.join(wrapperDir, "npm-target.js");
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch);
@@ -321,7 +342,7 @@ for (let index = 0; index < rawArgs.length; index += 1) {
 // Core invokes npm with --ignore-scripts and exact pinned packages. --force
 // only bypasses npm's host-architecture rejection for those target packages.
 args.push("--os", targetPlatform, "--cpu", targetArch, "--force");
-const result = spawnSync(actualNpm, args, {
+const result = spawnSync(actualNpm.command, [...actualNpm.args, ...args], {
   cwd: process.cwd(),
   env: { ...process.env, npm_config_os: targetPlatform, npm_config_cpu: targetArch },
   stdio: "inherit"
@@ -337,7 +358,13 @@ process.exit(typeof result.status === "number" ? result.status : 1);
     fs.writeFileSync(commandPath, `@echo off\r\n"${escapedNode}" "${escapedScript}" %*\r\n`, "utf8");
     return { commandPath, cleanup: () => removeDirectorySafe(wrapperDir) };
   }
-  return { commandPath: scriptPath, cleanup: () => removeDirectorySafe(wrapperDir) };
+  const commandPath = path.join(wrapperDir, "npm-target");
+  fs.writeFileSync(
+    commandPath,
+    `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(scriptPath)} "$@"\n`,
+    { mode: 0o755 }
+  );
+  return { commandPath, cleanup: () => removeDirectorySafe(wrapperDir) };
 }
 
 function temporaryHostCore({ rootDir, tag, env, execFileSync, hostPlatform, hostArch }) {
@@ -689,13 +716,11 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
       hostPlatform,
       hostArch
     });
-    const npmWrapper = managedResourcesCore.crossTarget
-      ? createTargetNpmWrapper({ env, platform, arch, hostPlatform })
-      : null;
+    const npmWrapper = createTargetNpmWrapper({ env, platform, arch, hostPlatform });
     const managedResourcesEnv = {
       ...env,
       MIA_MANAGED_AGENT_RUNTIME_KEY: runtimeKey(platform, arch),
-      ...(npmWrapper ? { MIA_MANAGED_AGENT_NPM: npmWrapper.commandPath } : {})
+      MIA_MANAGED_AGENT_NPM: npmWrapper.commandPath
     };
     try {
       if (managedResourcesCore.crossTarget) {
@@ -711,7 +736,7 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
         resourceDir: bundledResources
       });
     } finally {
-      npmWrapper?.cleanup();
+      npmWrapper.cleanup();
       managedResourcesCore.cleanup();
     }
   } else if (managedResourcesMode) {
@@ -738,6 +763,7 @@ Object.assign(module.exports, {
   bundledManagedResourcesPath,
   canPrepareManagedResourcesForTarget,
   createTargetNpmWrapper,
+  currentNpmInvocation,
   assertNotHtmlDownload,
   downloadFile,
   extractArchive,
