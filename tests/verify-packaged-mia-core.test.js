@@ -282,6 +282,56 @@ test("verifyPackagedMiaCore accepts a Windows desktop package with managed ACP r
   }
 });
 
+test("verifyPackagedMiaCore does not apply the macOS Finder nvm probe to Windows", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-win-runtime-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, `
+const http = require("node:http");
+const args = process.argv.slice(2);
+const readArg = (name, fallback) => {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : fallback;
+};
+const server = http.createServer((req, res) => {
+  if (req.url !== "/health") {
+    res.writeHead(404);
+    res.end("not found");
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({
+    ok: true,
+    coreReleaseVersion: "v9.9.9",
+    coreSourceFingerprint: ${JSON.stringify(coreSourceFingerprint(PROJECT_ROOT))}
+  }));
+});
+server.listen(Number(readArg("--port", "0")), readArg("--host", "127.0.0.1"));
+process.on("SIGTERM", () => server.close(() => process.exit(0)));
+`, {
+      arch: "x64",
+      platform: "win32",
+      includeManagedResources: true
+    });
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "x64",
+      platform: "win32",
+      hostArch: "x64",
+      hostPlatform: "win32",
+      timeoutMs: 10000,
+      readBuildInfo: () => ({
+        releaseVersion: "v9.9.9",
+        sourceFingerprint: coreSourceFingerprint(PROJECT_ROOT)
+      })
+    });
+
+    assert.equal(result.ok, true, result.error || result.stderr || "expected Windows runtime verification to pass");
+    assert.equal("codexPath" in result, false);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("verifyPackagedMiaCore rejects managed resources in a desktop package", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-only-extra-"));
   try {

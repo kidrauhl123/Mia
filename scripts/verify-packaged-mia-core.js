@@ -464,7 +464,9 @@ async function verifyPackagedMiaCore({
 
   const verifyHome = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-rust-core-"));
   const workspaceDir = path.join(verifyHome, "workspace");
-  const expectedCodexPath = createNvmCodexFixture(verifyHome, targetPlatform);
+  const expectedCodexPath = targetPlatform === "darwin"
+    ? createNvmCodexFixture(verifyHome, targetPlatform)
+    : "";
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   let stdout = "";
@@ -547,26 +549,27 @@ async function verifyPackagedMiaCore({
         error: error?.message || String(error)
       };
     }
-    let inventory;
-    try {
-      const response = await fetchImpl(`${baseUrl}/api/engines/agents`, { signal: AbortSignal.timeout(timeoutMs) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      inventory = await response.json();
-      const codex = (inventory?.agents || []).find((agent) => agent?.id === "codex");
-      if (!codex?.installed || path.resolve(String(codex.path || "")) !== path.resolve(expectedCodexPath)) {
-        throw new Error("packaged Core did not detect Codex from a Finder-style nvm environment");
+    if (targetPlatform === "darwin") {
+      try {
+        const response = await fetchImpl(`${baseUrl}/api/engines/agents`, { signal: AbortSignal.timeout(timeoutMs) });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const inventory = await response.json();
+        const codex = (inventory?.agents || []).find((agent) => agent?.id === "codex");
+        if (!codex?.installed || path.resolve(String(codex.path || "")) !== path.resolve(expectedCodexPath)) {
+          throw new Error("packaged Core did not detect Codex from a Finder-style nvm environment");
+        }
+        if (String(codex.version || "") !== "codex-cli 99.0.0") {
+          throw new Error(`packaged Core found nvm Codex but could not execute it: ${codex.version || "no version"}`);
+        }
+      } catch (error) {
+        await stopChild(child);
+        return {
+          ok: false,
+          appPath: resolvedAppPath,
+          corePath: paths.corePath,
+          error: error?.message || String(error)
+        };
       }
-      if (targetPlatform !== "win32" && String(codex.version || "") !== "codex-cli 99.0.0") {
-        throw new Error(`packaged Core found nvm Codex but could not execute it: ${codex.version || "no version"}`);
-      }
-    } catch (error) {
-      await stopChild(child);
-      return {
-        ok: false,
-        appPath: resolvedAppPath,
-        corePath: paths.corePath,
-        error: error?.message || String(error)
-      };
     }
     await stopChild(child);
     return {
@@ -578,7 +581,7 @@ async function verifyPackagedMiaCore({
       stderr: stderr.trim(),
       health: health.body,
       buildInfo: binaryBuildInfo,
-      codexPath: expectedCodexPath
+      ...(expectedCodexPath ? { codexPath: expectedCodexPath } : {})
     };
   } finally {
     fs.rmSync(verifyHome, { recursive: true, force: true });
