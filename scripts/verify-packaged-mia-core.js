@@ -151,6 +151,20 @@ function managedResourceManifestPaths(resourcesPath, platform, arch) {
   };
 }
 
+function verifyManagedResourceEntrypoints(manifestPaths) {
+  for (const manifestPath of manifestPaths) {
+    const manifest = readJson(manifestPath, "Managed ACP manifest");
+    const entrypoint = String(manifest.entrypoint || manifest.command || "").trim();
+    if (!entrypoint || path.isAbsolute(entrypoint) || entrypoint.split(/[\\/]+/).includes("..")) {
+      throw new Error(`Managed ACP manifest has an invalid entrypoint at ${manifestPath}`);
+    }
+    const entrypointPath = path.resolve(path.dirname(manifestPath), entrypoint);
+    if (!entrypointPath.startsWith(`${path.dirname(manifestPath)}${path.sep}`) || !fs.statSync(entrypointPath, { throwIfNoEntry: false })?.isFile()) {
+      throw new Error(`Managed ACP entrypoint is missing at ${entrypointPath}`);
+    }
+  }
+}
+
 function findManagedResourceDirectories(rootPath) {
   if (!rootPath || !fs.existsSync(rootPath)) return [];
   const found = [];
@@ -332,7 +346,7 @@ async function verifyPackagedMiaCore({
   rootDir = root,
   appPath = "",
   arch = "",
-  managedResources = "forbidden",
+  managedResources = "required",
   timeoutMs = DEFAULT_TIMEOUT_MS,
   fetchImpl = fetch,
   hostArch = os.arch(),
@@ -354,7 +368,7 @@ async function verifyPackagedMiaCore({
   const paths = collectRequiredPaths(resolvedAppPath, { platform: targetPlatform, arch: targetArch });
   const managedResourcesMode = ["required", "forbidden", "optional"].includes(managedResources)
     ? managedResources
-    : "forbidden";
+    : "required";
   const required = [
     paths.resourcesPath,
     paths.corePath,
@@ -375,6 +389,19 @@ async function verifyPackagedMiaCore({
         ? `Packaged Mia Core is incomplete: missing bundled Rust Core binary at ${paths.corePath}`
         : `Packaged Mia application is incomplete: missing bundled managed ACP resources or other required files: ${missing.join(", ")}`
     };
+  }
+
+  if (managedResourcesMode === "required") {
+    try {
+      verifyManagedResourceEntrypoints(paths.requiredManagedResourcePaths);
+    } catch (error) {
+      return {
+        ok: false,
+        appPath: resolvedAppPath,
+        corePath: paths.corePath,
+        error: error?.message || String(error)
+      };
+    }
   }
 
 
@@ -562,7 +589,7 @@ async function main(argv = process.argv.slice(2)) {
   let appPath = "";
   let arch = "";
   let platform = "";
-  let managedResources = "forbidden";
+  let managedResources = "required";
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--app") {
@@ -581,7 +608,7 @@ async function main(argv = process.argv.slice(2)) {
       continue;
     }
     if (value === "--managed-resources") {
-      managedResources = argv[index + 1] || "forbidden";
+      managedResources = argv[index + 1] || "required";
       index += 1;
     }
   }
@@ -616,6 +643,7 @@ module.exports = {
   normalizePlatform,
   resolvePackagedAppPath,
   verifyStagedCoreIdentity,
+  verifyManagedResourceEntrypoints,
   verifyPackagedMiaCore
 };
 

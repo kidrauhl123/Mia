@@ -24,7 +24,7 @@ function makeFakePackagedApp(rootDir, coreSource, {
   arch = "arm64",
   platform = "darwin",
   includeLegacyNode = false,
-  includeManagedResources = false
+  includeManagedResources = true
 } = {}) {
   const appPath = platform === "win32"
     ? path.join(rootDir, "release", "win-unpacked")
@@ -72,7 +72,8 @@ function makeFakePackagedApp(rootDir, coreSource, {
     for (const [toolId, version] of MANAGED_ACP_RESOURCES) {
       const manifestDir = path.join(managedResourcesDir, "acp", toolId, version, `${platform}-${arch}`);
       fs.mkdirSync(manifestDir, { recursive: true });
-      fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ toolId, version }));
+      fs.writeFileSync(path.join(manifestDir, "index.js"), "process.exit(0);\n");
+      fs.writeFileSync(path.join(manifestDir, "manifest.json"), JSON.stringify({ toolId, version, entrypoint: "index.js" }));
     }
   }
 
@@ -234,36 +235,43 @@ test("verifyPackagedMiaCore rejects a package that accidentally embeds legacy to
   }
 });
 
-test("verifyPackagedMiaCore rejects a desktop package that embeds managed ACP resources", async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-managed-embedded-"));
+test("verifyPackagedMiaCore rejects a desktop package missing managed ACP resources", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-managed-missing-"));
   try {
     const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
       arch: "arm64",
       platform: "darwin",
-      includeManagedResources: true
+      includeManagedResources: false
     });
 
-    const result = await verifyPackagedMiaCore({ appPath, arch: "arm64", platform: "darwin", timeoutMs: 100 });
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "arm64",
+      platform: "darwin",
+      managedResources: "required",
+      timeoutMs: 100
+    });
     assert.equal(result.ok, false);
-    assert.match(result.error || "", /must not embed managed ACP resources/);
+    assert.match(result.error || "", /missing bundled managed ACP resources/);
     assert.match(result.error || "", /managed-resources/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-test("verifyPackagedMiaCore accepts a Core-only Windows desktop package", async () => {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-only-"));
+test("verifyPackagedMiaCore accepts a Windows desktop package with managed ACP resources", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-with-acp-"));
   try {
     const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", {
       arch: "x64",
       platform: "win32",
-      includeManagedResources: false
+      includeManagedResources: true
     });
     const result = await verifyPackagedMiaCore({
       appPath,
       arch: "x64",
       platform: "win32",
+      managedResources: "required",
       hostPlatform: "darwin"
     });
 
@@ -292,6 +300,28 @@ test("verifyPackagedMiaCore rejects managed resources in a desktop package", asy
 
     assert.equal(result.ok, false);
     assert.match(result.error, /must not embed managed ACP resources/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("verifyPackagedMiaCore rejects a managed ACP manifest whose entrypoint is missing", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-acp-entrypoint-missing-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(0);\n", { arch: "arm64", platform: "darwin" });
+    const paths = collectRequiredPaths(appPath, { platform: "darwin", arch: "arm64" });
+    fs.rmSync(path.join(path.dirname(paths.requiredManagedResourcePaths[0]), "index.js"));
+
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "arm64",
+      platform: "darwin",
+      managedResources: "required",
+      hostArch: "x64"
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || "", /Managed ACP entrypoint is missing/);
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

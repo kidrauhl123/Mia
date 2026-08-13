@@ -62,9 +62,9 @@ function assertArtifacts(paths, label) {
 function buildWindowsRelease() {
   cleanRelease();
   run(process.execPath, [electronBuilderCli, "--config", electronBuilderConfig, "--win", "nsis", "--publish", "never"], {
-    MIA_MANAGED_RESOURCES_PREPARE: "0"
+    MIA_MANAGED_RESOURCES_PREPARE: "1"
   });
-  verifyPackage("forbidden");
+  verifyPackage("required");
 
   const fullArtifacts = artifactPaths(fullInstallerName);
   assertArtifacts(fullArtifacts, "Windows installer");
@@ -88,9 +88,9 @@ function buildWindowsRelease() {
         "never",
         `--config.win.artifactName=${productName}-${version}-Update.\${ext}`
       ],
-      { MIA_MANAGED_RESOURCES_PREPARE: "0" }
+      { MIA_MANAGED_RESOURCES_PREPARE: "1" }
     );
-    verifyPackage("forbidden");
+    verifyPackage("required");
 
     const updateArtifacts = artifactPaths(updateInstallerName);
     assertArtifacts(updateArtifacts, "Windows update installer");

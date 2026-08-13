@@ -44,7 +44,7 @@ run(process.execPath, [
   ...selected.args,
   "--publish",
   "never"
-], { MIA_MANAGED_RESOURCES_PREPARE: "0" });
+], { MIA_MANAGED_RESOURCES_PREPARE: "1" });
 run(process.execPath, [
   path.join(root, "scripts", "verify-packaged-mia-core.js"),
   "--arch",
@@ -52,5 +52,5 @@ run(process.execPath, [
   "--platform",
   selected.platform,
   "--managed-resources",
-  "forbidden"
+  "required"
 ]);

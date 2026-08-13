@@ -12,7 +12,7 @@ function packageJson() {
   return JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 }
 
-test("desktop release packages keep agent runtimes on demand without building Hermes backups", () => {
+test("desktop release packages bundle ACP bridges without building Hermes backups", () => {
   const pkg = packageJson();
 
   assert.doesNotMatch(pkg.scripts.prepack || "", /hermes:runtime/);
@@ -22,10 +22,10 @@ test("desktop release packages keep agent runtimes on demand without building He
   assert.match(pkg.scripts["dist:mac:x64"], /dist:mac:intel/);
   assert.equal(pkg.scripts["dist:win"], "node scripts/build-win.js");
   assert.match(pkg.scripts.pack, /pack-desktop-dir\.js/);
-  assert.match(pkg.scripts["dist:mac"], /MIA_MANAGED_RESOURCES_PREPARE=0/);
-  assert.match(pkg.scripts["dist:mac:intel"], /MIA_MANAGED_RESOURCES_PREPARE=0/);
-  assert.match(pkg.scripts["dist:mac"], /--managed-resources forbidden/);
-  assert.match(pkg.scripts["dist:mac:intel"], /--managed-resources forbidden/);
+  assert.match(pkg.scripts["dist:mac"], /MIA_MANAGED_RESOURCES_PREPARE=1/);
+  assert.match(pkg.scripts["dist:mac:intel"], /MIA_MANAGED_RESOURCES_PREPARE=1/);
+  assert.match(pkg.scripts["dist:mac"], /--managed-resources required/);
+  assert.match(pkg.scripts["dist:mac:intel"], /--managed-resources required/);
 });
 
 test("electron-builder includes only the target Rust Core and no agent runtime", () => {
@@ -246,9 +246,9 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(winBuilder, /"--win", "nsis", "--publish", "never"/);
   assert.match(winBuilder, /electron-builder\.win\.js/);
   assert.match(winBuilder, /Update\.\\\$\{ext\}/);
-  assert.match(winBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"0"/);
-  assert.match(winBuilder, /verifyPackage\("forbidden"\)/);
-  assert.doesNotMatch(winBuilder, /verifyPackage\("required"\)/);
+  assert.match(winBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"1"/);
+  assert.match(winBuilder, /verifyPackage\("required"\)/);
+  assert.doesNotMatch(winBuilder, /verifyPackage\("forbidden"\)/);
   assert.doesNotMatch(winBuilder, /bundleStash|bundleTarget|bundleRoot/);
   assert.match(winBuilder, /verify-packaged-mia-core\.js/);
   assert.match(winBuilder, /"--platform",\s+"win32"/);
@@ -258,7 +258,7 @@ test("desktop packaging scripts clean stale release artifacts before building", 
   assert.match(desktopDirBuilder, /electron-builder\.mac-arm64\.js/);
   assert.match(desktopDirBuilder, /electron-builder\.mac-intel\.js/);
   assert.match(desktopDirBuilder, /electron-builder\.win\.js/);
-  assert.match(desktopDirBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"0"/);
+  assert.match(desktopDirBuilder, /MIA_MANAGED_RESOURCES_PREPARE:\s*"1"/);
   assert.match(desktopDirBuilder, /--managed-resources/);
 });
 

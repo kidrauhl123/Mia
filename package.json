@@ -65,8 +65,8 @@
     "tidy:release": "node scripts/clean-release.js --tidy",
     "pack": "npm run clean:release && node scripts/pack-desktop-dir.js",
     "dist": "npm run dist:mac",
-    "dist:mac": "npm run clean:release && MIA_MANAGED_RESOURCES_PREPARE=0 electron-builder --config electron-builder.mac-arm64.js --mac dir zip --arm64 --publish never && node scripts/verify-packaged-mia-core.js --arch arm64 --managed-resources forbidden && MIA_MAC_DMG_LABEL=Apple-Silicon node scripts/create-mac-dmg.js && npm run tidy:release",
-    "dist:mac:intel": "npm run clean:release && MIA_MANAGED_RESOURCES_PREPARE=0 electron-builder --config electron-builder.mac-intel.js --mac dir zip --x64 --publish never && node scripts/verify-packaged-mia-core.js --arch x64 --managed-resources forbidden && MIA_MAC_DMG_LABEL=Intel node scripts/create-mac-dmg.js && npm run tidy:release",
+    "dist:mac": "npm run clean:release && MIA_MANAGED_RESOURCES_PREPARE=1 electron-builder --config electron-builder.mac-arm64.js --mac dir zip --arm64 --publish never && node scripts/verify-packaged-mia-core.js --arch arm64 --managed-resources required && MIA_MAC_DMG_LABEL=Apple-Silicon node scripts/create-mac-dmg.js && npm run tidy:release",
+    "dist:mac:intel": "npm run clean:release && MIA_MANAGED_RESOURCES_PREPARE=1 electron-builder --config electron-builder.mac-intel.js --mac dir zip --x64 --publish never && node scripts/verify-packaged-mia-core.js --arch x64 --managed-resources required && MIA_MAC_DMG_LABEL=Intel node scripts/create-mac-dmg.js && npm run tidy:release",
     "dist:mac:x64": "npm run dist:mac:intel",
     "notarize:mac": "node scripts/notarize-mac-dmg.js Apple-Silicon",
     "notarize:mac:intel": "node scripts/notarize-mac-dmg.js Intel",
@@ -90,7 +90,7 @@
   "engineBackups": {
     "manifestUrl": "https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json"
   },
-  "miaCoreVersion": "v0.1.4",
+  "miaCoreVersion": "v0.1.5",
   "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
     "@types/react": "^19.2.17",
