@@ -321,6 +321,7 @@ function createMiaCoreResolver(deps = {}) {
       MIA_MANAGED_AGENT_RESOURCES: managedResources,
       ...(defaultAppValue ? { MIA_MANAGED_AGENT_RESOURCES_ONLY: "1" } : {}),
       MIA_MANAGED_AGENT_PREPARE: managedAgentPrepare,
+      MIA_BUNDLED_AGENT_FALLBACKS: defaultAppValue ? "0" : "1",
       ...(managedNode.command ? { MIA_MANAGED_AGENT_NODE: managedNode.command } : {}),
       MIA_MANAGED_AGENT_NODE_ELECTRON: managedNode.electron ? "1" : "0",
       MIA_CORE_RESOURCES_PATH: String(resources || ""),

@@ -117,7 +117,7 @@ npm run dist:win
 release/
 ```
 
-桌面包携带 Rust Core 和固定版本的 Claude/Codex ACP 运行组件，不携带 Hermes、登录态或主 CLI。用户点击“启用 Mia 稳定版”时，客户端才从 Mia 备份源下载所选主引擎，校验固定版本和 SHA-256 后写入 Mia 私有目录。
+桌面包携带 Rust Core 和固定版本的 Claude/Codex 完整运行组件，不携带 Hermes 或登录态。系统 Claude/Codex 缺失或损坏时自动使用随包版本；用户启用 Hermes 稳定版时，客户端才从 Mia 备份源下载并校验后写入 Mia 私有目录。
 
 三引擎备份与桌面包分开构建、分开发布。备份归档仍需在对应目标平台先准备 Hermes runtime 和 managed ACP 资源，再运行：
 
@@ -155,8 +155,8 @@ npm run desktop:package:verify -- --app /path/to/Mia.app
 
 - 安装或打开产物。
 - 首次启动能创建 runtime，并能完成 Hermes、Claude Code、Codex 的本机探测。
-- 首次启动不得下载 ACP、调用全局 npm、第三方远程安装脚本，或改写 PATH；Claude/Codex ACP 必须已随包提供。
-- 已安装的 `claude` / `codex` 可以被优先探测并复用；缺失主引擎时，用户点击“启用 Mia 稳定版”后才下载所选引擎的 Mia 固定备份。
+- 首次启动不得下载 Claude/Codex 运行组件、调用全局 npm、第三方远程安装脚本，或改写 PATH；两套 ACP 和主 CLI 必须已随包提供。
+- 已安装的 `claude` / `codex` 优先探测并复用；缺失或损坏时自动使用随包稳定版，不要求用户手动启用。
 - 用户自行安装的官方 Hermes（在 PATH 上）能被优先探测并复用；缺失时“启用 Mia 稳定版”按需下载固定 Python runtime，不写用户 Python 环境。
 - 登录 Cloud 后，桌面 Bridge 在 Web 端显示在线。
 

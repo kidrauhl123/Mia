@@ -2085,6 +2085,14 @@ fn mia_stable_fallback_enabled(
     definition: AgentEngineDefinition,
     options: &AgentEngineScanOptions,
 ) -> bool {
+    if definition.id != "hermes"
+        && options
+            .env
+            .get("MIA_BUNDLED_AGENT_FALLBACKS")
+            .is_some_and(|value| value == "1")
+    {
+        return true;
+    }
     if let Some(raw) = options
         .env
         .get("MIA_ENGINE_FALLBACKS_JSON")
@@ -3596,6 +3604,64 @@ mod tests {
         assert!(!claude.system.available);
         assert!(claude.path.ends_with("claude"));
         assert!(claude.runtime.managed);
+    }
+
+    #[tokio::test]
+    async fn packaged_claude_uses_bundled_primary_without_manual_activation() {
+        let root = managed_fixture_root("claude-bundled-fallback");
+        write_claude_managed_acp(&root, true);
+        let node = root
+            .join("bin")
+            .join(if cfg!(windows) { "node.exe" } else { "node" });
+        write_test_executable(&node);
+        let mut options = managed_test_options(&root);
+        options
+            .env
+            .insert("MIA_BUNDLED_AGENT_FALLBACKS".into(), "1".into());
+        options
+            .env
+            .insert("MIA_MANAGED_AGENT_NODE".into(), path_to_string(&node));
+        let scanner = AgentEngineScanner::fake_for_tests([], []);
+
+        let inventory = scanner.scan(options).await;
+        let claude = inventory
+            .agents
+            .iter()
+            .find(|agent| agent.id == "claude-code")
+            .expect("claude status");
+
+        assert!(claude.installed);
+        assert!(claude.usable_in_mia);
+        assert_eq!(claude.source, "mia-managed");
+        assert!(!claude.system.available);
+    }
+
+    #[test]
+    fn packaged_fallback_marker_never_auto_enables_hermes() {
+        let mut options = AgentEngineScanOptions::for_tests();
+        options
+            .env
+            .insert("MIA_BUNDLED_AGENT_FALLBACKS".into(), "1".into());
+        let definitions = agent_definitions();
+        let claude = definitions
+            .iter()
+            .find(|definition| definition.id == "claude-code")
+            .copied()
+            .unwrap();
+        let codex = definitions
+            .iter()
+            .find(|definition| definition.id == "codex")
+            .copied()
+            .unwrap();
+        let hermes = definitions
+            .iter()
+            .find(|definition| definition.id == "hermes")
+            .copied()
+            .unwrap();
+
+        assert!(mia_stable_fallback_enabled(claude, &options));
+        assert!(mia_stable_fallback_enabled(codex, &options));
+        assert!(!mia_stable_fallback_enabled(hermes, &options));
     }
 
     #[tokio::test]
