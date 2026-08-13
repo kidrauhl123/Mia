@@ -59,6 +59,16 @@ function extractFunctionSource(source, functionName) {
   throw new Error(`Could not extract ${functionName}`);
 }
 
+test("contacts sidebar keeps the contact list directly below its optional tabs", () => {
+  const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
+  const css = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const sidebar = html.match(/<aside id="contactsSidebar"[\s\S]*?<aside id="exploreSidebar"/)?.[0] || "";
+  const baseRule = css.match(/(?:^|\n)\.contacts-sidebar\s*\{([^}]*)\}/)?.[1] || "";
+
+  assert.match(sidebar, /class="sidebar-tools"[\s\S]*reactContactsExploreTabsRoot[\s\S]*class="contact-section"/);
+  assert.match(baseRule, /grid-template-rows:\s*auto auto minmax\(0,\s*1fr\);/);
+});
+
 test("renderer app shell loads state module before the entrypoint", () => {
   const html = fs.readFileSync(path.join(root, "src/renderer/index.html"), "utf8");
   const appSource = fs.readFileSync(path.join(root, "src/renderer/app.js"), "utf8");

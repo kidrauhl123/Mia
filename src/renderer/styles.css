@@ -1135,7 +1135,7 @@ body.platform-win32 .app-shell:not([data-nav-layout="sidebar-bottom"])[data-acti
 
 .contacts-sidebar {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   border-radius: var(--rail-corner-radius);
   overflow: hidden;
 }
