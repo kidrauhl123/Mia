@@ -471,6 +471,10 @@ async function verifyPackagedMiaCore({
   const baseUrl = `http://127.0.0.1:${port}`;
   let stdout = "";
   let stderr = "";
+  const verificationEnv = { ...process.env };
+  for (const key of ["NVM_BIN", "PNPM_HOME", "VOLTA_HOME", "BUN_INSTALL", "SHELL"]) {
+    delete verificationEnv[key];
+  }
 
   const child = childProcess.spawn(paths.corePath, [
     "serve",
@@ -487,7 +491,7 @@ async function verifyPackagedMiaCore({
   ], {
     cwd: path.dirname(paths.corePath),
     env: {
-      ...process.env,
+      ...verificationEnv,
       HOME: verifyHome,
       USERPROFILE: verifyHome,
       PATH: targetPlatform === "win32"
@@ -555,11 +559,30 @@ async function verifyPackagedMiaCore({
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const inventory = await response.json();
         const codex = (inventory?.agents || []).find((agent) => agent?.id === "codex");
-        if (!codex?.installed || path.resolve(String(codex.path || "")) !== path.resolve(expectedCodexPath)) {
-          throw new Error("packaged Core did not detect Codex from a Finder-style nvm environment");
+        const codexPath = String(codex?.path || "").trim();
+        if (!codex?.installed || path.resolve(codexPath) !== path.resolve(expectedCodexPath)) {
+          throw new Error(
+            "packaged Core did not detect Codex from a Finder-style nvm environment: " +
+            JSON.stringify({
+              expectedPath: expectedCodexPath,
+              installed: Boolean(codex?.installed),
+              actualPath: codexPath,
+              state: String(codex?.state || "")
+            })
+          );
         }
-        if (String(codex.version || "") !== "codex-cli 99.0.0") {
-          throw new Error(`packaged Core found nvm Codex but could not execute it: ${codex.version || "no version"}`);
+        const codexVersion = childProcess.execFileSync(codexPath, ["--version"], {
+          encoding: "utf8",
+          timeout: timeoutMs,
+          env: {
+            ...verificationEnv,
+            HOME: verifyHome,
+            PATH: [path.dirname(codexPath), "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(path.delimiter)
+          },
+          stdio: ["ignore", "pipe", "pipe"]
+        }).trim();
+        if (codexVersion !== "codex-cli 99.0.0") {
+          throw new Error(`packaged Core found nvm Codex but could not execute it: ${codexVersion || "no version"}`);
         }
       } catch (error) {
         await stopChild(child);
