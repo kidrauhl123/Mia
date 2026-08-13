@@ -10,6 +10,11 @@ pub const CORE_SOURCE_FINGERPRINT: &str = match option_env!("MIA_CORE_SOURCE_FIN
     None => "unverified",
 };
 
+pub const CORE_BUILD_INFO_MARKER: &str = env!("MIA_CORE_BUILD_INFO_MARKER");
+
+#[used]
+static EMBEDDED_CORE_BUILD_INFO: &str = CORE_BUILD_INFO_MARKER;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CoreBuildInfo {

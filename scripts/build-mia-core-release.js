@@ -3,6 +3,7 @@
 
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const {
   miaCoreAssetName,
@@ -91,7 +92,12 @@ function buildMiaCoreRelease(options = {}) {
   }
   const readBuildInfo = options.readCoreBuildInfo || readCoreBuildInfo;
   const buildInfo = assertExpectedBuildInfo(
-    readBuildInfo(binaryPath, { env, execFileSync }),
+    readBuildInfo(binaryPath, {
+      env,
+      execFileSync,
+      allowEmbeddedFallback: platform === "darwin" && arch !== normalizeArch(os.arch()),
+      expectedBuildInfo
+    }),
     expectedBuildInfo,
     `Mia Core release binary ${binaryPath}`
   );

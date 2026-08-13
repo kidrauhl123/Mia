@@ -582,7 +582,12 @@ async function prepareMiaCoreRs(context = {}, options = {}) {
   if (explicitSource) {
     const sourcePath = path.resolve(explicitSource);
     const buildInfo = assertExpectedBuildInfo(
-      readBuildInfo(sourcePath, { env, execFileSync }),
+      readBuildInfo(sourcePath, {
+        env,
+        execFileSync,
+        allowEmbeddedFallback: platform === "darwin" && arch !== normalizeArch(hostArch),
+        expectedBuildInfo
+      }),
       expectedBuildInfo,
       `Mia Core local binary ${sourcePath}`
     );

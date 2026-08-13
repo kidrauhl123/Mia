@@ -29,9 +29,27 @@ function assertValidBuildInfo(value, label = "Mia Core") {
   return info;
 }
 
+function embeddedBuildInfoMarker(value) {
+  const info = assertValidBuildInfo(value, "Expected Mia Core");
+  return `MIA_CORE_BUILD_INFO|${info.releaseVersion}|${info.sourceFingerprint}|`;
+}
+
+function readEmbeddedCoreBuildInfo(binaryPath, expectedBuildInfo, fsImpl = fs) {
+  const expected = assertValidBuildInfo(expectedBuildInfo, "Expected Mia Core");
+  const marker = Buffer.from(embeddedBuildInfoMarker(expected), "utf8");
+  const binary = fsImpl.readFileSync(binaryPath);
+  if (!binary.includes(marker)) {
+    throw new Error(`Mia Core at ${binaryPath} does not contain the expected embedded build identity.`);
+  }
+  return expected;
+}
+
 function readCoreBuildInfo(binaryPath, {
   env = process.env,
-  execFileSync = childProcess.execFileSync
+  execFileSync = childProcess.execFileSync,
+  allowEmbeddedFallback = false,
+  expectedBuildInfo = null,
+  fsImpl = fs
 } = {}) {
   let output;
   try {
@@ -43,6 +61,9 @@ function readCoreBuildInfo(binaryPath, {
       windowsHide: true
     });
   } catch (error) {
+    if (allowEmbeddedFallback && expectedBuildInfo) {
+      return readEmbeddedCoreBuildInfo(binaryPath, expectedBuildInfo, fsImpl);
+    }
     throw new Error(`Cannot read Mia Core build identity from ${binaryPath}: ${error?.message || error}`);
   }
   try {
@@ -68,7 +89,9 @@ function assertExpectedBuildInfo(actual, expected, label = "Mia Core") {
 module.exports = {
   assertExpectedBuildInfo,
   assertValidBuildInfo,
+  embeddedBuildInfoMarker,
   normalizeBuildInfo,
   readCoreBuildInfo,
+  readEmbeddedCoreBuildInfo,
   sha256File
 };

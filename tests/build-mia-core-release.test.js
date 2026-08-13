@@ -5,6 +5,10 @@ const path = require("node:path");
 const { test } = require("node:test");
 
 const { buildMiaCoreRelease } = require("../scripts/build-mia-core-release.js");
+const {
+  embeddedBuildInfoMarker,
+  readCoreBuildInfo
+} = require("../scripts/mia-core-build-info.js");
 const { coreSourceFingerprint } = require("../scripts/mia-core-source-fingerprint.js");
 
 function writeExecutable(filePath, text) {
@@ -67,6 +71,34 @@ test("buildMiaCoreRelease preserves existing architecture assets in manifests", 
     const checksums = fs.readFileSync(path.join(releaseDir, "mia-core-checksums.txt"), "utf8");
     assert.match(checksums, /mia-core-v9\.9\.9-aarch64-apple-darwin\.tar\.gz/);
     assert.match(checksums, /mia-core-v9\.9\.9-x86_64-apple-darwin\.tar\.gz/);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("readCoreBuildInfo verifies an embedded identity for a cross-architecture binary", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-core-cross-build-info-"));
+  try {
+    const binaryPath = path.join(rootDir, "mia-core");
+    const expectedBuildInfo = {
+      releaseVersion: "v9.9.9",
+      sourceFingerprint: "a".repeat(64)
+    };
+    fs.writeFileSync(binaryPath, Buffer.concat([
+      Buffer.from("binary-prefix\0"),
+      Buffer.from(embeddedBuildInfoMarker(expectedBuildInfo)),
+      Buffer.from("\0binary-suffix")
+    ]));
+
+    const actual = readCoreBuildInfo(binaryPath, {
+      execFileSync() {
+        throw new Error("unsupported architecture");
+      },
+      allowEmbeddedFallback: true,
+      expectedBuildInfo
+    });
+
+    assert.deepEqual(actual, expectedBuildInfo);
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
