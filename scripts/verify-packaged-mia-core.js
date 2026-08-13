@@ -211,7 +211,21 @@ function readJson(filePath, label) {
   }
 }
 
-function verifyStagedCoreIdentity({ rootDir, packageJsonPath, corePath, coreManifestPath }) {
+function verifyMacCodeSignature(corePath, execFileSync = childProcess.execFileSync) {
+  execFileSync("codesign", ["--verify", "--strict", "--verbose=2", corePath], {
+    encoding: "utf8",
+    stdio: ["ignore", "ignore", "pipe"]
+  });
+}
+
+function verifyStagedCoreIdentity({
+  rootDir,
+  packageJsonPath,
+  corePath,
+  coreManifestPath,
+  platform = process.platform,
+  verifyCodeSignature = verifyMacCodeSignature
+}) {
   const packageJson = readJson(packageJsonPath, "Packaged package.json");
   const manifest = readJson(coreManifestPath, "Packaged Mia Core manifest");
   const expected = {
@@ -227,7 +241,14 @@ function verifyStagedCoreIdentity({ rootDir, packageJsonPath, corePath, coreMani
     throw new Error("Packaged Mia Core manifest has no verified binary checksum.");
   }
   if (sha256File(corePath) !== expectedSha256) {
-    throw new Error("Packaged Mia Core binary checksum does not match its manifest.");
+    if (normalizePlatform(platform) !== "darwin") {
+      throw new Error("Packaged Mia Core binary checksum does not match its manifest.");
+    }
+    try {
+      verifyCodeSignature(corePath);
+    } catch (error) {
+      throw new Error(`Packaged Mia Core changed after staging and has no valid macOS code signature: ${error?.message || error}`);
+    }
   }
   return actual;
 }
@@ -317,7 +338,8 @@ async function verifyPackagedMiaCore({
   hostArch = os.arch(),
   platform = process.platform,
   hostPlatform = process.platform,
-  readBuildInfo = readCoreBuildInfo
+  readBuildInfo = readCoreBuildInfo,
+  verifyCodeSignature = verifyMacCodeSignature
 } = {}) {
   const targetPlatform = normalizePlatform(platform) || platform;
   const targetArch = normalizeArch(arch) || defaultTargetArch();
@@ -362,7 +384,9 @@ async function verifyPackagedMiaCore({
       rootDir,
       packageJsonPath: paths.packageJsonPath,
       corePath: paths.corePath,
-      coreManifestPath: paths.coreManifestPath
+      coreManifestPath: paths.coreManifestPath,
+      platform: targetPlatform,
+      verifyCodeSignature
     });
   } catch (error) {
     return {

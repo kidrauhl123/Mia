@@ -315,6 +315,60 @@ test("verifyPackagedMiaCore skips the runtime probe for a macOS arch the host ca
   }
 });
 
+test("verifyPackagedMiaCore accepts a signed macOS Core whose signature changed its staged checksum", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-signed-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(42);\n", { arch: "arm64" });
+    const paths = collectRequiredPaths(appPath, { platform: "darwin", arch: "arm64" });
+    fs.unlinkSync(paths.corePath);
+    fs.writeFileSync(paths.corePath, "signed Mach-O fixture");
+    let verifiedPath = "";
+
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "arm64",
+      hostArch: "x64",
+      platform: "darwin",
+      timeoutMs: 100,
+      verifyCodeSignature(corePath) {
+        verifiedPath = corePath;
+      }
+    });
+
+    assert.equal(result.ok, true, result.error || "expected signed macOS Core to pass structural checks");
+    assert.equal(result.skippedRuntimeProbe, true);
+    assert.equal(verifiedPath, paths.corePath);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("verifyPackagedMiaCore rejects a changed macOS Core with an invalid signature", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "mia-packaged-core-unsigned-"));
+  try {
+    const appPath = makeFakePackagedApp(tempDir, "process.exit(42);\n", { arch: "arm64" });
+    const paths = collectRequiredPaths(appPath, { platform: "darwin", arch: "arm64" });
+    fs.unlinkSync(paths.corePath);
+    fs.writeFileSync(paths.corePath, "changed unsigned fixture");
+
+    const result = await verifyPackagedMiaCore({
+      appPath,
+      arch: "arm64",
+      hostArch: "x64",
+      platform: "darwin",
+      timeoutMs: 100,
+      verifyCodeSignature() {
+        throw new Error("invalid signature");
+      }
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error || "", /no valid macOS code signature/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("canRunTargetArch only blocks known macOS cross-arch runtime probes", () => {
   assert.equal(canRunTargetArch({ arch: "arm64", hostArch: "x64", platform: "darwin", hostPlatform: "darwin" }), false);
   assert.equal(canRunTargetArch({ arch: "x64", hostArch: "x64", platform: "darwin", hostPlatform: "darwin" }), true);
