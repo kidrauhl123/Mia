@@ -1831,13 +1831,18 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
   }
 });
 
-test("plain bot names are privately routed to a real group Bot", async () => {
+test("ordinary multi-bot group messages go directly to the configured host Bot", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
-    const group = ctx.socialStore.createConversation({ id: "g_named", type: "group", name: "Group" });
+    const group = ctx.socialStore.createConversation({
+      id: "g_named",
+      type: "group",
+      name: "Group",
+      decorations: { hostMember: { kind: "bot", botId: "bot_kongling" } }
+    });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
@@ -1854,13 +1859,6 @@ test("plain bot names are privately routed to a real group Bot", async () => {
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          if (args.bot?.id === "group-orchestrator") {
-            return {
-              runId: "hr_route",
-              content: '{"delegations":[{"botId":"bot_kongling","task":"直接回应用户是否在线"}]}',
-              events: []
-            };
-          }
           return { runId: "hr_named", content: "yes", events: [] };
         }
       }
@@ -1878,16 +1876,13 @@ test("plain bot names are privately routed to a real group Bot", async () => {
     });
     assert.equal(reply.sender_ref, "bot_kongling");
     assert.equal(reply.body_md, "yes");
-    assert.equal(hermesCalls.length, 2);
-    assert.equal(hermesCalls[0].bot.id, "group-orchestrator");
-    assert.equal(hermesCalls[1].bot.id, "bot_kongling");
-    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
+    assert.deepEqual(hermesCalls.map((call) => call.bot.id), ["bot_kongling"]);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("backend group coordinator delegates a distinct task without becoming a sender", async () => {
+test("legacy groups persist the first Bot as host without a routing model turn", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
@@ -1907,21 +1902,9 @@ test("backend group coordinator delegates a distinct task without becoming a sen
       });
     }
     const dispatcher = makeDispatcher(ctx, {
-      workerManager: {
-        async ensureWorker(userId) {
-          return { userId, baseUrl: "http://worker", apiKey: "k", gatewayWsUrl: "ws://gateway", model: "mia-pro" };
-        }
-      },
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          if (args.bot?.id === "group-orchestrator") {
-            return {
-              runId: "hr_c",
-              content: '{"delegations":[{"botId":"bot_kongling","task":"核对关键事实并给出结论"}]}',
-              events: []
-            };
-          }
           return { runId: "hr_r", content: "核对结果正常", events: [] };
         }
       }
@@ -1937,16 +1920,13 @@ test("backend group coordinator delegates a distinct task without becoming a sen
       conversationId: group.id,
       message
     });
-    assert.equal(reply.sender_ref, "bot_kongling");
+    assert.equal(reply.sender_ref, "bot_mia");
     assert.equal(reply.body_md, "核对结果正常");
-    assert.equal(hermesCalls[0].transient, true);
-    assert.equal(hermesCalls[0].gatewayWsUrl, "ws://gateway");
-    assert.deepEqual(hermesCalls.map((call) => call.bot.id), ["group-orchestrator", "bot_kongling"]);
-    assert.match(hermesCalls[1].input, /核对关键事实并给出结论/);
-    assert.doesNotMatch(hermesCalls[1].input, /协调者/);
-    assert.deepEqual(hermesCalls.map((call) => call.model), ["mia-pro", "mia-pro"]);
+    assert.deepEqual(hermesCalls.map((call) => call.bot.id), ["bot_mia"]);
+    assert.match(hermesCalls[0].input, /随便聊聊/);
+    assert.equal(ctx.socialStore.getConversation(group.id).decorations.hostMember.botId, "bot_mia");
     const messages = ctx.messagesStore.listLatestMessages(group.id, 20).messages;
-    assert.deepEqual(messages.map((item) => item.sender_ref), [ctx.user.id, "bot_kongling"]);
+    assert.deepEqual(messages.map((item) => item.sender_ref), [ctx.user.id, "bot_mia"]);
   } finally {
     ctx.cleanup();
   }
@@ -1967,7 +1947,12 @@ test("routed cloud group replies archive generated files instead of exposing ser
     fs.writeFileSync(generatedPath, "group xlsx bytes", { mode: 0o600 });
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_report", name: "报表助手", capabilities: ["files"] });
-    const group = ctx.socialStore.createConversation({ id: "g_generated_file", type: "group", name: "Group" });
+    const group = ctx.socialStore.createConversation({
+      id: "g_generated_file",
+      type: "group",
+      name: "Group",
+      decorations: { hostMember: { kind: "bot", botId: "bot_report" } }
+    });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_report", ownerId: ctx.user.id });
@@ -1989,13 +1974,6 @@ test("routed cloud group replies archive generated files instead of exposing ser
       attachmentMaterializer: createAttachmentMaterializer({ cloudStore: ctx.cloudStore }),
       hermesImClient: {
         async runChat(args) {
-          if (args.bot?.id === "group-orchestrator") {
-            return {
-              runId: "hr_group_route",
-              content: '{"delegations":[{"botId":"bot_report","task":"生成并发送报表"}]}',
-              events: []
-            };
-          }
           return {
             runId: "hr_group_file",
             content: `报表已生成：${generatedPath}`,
@@ -2032,7 +2010,7 @@ test("routed cloud group replies archive generated files instead of exposing ser
   }
 });
 
-test("coordinator delegation has no fixed three-bot cap", async () => {
+test("multiple explicit mentions invoke only the mentioned group Bots", async () => {
   const ctx = setup();
   const calls = [];
   try {
@@ -2051,22 +2029,9 @@ test("coordinator delegation has no fixed three-bot cap", async () => {
       });
     }
     const dispatcher = makeDispatcher(ctx, {
-      skillsCatalog: [{
-        id: "mia-group-coordinator",
-        body: "SKILL_MARKER: choose the smallest sufficient team without a fixed count."
-      }],
       hermesImClient: {
         async runChat(args) {
           calls.push(args);
-          if (args.bot?.id === "group-orchestrator") {
-            return {
-              runId: "hr_plan",
-              content: JSON.stringify({
-                delegations: botIds.map((botId, index) => ({ botId, task: `完成独立部分 ${index + 1}` }))
-              }),
-              events: []
-            };
-          }
           return { runId: `hr_${args.bot.id}`, content: `${args.bot.id} done`, events: [] };
         }
       }
@@ -2075,7 +2040,11 @@ test("coordinator delegation has no fixed three-bot cap", async () => {
       conversationId: group.id,
       senderKind: "user",
       senderRef: ctx.user.id,
-      bodyMd: "请并行处理四个独立部分"
+      bodyMd: "请你们一起看看",
+      mentions: [
+        { kind: "bot", botId: "bot_two" },
+        { kind: "bot", botId: "bot_four" }
+      ]
     });
 
     const reply = await dispatcher.handleUserMessage({
@@ -2084,26 +2053,25 @@ test("coordinator delegation has no fixed three-bot cap", async () => {
       message
     });
 
-    assert.equal(reply.sender_ref, "bot_one");
-    assert.deepEqual(
-      calls.filter((call) => call.bot.id !== "group-orchestrator").map((call) => call.bot.id).sort(),
-      botIds.slice().sort()
-    );
-    assert.match(calls[0].instructions, /SKILL_MARKER/);
-    assert.equal(calls.filter((call) => call.bot.id === "group-orchestrator").length, 1);
-    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
+    assert.ok(["bot_two", "bot_four"].includes(reply.sender_ref));
+    assert.deepEqual(calls.map((call) => call.bot.id).sort(), ["bot_four", "bot_two"]);
   } finally {
     ctx.cleanup();
   }
 });
 
-test("invalid backend coordinator output falls back to a real group Bot", async () => {
+test("a stale configured host falls back to the first live Bot and repairs the group", async () => {
   const ctx = setup();
   const calls = [];
   try {
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
-    const group = ctx.socialStore.createConversation({ id: "g_garbage", type: "group", name: "Group" });
+    const group = ctx.socialStore.createConversation({
+      id: "g_garbage",
+      type: "group",
+      name: "Group",
+      decorations: { hostMember: { kind: "bot", botId: "bot_missing" } }
+    });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });
@@ -2120,7 +2088,6 @@ test("invalid backend coordinator output falls back to a real group Bot", async 
       hermesImClient: {
         async runChat(args) {
           calls.push(args);
-          if (args.bot?.id === "group-orchestrator") return { runId: "hr_c", content: "我可以直接处理。", events: [] };
           return { runId: "hr_r", content: "fallback reply", events: [] };
         }
       }
@@ -2136,16 +2103,16 @@ test("invalid backend coordinator output falls back to a real group Bot", async 
       conversationId: group.id,
       message
     });
-    assert.ok(["bot_mia", "bot_kongling"].includes(reply.sender_ref));
+    assert.equal(reply.sender_ref, "bot_mia");
     assert.equal(reply.body_md, "fallback reply");
-    assert.deepEqual(calls.map((call) => call.bot.id), ["group-orchestrator", reply.sender_ref]);
-    assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
+    assert.deepEqual(calls.map((call) => call.bot.id), ["bot_mia"]);
+    assert.equal(ctx.socialStore.getConversation(group.id).decorations.hostMember.botId, "bot_mia");
   } finally {
     ctx.cleanup();
   }
 });
 
-test("single desktop-only group Bot is invoked without a visible coordinator", async () => {
+test("single desktop-only group Bot is invoked without a model routing turn", async () => {
   const ctx = setup();
   const broadcasts = [];
   const hermesCalls = [];
@@ -2206,13 +2173,18 @@ test("single desktop-only group Bot is invoked without a visible coordinator", a
   }
 });
 
-test("@mention bypasses the coordinator and picks only the mentioned bot", async () => {
+test("@mention overrides the configured host and picks only the mentioned Bot", async () => {
   const ctx = setup();
   const hermesCalls = [];
   try {
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_mia", name: "Mia", capabilities: ["chat"] });
     ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_kongling", name: "空铃", capabilities: ["chat"] });
-    const group = ctx.socialStore.createConversation({ id: "g_mention", type: "group", name: "Group" });
+    const group = ctx.socialStore.createConversation({
+      id: "g_mention",
+      type: "group",
+      name: "Group",
+      decorations: { hostMember: { kind: "bot", botId: "bot_mia" } }
+    });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_mia", ownerId: ctx.user.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: "bot_kongling", ownerId: ctx.user.id });

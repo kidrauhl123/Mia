@@ -1,4 +1,0 @@
-interface:
-  display_name: "Mia 群聊协调"
-  short_description: "在后台为群聊提供动态的多 Agent 路由与分工策略"
-  default_prompt: "Use $mia-group-coordinator to coordinate this Mia group task and delegate only when collaboration adds value."

@@ -863,7 +863,7 @@ test("POST cloud Claude Code run cancel routes only through the cloud agent disp
   }
 });
 
-test("POST ordinary single-bot group message reaches the real Bot without a visible coordinator", async () => {
+test("POST ordinary single-bot group message reaches the real Bot without a model routing turn", async () => {
   const dataDir = tempDir("mia-cloud-agent-ack-group-");
   const hermesCalls = [];
   const server = createMiaCloudServer({

@@ -4,7 +4,7 @@ const {
   redactGeneratedArtifactPathsInValue,
   workerFileArtifactsForDeliveryRequest
 } = require("./attachment-materializer.js");
-const { createGroupOrchestrator } = require("./group-orchestrator.js");
+const { createGroupRouter } = require("./group-routing.js");
 const { MemberKind } = require("../shared/conversation-kinds.js");
 const { CloudEvent } = require("../shared/cloud-events.js");
 const { createAssistantContentBlockCollector } = require("../shared/assistant-content-blocks.js");
@@ -252,15 +252,10 @@ function createCloudAgentDispatcher(deps = {}) {
     delete: typeof deps.deleteScheduledTask === "function" ? deps.deleteScheduledTask : null
   };
   const pending = new Set();
-  const groupOrchestrator = createGroupOrchestrator({
+  const groupRouter = createGroupRouter({
     socialStore,
-    messagesStore,
     botsStore,
-    workerManager,
-    agentClient,
-    skillsCatalog,
-    getUserPublic,
-    log
+    getUserPublic
   });
 
   function newerUserMessageExists(conversationId, message = {}) {
@@ -975,23 +970,6 @@ function createCloudAgentDispatcher(deps = {}) {
     return null;
   }
 
-  function delegatedMessage(message, delegation) {
-    const original = String(message?.body_md || "").trim();
-    const task = String(delegation?.task || original).trim();
-    const body = [
-      `你在这个群聊中负责的子任务：\n${task}`,
-      original && original !== task ? `原始用户请求：\n${original}` : "",
-      "请用你自己的群成员身份直接回复用户，不要提及后端路由或虚构其他群成员。"
-    ].filter(Boolean).join("\n\n");
-    return {
-      ...(message || {}),
-      body_md: body,
-      task_prompt: body,
-      mentions: [],
-      mentions_json: null
-    };
-  }
-
   async function runInvocation(args = {}) {
     const userId = String(args.userId || "").trim();
     const conversationId = String(args.conversationId || "").trim();
@@ -1006,16 +984,14 @@ function createCloudAgentDispatcher(deps = {}) {
     if (!conversation) return null;
 
     if (conversation.type === "group") {
-      const decision = await groupOrchestrator.planTurn({
-        userId,
+      const decision = groupRouter.planTurn({
         conversationId,
         conversation,
         message,
         requestedBotId
       });
       if (!decision) return null;
-      if (decision.mode === "direct") {
-        const replies = await Promise.all((decision.chosen || []).map((member) => dispatchBot({
+      const replies = await Promise.all((decision.chosen || []).map((member) => dispatchBot({
           ownerId: member.owner_id,
           botId: member.member_ref,
           conversationId,
@@ -1025,22 +1001,6 @@ function createCloudAgentDispatcher(deps = {}) {
           bots: decision.bots || [],
           runtimeBinding: requestedBotId && member.member_ref === requestedBotId ? runtimeBinding : null
         })));
-        return replies.find(Boolean) || null;
-      }
-
-      const replies = await Promise.all(decision.delegations.map((delegation) => {
-        const member = delegation.member;
-        return dispatchBot({
-          ownerId: member.owner_id,
-          botId: member.member_ref,
-          conversationId,
-          conversationType: conversation.type,
-          message: delegatedMessage(message, delegation),
-          members: decision.members || [],
-          bots: decision.bots || [],
-          runtimeBinding: null
-        });
-      }));
       return replies.find(Boolean) || null;
     }
 

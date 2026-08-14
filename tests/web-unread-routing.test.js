@@ -677,7 +677,7 @@ test("legacy group bot routing module is removed from source", () => {
   assert.equal(
     fs.existsSync(path.join(ROOT, "src/shared/group-bot-routing.js")),
     false,
-    "src/shared/group-bot-routing.js is retired; group bot orchestration lives in src/cloud-agent/group-orchestrator.js"
+    "src/shared/group-bot-routing.js is retired; group routing lives in src/cloud-agent/group-routing.js"
   );
 });
 

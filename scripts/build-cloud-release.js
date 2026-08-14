@@ -554,6 +554,7 @@ function verifyRelease() {
     "api/package.json",
     "api/src/cloud/sqlite-store.js",
     "api/src/cloud/social-store.js",
+    "api/src/cloud/group-host.js",
     "api/src/cloud/messages-store.js",
     "api/src/cloud/memory-store.js",
     "api/src/cloud/dm-conversation.js",
@@ -573,7 +574,7 @@ function verifyRelease() {
     "api/src/cloud-agent/claude-code-sandbox-manager.js",
     "api/src/cloud-agent/claude-code-sandbox-client.js",
     "api/src/cloud-agent/attachment-materializer.js",
-    "api/src/cloud-agent/group-orchestrator.js",
+    "api/src/cloud-agent/group-routing.js",
     "api/src/cloud-agent/runtime-assembly.js",
     "api/src/cloud-agent/mia-cloud-mcp-server.js",
     "api/src/cloud-agent/dispatcher.js",
@@ -674,6 +675,7 @@ function verifyRelease() {
     "api/server.js",
     "api/src/cloud/sqlite-store.js",
     "api/src/cloud/social-store.js",
+    "api/src/cloud/group-host.js",
     "api/src/cloud/messages-store.js",
     "api/src/cloud/memory-store.js",
     "api/src/cloud/dm-conversation.js",
@@ -691,7 +693,7 @@ function verifyRelease() {
     "api/src/cloud-agent/claude-code-sandbox-manager.js",
     "api/src/cloud-agent/claude-code-sandbox-client.js",
     "api/src/cloud-agent/attachment-materializer.js",
-    "api/src/cloud-agent/group-orchestrator.js",
+    "api/src/cloud-agent/group-routing.js",
     "api/src/cloud-agent/runtime-assembly.js",
     "api/src/cloud-agent/mia-cloud-mcp-server.js",
     "api/src/cloud-agent/dispatcher.js",
@@ -871,6 +873,7 @@ function verifyRelease() {
   childProcess.execFileSync(process.execPath, ["-e", `
     require(${JSON.stringify(assertFile("api/src/cloud/sqlite-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/social-store.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud/group-host.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/messages-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/memory-store.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud/dm-conversation.js"))});
@@ -887,7 +890,7 @@ function verifyRelease() {
     require(${JSON.stringify(assertFile("api/src/cloud-agent/claude-code-sandbox-manager.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/claude-code-sandbox-client.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/attachment-materializer.js"))});
-    require(${JSON.stringify(assertFile("api/src/cloud-agent/group-orchestrator.js"))});
+    require(${JSON.stringify(assertFile("api/src/cloud-agent/group-routing.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/runtime-assembly.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/mia-cloud-mcp-server.js"))});
     require(${JSON.stringify(assertFile("api/src/cloud-agent/dispatcher.js"))});

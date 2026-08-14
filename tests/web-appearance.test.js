@@ -50,4 +50,5 @@ test("web user bubble CSS uses the computed contrast variable", () => {
 
   assert.match(css, /\.chat \.message\.user \.bubble\s*\{[^}]*color:\s*var\(--user-bubble-text,\s*var\(--text\)\);/s);
   assert.match(css, /\.message\.user \.bubble\s*\{[^}]*color:\s*var\(--user-bubble-text,\s*#fff\);/s);
+  assert.match(css, /\.message\.user \.mention\s*\{[^}]*background:\s*color-mix\(in srgb,\s*var\(--user-bubble-text\) 10%,\s*transparent\);[^}]*color:\s*var\(--user-bubble-text\);/s);
 });

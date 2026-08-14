@@ -1939,6 +1939,10 @@ fn runtime_control_options_from_request(
     );
     let model_catalog = runtime_control_model_catalog(&model_catalog);
     let platform_models = runtime_control_platform_model_entries(&platform_models);
+    let has_saved_model_selection = [&binding_config, &bot_config].into_iter().any(|config| {
+        !runtime_control_model_name(config).is_empty()
+            || !runtime_control_model_provider(config).is_empty()
+    });
     if runtime_kind != "cloud-claude-code" && runtime_model_selection_is_mia_managed(&config) {
         remove_runtime_model_fields(&mut config);
     }
@@ -1969,8 +1973,13 @@ fn runtime_control_options_from_request(
     } else {
         Vec::new()
     };
-    let selected_model =
-        selected_runtime_control_model(&runtime_kind, &agent_engine, &model_options, &config);
+    let selected_model = selected_runtime_control_model(
+        &runtime_kind,
+        &agent_engine,
+        &model_options,
+        &config,
+        has_saved_model_selection,
+    );
     let selected_model_entry =
         selected_runtime_control_model_entry(&model_options, &config, &selected_model);
     let selected_effort = selected_runtime_control_value(
@@ -2861,13 +2870,34 @@ fn selected_runtime_control_model(
     agent_engine: &str,
     entries: &[BotRuntimeControlOption],
     config: &Map<String, Value>,
+    has_saved_model_selection: bool,
 ) -> String {
     if entries.is_empty() {
         return String::new();
     }
     let model = runtime_control_model_name(config);
+    let auto = || {
+        entries.iter().find(|entry| {
+            (entry.provider_connection_id == "mia" || entry.provider == "mia")
+                && [
+                    entry.model.as_str(),
+                    entry.id.as_str(),
+                    entry.value.as_str(),
+                ]
+                .into_iter()
+                .any(|value| matches!(value, "mia-auto" | "mia-default"))
+        })
+    };
+    if !has_saved_model_selection && let Some(entry) = auto() {
+        return runtime_control_option_value(entry, "mia-auto");
+    }
     if let Some(entry) = saved_runtime_control_model_entry(entries, config) {
         return runtime_control_option_value(entry, &model);
+    }
+    if model.is_empty()
+        && let Some(entry) = auto()
+    {
+        return runtime_control_option_value(entry, "mia-auto");
     }
     if runtime_kind == "cloud-claude-code" {
         return if model.is_empty() {

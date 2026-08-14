@@ -922,6 +922,7 @@ test("POST /api/conversations creates group with creator + bot + friend members"
     assert.equal(r.body.conversation.public_id, r.body.conversation.publicId);
     assert.equal(r.body.conversation.id, `g_${r.body.conversation.publicId}`);
     assert.equal(r.body.conversation.name, "Test Squad");
+    assert.deepEqual(r.body.conversation.decorations.hostMember, { kind: "bot", botId: "bot_codex" });
     const members = r.body.members;
     assert.equal(members.length, 3); // alice + bot_codex + bob
     const userMembers = members.filter((m) => m.member_kind === "user").map((m) => m.member_ref).sort();

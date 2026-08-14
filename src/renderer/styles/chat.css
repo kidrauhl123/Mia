@@ -255,8 +255,8 @@
 }
 
 .message.user .mention {
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
+  background: color-mix(in srgb, var(--user-bubble-text) 10%, transparent);
+  color: var(--user-bubble-text);
 }
 
 .bubble p:last-child,

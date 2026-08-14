@@ -492,7 +492,7 @@ async fn bot_service_owns_runtime_control_options_selection() {
             }
         }),
         model_catalog: json!([]),
-        platform_models: json!([]),
+        platform_models: json!([{ "id": "mia-auto", "label": "Auto" }]),
         engine_capabilities: json!({
             "engines": {
                 "codex": {
@@ -527,7 +527,7 @@ async fn bot_service_owns_runtime_control_options_selection() {
             .iter()
             .map(|entry| entry.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["gpt-5.3-codex"]
+        vec!["mia-auto", "gpt-5.3-codex"]
     );
     assert_eq!(response.selected_model, "gpt-5.3-codex");
     assert_eq!(
@@ -581,6 +581,82 @@ async fn bot_service_includes_platform_models_in_desktop_external_controls() {
         response.selected_model_entry.as_ref().unwrap().provider,
         "mia"
     );
+}
+
+#[tokio::test]
+async fn bot_service_prefers_auto_for_new_desktop_hermes_bot() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("desktop-local".to_string()),
+        bot: json!({ "key": "hermes", "agentEngine": "hermes" }),
+        runtime: json!({
+            "agentInventory": {
+                "agents": [
+                    { "id": "hermes", "usableInMia": true, "health": "ready" }
+                ]
+            },
+            "cloud": { "enabled": true },
+            "model": {
+                "provider": "ollama",
+                "model": "local-model",
+                "modelProfileId": "ollama::local-model"
+            },
+            "connectedProviders": [
+                { "provider": "ollama", "hasApiKey": true }
+            ]
+        }),
+        binding: json!({}),
+        model_catalog: json!([{
+            "id": "ollama::local-model",
+            "provider": "ollama",
+            "model": "local-model",
+            "label": "Local model"
+        }]),
+        platform_models: json!([
+            { "id": "mia-pro", "label": "Pro" },
+            { "id": "mia-auto", "label": "Auto" }
+        ]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(
+        response
+            .model_options
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ollama::local-model", "mia-pro", "mia-auto"]
+    );
+    assert_eq!(response.selected_model, "mia-auto");
+    assert_eq!(
+        response.selected_model_entry.as_ref().unwrap().provider,
+        "mia"
+    );
+}
+
+#[tokio::test]
+async fn bot_service_prefers_auto_over_cloud_catalog_order() {
+    let db = init_database_memory().await.unwrap();
+    let service = BotService::new(db.pool().clone());
+
+    let response = service.runtime_control_options(BotRuntimeControlOptionsRequest {
+        runtime_kind: Some("cloud-claude-code".to_string()),
+        bot: json!({ "key": "cloud", "agentEngine": "claude-code" }),
+        runtime: json!({}),
+        binding: json!({ "config": { "agentEngine": "claude-code" } }),
+        model_catalog: json!([]),
+        platform_models: json!([
+            { "id": "mia-pro", "label": "Pro" },
+            { "id": "mia-auto", "label": "Auto" }
+        ]),
+        engine_capabilities: json!({}),
+        codex_models: json!([]),
+    });
+
+    assert_eq!(response.selected_model, "mia-auto");
 }
 
 #[tokio::test]

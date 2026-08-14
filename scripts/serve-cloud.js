@@ -25,6 +25,12 @@ try {
 } catch {
   ({ createSocialStore } = require("./src/cloud/social-store.js"));
 }
+let groupHost = null;
+try {
+  groupHost = require("../src/cloud/group-host.js");
+} catch {
+  groupHost = require("./src/cloud/group-host.js");
+}
 let createMessagesStore = null;
 try {
   ({ createMessagesStore } = require("../src/cloud/messages-store.js"));
@@ -4033,7 +4039,13 @@ async function handleRequest(req, res, context) {
         groupPublicId = ids.generateGroupPublicId();
         conversationId = ids.groupConversationId(groupPublicId);
       }
-      const decorations = clientGroupId ? { clientGroupId } : null;
+      const firstBotId = memberBots.map((bot) => String(bot?.botId || "").trim()).find(Boolean) || "";
+      const decorations = clientGroupId || firstBotId
+        ? {
+            ...(clientGroupId ? { clientGroupId } : {}),
+            ...(firstBotId ? { hostMember: { kind: "bot", botId: firstBotId } } : {})
+          }
+        : null;
       context.socialStore.createConversation({ id: conversationId, publicId: groupPublicId, name, decorations });
       context.socialStore.addConversationMember({ conversationId, memberKind: "user", memberRef: auth.user.id });
       for (const bot of memberBots) {
@@ -4130,6 +4142,7 @@ async function handleRequest(req, res, context) {
         ownerId: auth.user.id,
         aiPerms: runtimeKind ? { runtimeKind } : null
       });
+      groupHost.ensureGroupHost(context.socialStore, conversationId);
       const member = context.socialStore.getConversationMember(conversationId, "bot", memberRef);
       return writeJson(res, 201, { ok: true, member });
     }
@@ -4148,6 +4161,7 @@ async function handleRequest(req, res, context) {
       const memberRef = String(body.memberRef || "").trim();
       if (!memberKind || !memberRef) return writeError(res, 400, "memberKind and memberRef are required");
       context.socialStore.removeConversationMember(conversationId, memberKind, memberRef);
+      groupHost.ensureGroupHost(context.socialStore, conversationId);
       // Broadcast conversation.updated so every client refreshes its member cache.
       const conversation = context.socialStore.getConversation(conversationId);
       for (const m of context.socialStore.listConversationMembers(conversationId)) {

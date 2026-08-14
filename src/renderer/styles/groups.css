@@ -676,6 +676,49 @@
 .group-info-addable.hidden {
   display: none;
 }
+.group-info-addable-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  cursor: default;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+.group-info-addable-row:hover:not(:disabled) {
+  background: var(--hover);
+}
+.group-info-addable-row:disabled {
+  opacity: 0.55;
+}
+.group-info-addable-row .member-avatar {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background-color: var(--surface-soft);
+  background-position: center;
+  background-size: cover;
+  overflow: hidden;
+}
+.group-info-addable-row > .name-with-badge {
+  min-width: 0;
+  overflow: hidden;
+}
+.group-info-addable-row > :last-child {
+  color: var(--accent);
+  white-space: nowrap;
+}
 .group-info-addable-full {
   margin: 0;
   padding: 9px 8px;

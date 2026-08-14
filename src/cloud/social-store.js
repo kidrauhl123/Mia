@@ -164,7 +164,7 @@ function createSocialStore(db) {
     "DELETE FROM conversation_members WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?"
   );
   const selectMembers = db.prepare(
-    "SELECT * FROM conversation_members WHERE conversation_id = ? ORDER BY joined_at"
+    "SELECT * FROM conversation_members WHERE conversation_id = ? ORDER BY joined_at, rowid"
   );
   const selectMember = db.prepare(
     "SELECT * FROM conversation_members WHERE conversation_id = ? AND member_kind = ? AND member_ref = ?"

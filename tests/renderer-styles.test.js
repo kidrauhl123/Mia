@@ -101,6 +101,13 @@ test("group create member picker uses compact filled contact rows", () => {
   assert.match(groupsCss, /\.group-create-member-row\.is-selected \.member-check\s*\{[\s\S]*?background:\s*var\(--accent\);/);
 });
 
+test("group settings add-member rows constrain avatar media", () => {
+  const groupsCss = fs.readFileSync(path.join(root, "src/renderer/styles/groups.css"), "utf8");
+
+  assert.match(groupsCss, /\.group-info-addable-row\s*\{[\s\S]*?grid-template-columns:\s*34px minmax\(0,\s*1fr\) auto;[\s\S]*?width:\s*100%;/);
+  assert.match(groupsCss, /\.group-info-addable-row \.member-avatar\s*\{[\s\S]*?width:\s*34px;[\s\S]*?height:\s*34px;[\s\S]*?overflow:\s*hidden;/);
+});
+
 test("narrow conversation lists keep active rows hoverable", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
 
@@ -170,10 +177,15 @@ test("process disclosure keeps the original message bubbles on desktop and web",
 
 test("user message skill chips remain readable on light user bubbles", () => {
   const baseCss = fs.readFileSync(path.join(root, "src/renderer/styles.css"), "utf8");
+  const chatCss = fs.readFileSync(path.join(root, "src/renderer/styles/chat.css"), "utf8");
   const userSkillChipRule = cssRuleBody(baseCss, ".message.user .message-skill-chip");
+  const userMentionRule = cssRuleBody(chatCss, ".message.user .mention");
 
   assert.match(userSkillChipRule, /color:\s*var\(--user-bubble-text\);/);
   assert.doesNotMatch(userSkillChipRule, /color:\s*#fff\b/);
+  assert.match(userMentionRule, /color:\s*var\(--user-bubble-text\);/);
+  assert.match(userMentionRule, /background:\s*color-mix\(in srgb,\s*var\(--user-bubble-text\) 10%,\s*transparent\);/);
+  assert.doesNotMatch(userMentionRule, /color:\s*#fff\b/);
 });
 
 test("custom scrollbar overlay uses a narrow thumb", () => {
