@@ -61,3 +61,28 @@ test("context keeps runtime config and trace data out of prompt text", () => {
   const all = [prompt.systemPrompt, ...prompt.historyMessages.map((m) => m.content), prompt.userPrompt].join("\n");
   assert.doesNotMatch(all, /providerConnectionId|mia-auto|hidden|secret|content_blocks_json|trace_json/);
 });
+
+test("group context distinguishes the current person and carries explicit relationship background", () => {
+  const context = buildBotTurnContext({
+    conversationId: "g_roommates",
+    conversationType: "group",
+    conversation: {
+      name: "毕业旅行群",
+      decorations: { pinnedGoal: "我们是大学室友，正在准备毕业旅行。" }
+    },
+    botId: "mia",
+    triggeringMessage: { id: "m_1", sender_kind: "user", sender_ref: "u_lin", body_md: "周末走吗" },
+    members: [
+      { member_kind: "user", member_ref: "u_lin", user: { displayName: "小林" } },
+      { member_kind: "user", member_ref: "u_chen", user: { displayName: "小陈" } },
+      { member_kind: "bot", member_ref: "mia", bot_name: "Mia" }
+    ]
+  }, { bots: [{ id: "mia", name: "Mia" }] });
+
+  const prompt = materializeLegacyBotPrompt(context, { bots: [{ id: "mia", name: "Mia" }] });
+  assert.match(prompt.systemPrompt, /群聊「毕业旅行群」/);
+  assert.match(prompt.systemPrompt, /当前发言者：小林 \(user:u_lin\)/);
+  assert.match(prompt.systemPrompt, /小陈 \(user:u_chen\)/);
+  assert.match(prompt.systemPrompt, /群背景（由群成员明确设置）：我们是大学室友/);
+  assert.match(prompt.systemPrompt, /不要自行猜测谁是情侣、朋友或室友/);
+});

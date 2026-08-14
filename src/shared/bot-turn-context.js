@@ -73,9 +73,20 @@ function buildBotTurnContext(payload = {}, options = {}) {
   if (!conversationId || !botId || !triggerId) return null;
   const conversationType = conversationTypeFromPayload(payload);
   const groupConversation = conversationType === "group";
+  const conversation = payload.conversation && typeof payload.conversation === "object"
+    ? payload.conversation
+    : {};
   const bot = botSnapshotFor(payload, options.bots || []);
   return {
-    conversation: { id: conversationId, type: conversationType, group: groupConversation },
+    conversation: {
+      id: conversationId,
+      type: conversationType,
+      group: groupConversation,
+      name: cleanText(conversation.name),
+      decorations: conversation.decorations && typeof conversation.decorations === "object"
+        ? conversation.decorations
+        : null
+    },
     bot,
     invocation: {
       botId,

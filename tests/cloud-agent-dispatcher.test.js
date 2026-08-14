@@ -1788,12 +1788,15 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
   const ctx = setup();
   const hermesCalls = [];
   try {
+    const roommate = createCloudUser(ctx.cloudStore, "Lin Roommate");
     const group = ctx.socialStore.createConversation({
       id: "g_single",
       type: "group",
-      name: "Single bot group"
+      name: "毕业旅行群",
+      decorations: { pinnedGoal: "我们是大学室友，正在一起准备毕业旅行。" }
     });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: roommate.id });
     ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: BOT_ID, ownerId: ctx.user.id });
     ctx.runtimeBindingsStore.upsertBinding({
       userId: ctx.user.id,
@@ -1803,6 +1806,9 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
       config: { model: "hermes-agent" }
     });
     const dispatcher = makeDispatcher(ctx, {
+      getUserPublic(userId) {
+        return ctx.cloudStore.getUserPublic(userId);
+      },
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
@@ -1813,11 +1819,11 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
     const message = ctx.messagesStore.appendMessage({
       conversationId: group.id,
       senderKind: "user",
-      senderRef: ctx.user.id,
+      senderRef: roommate.id,
       bodyMd: "有人吗"
     });
     const reply = await dispatcher.handleUserMessage({
-      userId: ctx.user.id,
+      userId: roommate.id,
       conversationId: group.id,
       message
     });
@@ -1825,6 +1831,11 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
     assert.equal(reply.body_md, "got it");
     assert.equal(hermesCalls.length, 1, "a one-Bot group should not need a routing turn");
     assert.equal(hermesCalls[0].bot.id, BOT_ID);
+    assert.match(hermesCalls[0].input, /群聊「毕业旅行群」/);
+    assert.match(hermesCalls[0].input, /当前发言者：Lin Roommate \(user:/);
+    assert.match(hermesCalls[0].input, /Lin Roommate \(user:/);
+    assert.match(hermesCalls[0].input, /群背景（由群成员明确设置）：我们是大学室友，正在一起准备毕业旅行。/);
+    assert.match(hermesCalls[0].input, /不要自行猜测谁是情侣、朋友或室友/);
     assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();
@@ -1877,6 +1888,69 @@ test("ordinary multi-bot group messages go directly to the configured host Bot",
     assert.equal(reply.sender_ref, "bot_kongling");
     assert.equal(reply.body_md, "yes");
     assert.deepEqual(hermesCalls.map((call) => call.bot.id), ["bot_kongling"]);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test("team_send_message queues a bounded group delegation by Bot name", async () => {
+  const ctx = setup();
+  const calls = [];
+  try {
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_host", name: "主持人", capabilities: ["chat"] });
+    ctx.botsStore.upsertBot(ctx.user.id, { id: "bot_research", name: "研究员", capabilities: ["chat"] });
+    const group = ctx.socialStore.createConversation({ id: "g_delegate", type: "group", name: "Team" });
+    ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "user", memberRef: ctx.user.id });
+    for (const botId of ["bot_host", "bot_research"]) {
+      ctx.socialStore.addConversationMember({ conversationId: group.id, memberKind: "bot", memberRef: botId, ownerId: ctx.user.id });
+      ctx.runtimeBindingsStore.upsertBinding({
+        userId: ctx.user.id,
+        botId,
+        runtimeKind: "cloud-claude-code",
+        enabled: true,
+        config: { model: "hermes-agent" }
+      });
+    }
+    const dispatcher = makeDispatcher(ctx, {
+      hermesImClient: {
+        async runChat(args) {
+          calls.push(args);
+          return { runId: "hr_delegate", content: "数据已核对", events: [] };
+        }
+      }
+    });
+    const queued = await dispatcher.delegateBot({
+      userId: ctx.user.id,
+      conversationId: group.id,
+      sourceBotId: "bot_host",
+      to: "研究员",
+      message: "核对这组数据",
+      originMessageId: "msg_root",
+      delegationDepth: 0
+    });
+    assert.equal(queued.status, "queued");
+    assert.equal(queued.targets[0].botId, "bot_research");
+    await dispatcher.idle();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].bot.id, "bot_research");
+    assert.match(calls[0].input, /主持人 委派给你的任务/);
+    assert.match(calls[0].input, /核对这组数据/);
+    const contextPath = calls[0].mcpServers["mia-app"].env.MIA_CLOUD_MCP_CONTEXT_FILE;
+    assert.equal(JSON.parse(fs.readFileSync(contextPath, "utf8")).delegationDepth, 1);
+    const replies = ctx.messagesStore.listLatestMessages(group.id, 20).messages;
+    assert.equal(replies.at(-1).sender_ref, "bot_research");
+    assert.equal(replies.at(-1).body_md, "数据已核对");
+    await assert.rejects(
+      dispatcher.delegateBot({
+        userId: ctx.user.id,
+        conversationId: group.id,
+        sourceBotId: "bot_host",
+        to: "bot_research",
+        message: "再查一次",
+        delegationDepth: 3
+      }),
+      /delegation depth limit/
+    );
   } finally {
     ctx.cleanup();
   }
@@ -2158,6 +2232,7 @@ test("single desktop-only group Bot is invoked without a model routing turn", as
     assert.equal(invocation.userId, ctx.user.id);
     assert.equal(invocation.event.runtimeConfig?.model, "claude");
     assert.equal(invocation.event.triggeringMessage.body_md, "看下昨天的报告");
+    assert.equal(invocation.event.conversation.name, "Group");
     const botReply = ctx.messagesStore.appendMessage({
       conversationId: group.id,
       senderKind: "bot",

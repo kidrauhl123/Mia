@@ -2,12 +2,14 @@
 "use strict";
 
 const fs = require("node:fs");
+const { createHash } = require("node:crypto");
 const http = require("node:http");
 const https = require("node:https");
 const readline = require("node:readline");
 
 const APP_TOOLS = new Set([
   "context_snapshot",
+  "team_send_message",
   "memory",
   "schedule_list_current",
   "schedule_create",
@@ -29,6 +31,7 @@ const READ_TOOLS = new Set([
   "skill_show"
 ]);
 const WRITE_TOOLS = new Set([
+  "team_send_message",
   "memory",
   "schedule_create",
   "schedule_update",
@@ -82,6 +85,19 @@ function withToolAnnotations(tool) {
 function cloudToolDefinitions() {
   return [
     { name: "context_snapshot", description: "Read current Mia bot/session metadata.", inputSchema: { type: "object" } },
+    {
+      name: "team_send_message",
+      description: "Delegate a task to another Bot in the current Mia group. Use the Bot name or ID; use * to ask every other Bot.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "string", minLength: 1 },
+          message: { type: "string", minLength: 1 }
+        },
+        required: ["to", "message"],
+        additionalProperties: false
+      }
+    },
     {
       name: "memory",
       description: "Add, replace, or remove a concise Mia-owned memory entry for the current bot.",
@@ -478,6 +494,25 @@ async function scheduleDelete(ctx = {}, args = {}, options = {}) {
   return { ok: true, jobId };
 }
 
+async function teamSendMessage(ctx = {}, args = {}, options = {}) {
+  const conversationId = cleanText(ctx.conversationId || ctx.sessionId || "").replace(/^conversation:/, "");
+  const fromBotId = cleanText(ctx.botId || "");
+  if (!conversationId) throw new Error("conversationId is required");
+  if (!fromBotId) throw new Error("botId is required");
+  const requestId = options.requestId == null ? "" : JSON.stringify(options.requestId);
+  const clientOpId = requestId
+    ? `mcp-team-${createHash("sha256").update([conversationId, fromBotId, cleanText(ctx.originMessageId || ""), requestId].join("\n")).digest("hex").slice(0, 32)}`
+    : "";
+  return cloudJson("POST", `/api/conversations/${encodeURIComponent(conversationId)}/delegations`, {
+    fromBotId,
+    to: requiredToolText(args, "to"),
+    message: requiredToolText(args, "message"),
+    originMessageId: cleanText(ctx.originMessageId || ""),
+    delegationDepth: clampNumber(ctx.delegationDepth, 0, 100, 0),
+    ...(clientOpId ? { clientOpId } : {})
+  }, options);
+}
+
 async function callTool(name, args = {}, options = {}) {
   const ctx = readContext(options);
   switch (name) {
@@ -488,11 +523,15 @@ async function callTool(name, args = {}, options = {}) {
         conversationId: cleanText(ctx.conversationId || ""),
         sessionId: cleanText(ctx.sessionId || ctx.conversationId || ""),
         originMessageId: cleanText(ctx.originMessageId || ""),
+        delegationDepth: clampNumber(ctx.delegationDepth, 0, 100, 0),
         enabledSkillIds: Array.isArray(ctx.enabledSkillIds) ? ctx.enabledSkillIds : [],
         memoryMode: contextMemoryMode(ctx),
         memoryTools: memoryToolEnabled(ctx) ? { enabled: true, memory: "memory" } : { enabled: false },
         skillCount: Array.isArray(ctx.skills) ? ctx.skills.length : 0
       };
+
+    case "team_send_message":
+      return teamSendMessage(ctx, args, options);
 
     case "memory":
       return cloudMemoryMutation(ctx, args, options);
@@ -565,7 +604,7 @@ async function handleRequest(req, options = {}) {
   }
   if (method === "tools/call") {
     try {
-      const result = await callTool(params?.name, params?.arguments || {}, options);
+      const result = await callTool(params?.name, params?.arguments || {}, { ...options, requestId: id });
       sendResponse({
         jsonrpc: "2.0",
         id,

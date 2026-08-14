@@ -1845,6 +1845,7 @@ impl ConversationService {
             &conversation.id,
             origin_message_id,
             memory_mode,
+            delegation_depth_from_metadata(&conversation.metadata),
         )
         .await?;
         let body = prepend_selected_skill_paths(
@@ -1916,6 +1917,7 @@ impl ConversationService {
             &utility_conversation_id,
             &message_id,
             MemoryMode::Native,
+            0,
         )
         .await?;
         let runtime_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
@@ -1973,6 +1975,7 @@ impl ConversationService {
             conversation_id,
             "",
             memory_mode,
+            delegation_depth_from_metadata(&conversation.metadata),
         )
         .await?;
         let runtime_plan = self.runtime.build_turn_plan(RuntimeTurnInput {
@@ -2750,6 +2753,7 @@ async fn mcp_servers_for_turn(
     conversation_id: &str,
     origin_message_id: &str,
     memory_mode: MemoryMode,
+    delegation_depth: u64,
 ) -> Result<Value, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT name, config_json FROM mcp_servers \
@@ -2781,6 +2785,7 @@ async fn mcp_servers_for_turn(
         conversation_id,
         origin_message_id,
         memory_mode,
+        delegation_depth,
     )
     .await?
     {
@@ -2799,6 +2804,7 @@ async fn builtin_mia_mcp_spec(
     conversation_id: &str,
     origin_message_id: &str,
     memory_mode: MemoryMode,
+    delegation_depth: u64,
 ) -> Result<Option<Value>, sqlx::Error> {
     let core_base_url = clean_text(core_base_url);
     if core_base_url.is_empty() {
@@ -2825,9 +2831,18 @@ async fn builtin_mia_mcp_spec(
             "MIA_BOT_ID": clean_text(bot_id),
             "MIA_CONVERSATION_ID": clean_text(conversation_id),
             "MIA_ORIGIN_MESSAGE_ID": clean_text(origin_message_id),
+            "MIA_DELEGATION_DEPTH": delegation_depth.to_string(),
             "MIA_MEMORY_MODE": memory_mode_name(memory_mode),
         }
     })))
+}
+
+fn delegation_depth_from_metadata(metadata: &Value) -> u64 {
+    metadata
+        .get("cloudBridge")
+        .and_then(|bridge| bridge.get("delegationDepth"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
 }
 
 async fn client_user_id(pool: &SqlitePool) -> Result<String, sqlx::Error> {

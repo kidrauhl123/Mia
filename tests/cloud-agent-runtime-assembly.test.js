@@ -138,3 +138,35 @@ test("cloud runtime assembly exposes memory through Mia MCP and materializes ski
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("cloud runtime assembly isolates MCP context files for Bots sharing one group", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-runtime-team-context-"));
+  try {
+    const base = {
+      ownerId: "user_1",
+      conversationId: "g_team",
+      memoryMode: "native",
+      worker: { paths: { agentHome: tmp, workspace: path.join(tmp, "workspace") } },
+      runtimeConfig: {},
+      skillsCatalog: []
+    };
+    const host = assembleCloudRuntimeTurn({
+      ...base,
+      botId: "bot_host",
+      bot: { id: "bot_host", displayName: "Host" },
+      message: { id: "msg_host" }
+    });
+    const research = assembleCloudRuntimeTurn({
+      ...base,
+      botId: "bot_research",
+      bot: { id: "bot_research", displayName: "Research" },
+      message: { id: "msg_research", delegationDepth: 1 }
+    });
+    assert.notEqual(host.contextPath, research.contextPath);
+    assert.equal(JSON.parse(fs.readFileSync(host.contextPath, "utf8")).botId, "bot_host");
+    assert.equal(JSON.parse(fs.readFileSync(research.contextPath, "utf8")).botId, "bot_research");
+    assert.equal(JSON.parse(fs.readFileSync(research.contextPath, "utf8")).delegationDepth, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

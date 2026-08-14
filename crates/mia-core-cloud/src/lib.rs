@@ -596,6 +596,10 @@ impl CloudService {
             json!([])
         };
         let selected_skill_ids = normalize_selected_skill_ids(&request.selected_skill_ids);
+        let delegation_depth = runtime
+            .get("delegationDepth")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         Ok(PreparedCloudBridgeRun {
             run_id: run_id.clone(),
             cloud_conversation_id: cloud_conversation_id.clone(),
@@ -617,6 +621,7 @@ impl CloudService {
                     "botName": title,
                     "originMessageId": cloud_origin_message_id,
                     "logicalMessageId": logical_message_id,
+                    "delegationDepth": delegation_depth,
                 }
             }),
         })

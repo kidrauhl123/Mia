@@ -672,7 +672,7 @@ function GroupInfoDialog({ dialog }: { dialog: GroupInfoDialogView }) {
         <div className="skill-preview-toolbar">
           <div className="skill-preview-title">
             <h2 id="groupInfoTitle">群设置</h2>
-            <p>成员、目标和 AI 回复方式</p>
+            <p>成员和群聊背景</p>
           </div>
           <button className="icon-button" type="button" aria-label="关闭" onClick={dialog.close}>
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
@@ -729,11 +729,11 @@ function GroupInfoDialog({ dialog }: { dialog: GroupInfoDialogView }) {
 
           <div className="settings-section-label">上下文</div>
           <section className="settings-row settings-group-start">
-            <div><strong>目标</strong><p>给群聊一个长期方向，供 AI 协作时参考。</p></div>
+            <div><strong>群背景</strong><p>AI 会据此理解成员关系和共同目标。</p></div>
             <textarea
               className="group-create-input group-info-goal-input"
               maxLength={200}
-              placeholder="比如：今天把这个 PR 写完"
+              placeholder="例如：大学室友群；一起准备毕业旅行"
               value={goal}
               onChange={(event) => setGoal(event.currentTarget.value)}
               onBlur={async () => reportError(await dialog.saveGoal(goal))}

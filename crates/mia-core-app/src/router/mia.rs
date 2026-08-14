@@ -8,6 +8,7 @@ use mia_core_api_types::{
     BotSummary, MemoryMode, MiaContextSnapshotResponse, MiaMemoryToolNames, MiaMemoryToolRequest,
     MiaSkillToolNames,
 };
+use mia_core_cloud::CloudError;
 use mia_core_conversation::{CurrentSkillError, conversation_memory_mode};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -30,6 +31,19 @@ pub struct MiaCurrentSkillQuery {
     bot_id: Option<String>,
     #[serde(default)]
     id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiaTeamSendMessageRequest {
+    #[serde(default)]
+    context: Value,
+    #[serde(default)]
+    to: String,
+    #[serde(default)]
+    message: String,
+    #[serde(default)]
+    client_op_id: String,
 }
 
 pub async fn mia_context_snapshot(
@@ -127,6 +141,114 @@ pub async fn read_current_mia_skill(
         Err(error) => {
             let (status, payload) = current_skill_error_payload(error);
             (status, Json(payload)).into_response()
+        }
+    }
+}
+
+pub async fn send_mia_team_message(
+    State(states): State<ModuleStates>,
+    Json(request): Json<MiaTeamSendMessageRequest>,
+) -> impl IntoResponse {
+    let local_conversation_id =
+        first_string(&request.context, &["conversationId", "conversation_id"]).unwrap_or_default();
+    if local_conversation_id.is_empty()
+        || request.to.trim().is_empty()
+        || request.message.trim().is_empty()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "conversationId, to, and message are required" })),
+        )
+            .into_response();
+    }
+    let conversation = match states
+        .conversation
+        .get_conversation(&local_conversation_id)
+        .await
+    {
+        Ok(response) => response.conversation,
+        Err(sqlx::Error::RowNotFound) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "conversation_not_found" })),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            tracing::error!(conversation_id = local_conversation_id, error = %error, "[MiaTeam] failed to read conversation");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "conversation_read_failed" })),
+            )
+                .into_response();
+        }
+    };
+    let bridge = conversation
+        .metadata
+        .get("cloudBridge")
+        .filter(|value| value.is_object())
+        .unwrap_or(&Value::Null);
+    let cloud_conversation_id =
+        first_string(bridge, &["conversationId", "conversation_id"]).unwrap_or_default();
+    let conversation_type =
+        first_string(bridge, &["conversationType", "conversation_type"]).unwrap_or_default();
+    let bot_id = conversation.bot_id.as_deref().unwrap_or_default().trim();
+    let requested_bot_id = first_string(&request.context, &["botId", "bot_id"]).unwrap_or_default();
+    if cloud_conversation_id.is_empty() || !conversation_type.eq_ignore_ascii_case("group") {
+        return (
+            StatusCode::CONFLICT,
+            Json(json!({ "error": "team_send_message is only available in cloud group conversations" })),
+        )
+            .into_response();
+    }
+    if bot_id.is_empty() || (!requested_bot_id.is_empty() && requested_bot_id != bot_id) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "conversation_bot_mismatch" })),
+        )
+            .into_response();
+    }
+    if !cloud_conversation_id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':'))
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "cloud_conversation_id_invalid" })),
+        )
+            .into_response();
+    }
+    let origin_message_id = first_string(bridge, &["originMessageId", "origin_message_id"])
+        .or_else(|| first_string(&request.context, &["originMessageId", "origin_message_id"]))
+        .unwrap_or_default();
+    let delegation_depth = bridge
+        .get("delegationDepth")
+        .or_else(|| bridge.get("delegation_depth"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    match states
+        .cloud
+        .post_authenticated_json(
+            &format!("/api/conversations/{cloud_conversation_id}/delegations"),
+            json!({
+                "fromBotId": bot_id,
+                "to": request.to.trim(),
+                "message": request.message.trim(),
+                "originMessageId": origin_message_id,
+                "delegationDepth": delegation_depth,
+                "clientOpId": request.client_op_id.trim(),
+            }),
+        )
+        .await
+    {
+        Ok(value) => Json(value).into_response(),
+        Err(error) => {
+            let status = match &error {
+                CloudError::InvalidInput(_) => StatusCode::CONFLICT,
+                CloudError::Transport(_) => StatusCode::BAD_GATEWAY,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            (status, Json(json!({ "error": error.to_string() }))).into_response()
         }
     }
 }

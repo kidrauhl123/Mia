@@ -1224,14 +1224,37 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
                     "triggeringMessage": {
                         "id": "m_user",
                         "body_md": "hi",
+                        "sender_kind": "user",
+                        "sender_ref": "u_roommate",
+                        "delegatedByBotName": "主持人",
+                        "delegationDepth": 1,
                         "attachments_json": "[{\"id\":\"att_1\"}]",
                         "skills_json": "[{\"id\":\"mia:flashcards\",\"name\":\"Anki\"}]"
                     },
-                    "members": [{
-                        "member_kind": "bot",
-                        "member_ref": "bot_codex",
-                        "identity": { "displayName": "Codex" }
-                    }]
+                    "conversation": {
+                        "id": "botc_1",
+                        "name": "毕业旅行群",
+                        "decorations": {
+                            "pinnedGoal": "我们是大学室友，正在一起准备毕业旅行。"
+                        }
+                    },
+                    "members": [
+                        {
+                            "member_kind": "user",
+                            "member_ref": "u_roommate",
+                            "user": { "displayName": "小林" }
+                        },
+                        {
+                            "member_kind": "bot",
+                            "member_ref": "bot_codex",
+                            "identity": { "displayName": "Codex" }
+                        },
+                        {
+                            "member_kind": "bot",
+                            "member_ref": "bot_research",
+                            "identity": { "displayName": "研究员" }
+                        }
+                    ]
                 })
                 .to_string(),
             ),
@@ -1266,10 +1289,25 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
     assert_eq!(runs[0].logical_message_id.as_deref(), Some("m_user"));
     assert_eq!(runs[0].bot_id, "bot_codex");
     assert_eq!(runs[0].bot_name, "Codex");
-    assert_eq!(runs[0].text, "hi");
+    assert!(
+        runs[0]
+            .text
+            .contains("你是 Codex，正在群聊「毕业旅行群」里发言。")
+    );
+    assert!(runs[0].text.contains("当前发言者：小林 (user:u_roommate)"));
+    assert!(
+        runs[0]
+            .text
+            .contains("群背景（由群成员明确设置）：我们是大学室友，正在一起准备毕业旅行。")
+    );
+    assert!(runs[0].text.contains("不要自行猜测谁是情侣、朋友或室友"));
+    assert!(runs[0].text.contains("研究员 (bot:bot_research)"));
+    assert!(runs[0].text.contains("team_send_message"));
+    assert!(runs[0].text.contains("主持人 委派给你的任务：\nhi"));
     assert_eq!(runs[0].attachments, json!([{ "id": "att_1" }]));
     assert_eq!(runs[0].selected_skill_ids, vec!["mia:flashcards"]);
     assert_eq!(runs[0].runtime_config["agentEngine"], "codex");
+    assert_eq!(runs[0].runtime_config["delegationDepth"], 1);
     assert_eq!(runs[0].model.as_deref(), Some("mia-auto"));
 
     assert_eq!(

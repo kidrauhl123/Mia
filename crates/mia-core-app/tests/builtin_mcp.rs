@@ -31,6 +31,10 @@ async fn memory(Json(request): Json<Value>) -> impl IntoResponse {
     Json(request).into_response()
 }
 
+async fn team_send_message(Json(request): Json<Value>) -> Json<Value> {
+    Json(request)
+}
+
 async fn start_fake_core() -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -39,7 +43,8 @@ async fn start_fake_core() -> String {
             listener,
             Router::new()
                 .route("/api/mia/context", get(context))
-                .route("/api/mia/memory", post(memory)),
+                .route("/api/mia/memory", post(memory))
+                .route("/api/mia/team/send-message", post(team_send_message)),
         )
         .await
         .unwrap();
@@ -55,6 +60,7 @@ fn spawn_mcp(core_url: &str, bot_id: &str, conversation_id: &str, memory_mode: &
         .env("MIA_CONVERSATION_ID", conversation_id)
         .env("MIA_MEMORY_MODE", memory_mode)
         .env("MIA_ORIGIN_MESSAGE_ID", "msg_origin")
+        .env("MIA_DELEGATION_DEPTH", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -101,6 +107,7 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
         .collect::<Vec<_>>();
     for expected in [
         "context_snapshot",
+        "team_send_message",
         "memory",
         "skill_list_current",
         "skill_read_current",
@@ -169,6 +176,33 @@ async fn builtin_mcp_exposes_one_memory_tool_only_in_mia_mode() {
     let payload: Value = serde_json::from_str(text).unwrap();
     assert_eq!(payload["conversationId"], "conv_real");
     assert_eq!(payload["originMessageId"], "msg_origin");
+
+    let delegated = rpc(
+        &mut child,
+        json!({
+            "jsonrpc":"2.0",
+            "id":31,
+            "method":"tools/call",
+            "params":{
+                "name":"team_send_message",
+                "arguments":{"to":"研究员","message":"核对数据"}
+            }
+        }),
+    )
+    .await;
+    assert_eq!(delegated["result"]["isError"], false);
+    let delegation_payload: Value =
+        serde_json::from_str(delegated["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(delegation_payload["context"]["botId"], "bot_real");
+    assert_eq!(delegation_payload["context"]["conversationId"], "conv_real");
+    assert_eq!(delegation_payload["context"]["delegationDepth"], 1);
+    assert_eq!(delegation_payload["to"], "研究员");
+    assert_eq!(delegation_payload["message"], "核对数据");
+    assert!(
+        delegation_payload["clientOpId"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("mcp-team-") && value.len() == 41)
+    );
 
     let memory_call = rpc(
         &mut child,
@@ -239,6 +273,7 @@ async fn builtin_mcp_hides_memory_tool_in_native_mode() {
         .collect::<Vec<_>>();
     for expected in [
         "context_snapshot",
+        "team_send_message",
         "skill_list_current",
         "skill_read_current",
         "schedule_list_current",

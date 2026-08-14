@@ -649,13 +649,21 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
         .or_else(|| value_string(triggering, "text"))
         .or_else(|| value_string(triggering, "body"))
         .unwrap_or_default();
+    let text = desktop_invocation_text(message, triggering, &text);
     let attachments = message_attachments(triggering);
     let selected_skill_ids = selected_skill_ids_from_message(triggering);
-    let runtime_config = message
+    let mut runtime_config = message
         .get("runtimeConfig")
         .filter(|value| value.is_object())
         .cloned()
         .unwrap_or_else(|| json!({}));
+    if let Some(depth) = triggering
+        .get("delegationDepth")
+        .or_else(|| triggering.get("delegation_depth"))
+        .and_then(Value::as_u64)
+    {
+        runtime_config["delegationDepth"] = Value::Number(depth.into());
+    }
     let run_id = invocation_run_id(message, triggering, &conversation_id, &bot_id);
     Ok(CloudBridgeRunRequest {
         run_id,
@@ -822,6 +830,122 @@ fn bot_display_name(message: &Value) -> Option<String> {
             .or_else(|| value_string(identity, "display_name"))
             .or_else(|| value_string(identity, "name"))
     })
+}
+
+fn bounded_text(value: Option<String>, max_chars: usize) -> Option<String> {
+    value.map(|text| text.chars().take(max_chars).collect::<String>())
+}
+
+fn group_member_name(member: &Value, fallback: &str) -> String {
+    let identity = member.get("identity").unwrap_or(&Value::Null);
+    let user = member.get("user").unwrap_or(&Value::Null);
+    value_string(identity, "displayName")
+        .or_else(|| value_string(identity, "display_name"))
+        .or_else(|| value_string(identity, "name"))
+        .or_else(|| value_string(member, "bot_name"))
+        .or_else(|| value_string(member, "displayName"))
+        .or_else(|| value_string(member, "display_name"))
+        .or_else(|| value_string(member, "username"))
+        .or_else(|| value_string(user, "displayName"))
+        .or_else(|| value_string(user, "display_name"))
+        .or_else(|| value_string(user, "username"))
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn desktop_invocation_text(message: &Value, triggering: &Value, text: &str) -> String {
+    let conversation_type = value_string(message, "conversationType")
+        .or_else(|| value_string(message, "conversation_type"))
+        .unwrap_or_default();
+    if !conversation_type.eq_ignore_ascii_case("group") {
+        return text.to_string();
+    }
+    let bot_name = bot_display_name(message)
+        .or_else(|| value_string(message, "botId"))
+        .unwrap_or_else(|| "Bot".to_string());
+    let conversation = message.get("conversation").unwrap_or(&Value::Null);
+    let group_name = bounded_text(value_string(conversation, "name"), 80);
+    let background = bounded_text(
+        conversation
+            .get("decorations")
+            .and_then(|value| value_string(value, "pinnedGoal")),
+        500,
+    );
+    let sender_kind =
+        value_string(triggering, "sender_kind").or_else(|| value_string(triggering, "senderKind"));
+    let sender_ref =
+        value_string(triggering, "sender_ref").or_else(|| value_string(triggering, "senderRef"));
+    let speaker = sender_kind
+        .as_deref()
+        .zip(sender_ref.as_deref())
+        .map(|(kind, reference)| {
+            let member = message
+                .get("members")
+                .and_then(Value::as_array)
+                .and_then(|members| {
+                    members.iter().find(|member| {
+                        value_string(member, "member_kind")
+                            .or_else(|| value_string(member, "memberKind"))
+                            .as_deref()
+                            == Some(kind)
+                            && value_string(member, "member_ref")
+                                .or_else(|| value_string(member, "memberRef"))
+                                .as_deref()
+                                == Some(reference)
+                    })
+                });
+            let name = member
+                .map(|value| group_member_name(value, reference))
+                .unwrap_or_else(|| {
+                    if kind == "system" {
+                        "系统".to_string()
+                    } else {
+                        reference.to_string()
+                    }
+                });
+            format!("{name} ({kind}:{reference})")
+        });
+    let roster = message
+        .get("members")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|member| {
+            let kind = value_string(member, "member_kind")
+                .or_else(|| value_string(member, "memberKind"))?;
+            let member_ref =
+                value_string(member, "member_ref").or_else(|| value_string(member, "memberRef"))?;
+            let name = group_member_name(member, &member_ref);
+            Some(format!("- {name} ({kind}:{member_ref})"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let delegated_by = value_string(triggering, "delegatedByBotName")
+        .or_else(|| value_string(triggering, "delegated_by_bot_name"));
+    [
+        format!(
+            "你是 {bot_name}，正在{}里发言。",
+            group_name
+                .map(|name| format!("群聊「{name}」"))
+                .unwrap_or_else(|| "一个群聊".to_string())
+        ),
+        speaker
+            .map(|value| format!("当前发言者：{value}"))
+            .unwrap_or_default(),
+        (!roster.is_empty()).then(|| format!("群成员：\n{roster}"))
+            .unwrap_or_default(),
+        background
+            .map(|value| format!("群背景（由群成员明确设置）：{value}"))
+            .unwrap_or_default(),
+        "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。".to_string(),
+        "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。".to_string(),
+        delegated_by
+            .map(|name| format!("{name} 委派给你的任务：\n{text}"))
+            .unwrap_or_else(|| format!("用户消息：\n{text}")),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -4078,11 +4078,12 @@ async function handleRequest(req, res, context) {
     }
 
     const conversationAsBotMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/as-bot$/);
+    const conversationDelegationsMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/delegations$/);
     const conversationMembersMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/members$/);
     const conversationMsgDeleteMatch = url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages\/([A-Za-z0-9_-]+)$/);
     const conversationMsgsMatch = !conversationAsBotMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)\/messages$/);
     const conversationSearchRoute = url.pathname === "/api/conversations/search";
-    const conversationDetailMatch = !conversationSearchRoute && !conversationAsBotMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
+    const conversationDetailMatch = !conversationSearchRoute && !conversationAsBotMatch && !conversationDelegationsMatch && !conversationMembersMatch && !conversationMsgsMatch && !conversationMsgDeleteMatch && url.pathname.match(/^\/api\/conversations\/([A-Za-z0-9_.:-]+)$/);
 
     if (req.method === "GET" && conversationSearchRoute) {
       const query = String(url.searchParams.get("q") || "").trim();
@@ -4228,6 +4229,34 @@ async function handleRequest(req, res, context) {
       const payload = { message, ...(message._alreadyExisted ? { deduplicated: true } : {}) };
       rememberOp(context, auth.user.id, body, 201, payload);
       return writeJson(res, 201, payload);
+    }
+
+    if (req.method === "POST" && conversationDelegationsMatch) {
+      const conversationId = conversationDelegationsMatch[1];
+      if (!userIsMemberOfConversation(context.socialStore, conversationId, auth.user.id)) {
+        return writeError(res, 403, "not a member of this conversation");
+      }
+      if (!context.cloudAgentDispatcher?.delegateBot) {
+        return writeError(res, 503, "cloud agent dispatcher unavailable");
+      }
+      const body = await readJson(req);
+      if (replayIfCached(context, res, auth.user.id, body)) return;
+      try {
+        const payload = await context.cloudAgentDispatcher.delegateBot({
+          userId: auth.user.id,
+          conversationId,
+          sourceBotId: body.fromBotId,
+          to: body.to,
+          message: body.message,
+          originMessageId: body.originMessageId,
+          delegationDepth: body.delegationDepth
+        });
+        rememberOp(context, auth.user.id, body, 202, payload);
+        return writeJson(res, 202, payload);
+      } catch (error) {
+        const status = Number(error?.statusCode || 400);
+        return writeError(res, status >= 400 && status < 600 ? status : 400, error?.message || "delegation failed");
+      }
     }
 
     if (req.method === "GET" && conversationDetailMatch) {

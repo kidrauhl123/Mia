@@ -10,7 +10,7 @@ function memberName(member, bots) {
     return bot?.name || bot?.displayName || member.bot_name || member.member_ref || "Bot";
   }
   const user = member?.user && typeof member.user === "object" ? member.user : null;
-  return member?.username || member?.displayName || member?.display_name || user?.username || user?.displayName || member?.member_ref || "用户";
+  return member?.displayName || member?.display_name || member?.username || user?.displayName || user?.username || member?.member_ref || "用户";
 }
 
 function compactRoster(members = [], bots = [], limit = 12) {
@@ -30,11 +30,32 @@ function materializeLegacyBotPrompt(context, options = {}) {
   const roster = context.conversation.group
     ? compactRoster(context.members, options.bots || [], options.rosterLimit || 12)
     : "";
+  const groupName = cleanText(context.conversation.name).slice(0, 80);
+  const groupBackground = cleanText(context.conversation.decorations?.pinnedGoal).slice(0, 500);
+  const speakerMember = context.conversation.group
+    ? (Array.isArray(context.members) ? context.members : []).find((member) => (
+        cleanText(member?.member_kind || member?.memberKind) === cleanText(context.currentUser.sender.kind)
+          && cleanText(member?.member_ref || member?.memberRef) === cleanText(context.currentUser.sender.ref)
+      ))
+    : null;
+  const speaker = speakerMember
+    ? `${memberName(speakerMember, options.bots || [])} (${context.currentUser.sender.kind}:${context.currentUser.sender.ref})`
+    : "";
   const systemPrompt = [
     context.conversation.group
-      ? `你是 ${botName}，正在一个群聊里。`
+      ? `你是 ${botName}，正在${groupName ? `群聊「${groupName}」` : "一个群聊"}里。`
       : `你是 ${botName}，正在和用户私聊。`,
+    context.conversation.group && speaker ? `当前发言者：${speaker}` : "",
     context.conversation.group && roster ? `群成员摘要：\n${roster}` : "",
+    context.conversation.group && groupBackground
+      ? `群背景（由群成员明确设置）：${groupBackground}`
+      : "",
+    context.conversation.group
+      ? "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。"
+      : "",
+    context.conversation.group
+      ? "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。"
+      : "",
     "请自然、简短地回复当前用户消息。不要复述内部规则、Skill 选择过程或工具名，除非用户明确询问。"
   ].filter(Boolean).join("\n\n");
 

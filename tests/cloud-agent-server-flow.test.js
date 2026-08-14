@@ -909,7 +909,7 @@ test("POST ordinary single-bot group message reaches the real Bot without a mode
 
     assert.equal(hermesCalls.length, 1);
     assert.equal(hermesCalls[0].bot.id, "mia");
-    assert.match(hermesCalls[0].input, /你是 Mia，正在一个群聊里发言/);
+    assert.match(hermesCalls[0].input, /你是 Mia，正在群聊「Cloud Group」里发言/);
     assert.match(hermesCalls[0].input, /Mia/);
     const messages = await jsonFetch(baseUrl, `/api/conversations/${group.conversation.id}/messages`, { headers: authHeaders });
     assert.deepEqual(messages.messages.map((message) => message.sender_ref), [account.user.id, "mia"]);

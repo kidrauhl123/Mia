@@ -37,6 +37,7 @@ use super::mcp::{
 };
 use super::mia::{
     list_current_mia_skills, mia_context_snapshot, mutate_mia_memory, read_current_mia_skill,
+    send_mia_team_message,
 };
 use super::realtime::websocket_events;
 use super::state::{ModuleStates, build_module_states};
@@ -100,6 +101,7 @@ pub fn create_router_with_states(states: ModuleStates) -> Router {
         .route("/api/mia/skills/current", get(list_current_mia_skills))
         .route("/api/mia/skills/current/read", get(read_current_mia_skill))
         .route("/api/mia/memory", post(mutate_mia_memory))
+        .route("/api/mia/team/send-message", post(send_mia_team_message))
         .route("/api/engines/model-catalog", get(engine_model_catalog))
         .route("/api/engines/codex/models", get(codex_models))
         .route("/api/engines/capabilities", get(engine_capabilities))

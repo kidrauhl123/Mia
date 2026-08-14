@@ -156,6 +156,57 @@ test("cloud Mia MCP hides memory tool in native mode", () => {
   }
 });
 
+test("cloud Mia MCP delegates to another group Bot through the authenticated cloud route", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-mcp-team-"));
+  const contextPath = path.join(tmp, "context.json");
+  let received = null;
+  const server = http.createServer(async (req, res) => {
+    received = { method: req.method, url: req.url, body: await readJson(req) };
+    res.writeHead(202, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, status: "queued", targets: [{ botId: "bot_research" }] }));
+  });
+  let serverStarted = false;
+  fs.writeFileSync(contextPath, JSON.stringify({
+    userId: "user_1",
+    botId: "bot_host",
+    conversationId: "g_team",
+    originMessageId: "msg_root",
+    delegationDepth: 1,
+    memoryMode: "mia"
+  }));
+  try {
+    await listen(server);
+    serverStarted = true;
+    const address = server.address();
+    const env = {
+      MIA_CLOUD_MCP_CONTEXT_FILE: contextPath,
+      MIA_CLOUD_URL: `http://${address.address}:${address.port}`,
+      MIA_CLOUD_TOKEN: "team-token"
+    };
+    const definition = toolDefinitionsForMode({ env }).find((tool) => tool.name === "team_send_message");
+    assert.deepEqual(definition.inputSchema.required, ["to", "message"]);
+    const result = await callTool("team_send_message", {
+      to: "研究员",
+      message: "核对这组数据"
+    }, { env });
+    assert.equal(result.status, "queued");
+    assert.deepEqual(received, {
+      method: "POST",
+      url: "/api/conversations/g_team/delegations",
+      body: {
+        fromBotId: "bot_host",
+        to: "研究员",
+        message: "核对这组数据",
+        originMessageId: "msg_root",
+        delegationDepth: 1
+      }
+    });
+  } finally {
+    if (serverStarted) await close(server);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("cloud Mia MCP exposes conversation-scoped scheduler tools backed by cloud tasks", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-mcp-scheduler-"));
   const contextPath = path.join(tmp, "context.json");
@@ -320,6 +371,76 @@ test("cloud Mia MCP exposes conversation-scoped scheduler tools backed by cloud 
     assert.deepEqual(afterDelete.jobs, []);
   } finally {
     if (serverStarted) await close(server);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("cloud Mia MCP delegation route wakes the selected group Bot", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mia-cloud-mcp-team-flow-"));
+  const contextPath = path.join(tmp, "context.json");
+  const agentCalls = [];
+  const server = createMiaCloudServer({
+    dataDir: path.join(tmp, "cloud-data"),
+    cloudAgentWorkerManager: {
+      async ensureWorker(userId) {
+        return { userId, baseUrl: "http://worker", apiKey: "worker-key", gatewayWsUrl: "ws://worker/api/ws" };
+      }
+    },
+    cloudAgentClient: {
+      async runChat(args) {
+        agentCalls.push(args);
+        return { runId: "run-team-mcp", content: "核对完成", events: [] };
+      }
+    }
+  });
+  let serverStarted = false;
+  try {
+    await listen(server);
+    serverStarted = true;
+    const address = server.address();
+    const userId = loginCloudUser(server.mia.cloudStore, "mcp_team_flow").user.id;
+    for (const [id, name] of [["bot_host", "主持人"], ["bot_research", "研究员"]]) {
+      server.mia.botsStore.upsertBot(userId, { id, displayName: name });
+      server.mia.runtimeBindingsStore.upsertBinding({
+        userId,
+        botId: id,
+        runtimeKind: "cloud-claude-code",
+        activate: true,
+        config: { model: "mia-default" }
+      });
+    }
+    const conversation = server.mia.socialStore.createConversation({
+      id: "g_mcp_team",
+      type: "group",
+      name: "Team"
+    });
+    server.mia.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "user", memberRef: userId });
+    server.mia.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "bot_host", ownerId: userId });
+    server.mia.socialStore.addConversationMember({ conversationId: conversation.id, memberKind: "bot", memberRef: "bot_research", ownerId: userId });
+    fs.writeFileSync(contextPath, JSON.stringify({
+      userId,
+      botId: "bot_host",
+      conversationId: conversation.id,
+      originMessageId: "msg_root",
+      delegationDepth: 0
+    }));
+    const result = await callTool("team_send_message", {
+      to: "研究员",
+      message: "核对这组数据"
+    }, {
+      env: {
+        MIA_CLOUD_MCP_CONTEXT_FILE: contextPath,
+        MIA_CLOUD_URL: `http://${address.address}:${address.port}`,
+        MIA_CLOUD_TOKEN: server.mia.cloudStore.createSessionForUser(userId).token
+      }
+    });
+    assert.equal(result.status, "queued");
+    await server.mia.cloudAgentDispatcher.idle();
+    assert.equal(agentCalls.length, 1);
+    assert.equal(agentCalls[0].bot.id, "bot_research");
+    assert.equal(server.mia.messagesStore.listLatestMessages(conversation.id, 20).messages.at(-1).body_md, "核对完成");
+  } finally {
+    if (serverStarted) await server.shutdown();
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });

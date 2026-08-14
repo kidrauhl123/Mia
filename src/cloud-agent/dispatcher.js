@@ -1,3 +1,5 @@
+const { randomUUID } = require("node:crypto");
+
 const {
   parseAttachmentsFromMessage,
   redactGeneratedArtifactPaths,
@@ -18,6 +20,8 @@ const BOT_MEMBER_KIND = "bot";
 const BOT_SENDER_KIND = "bot";
 const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const CLOUD_CLAUDE_CODE_RUNTIME_KIND = "cloud-claude-code";
+const MAX_DELEGATION_DEPTH = 3;
+const MAX_DELEGATION_TARGETS = 8;
 
 function botForMember(member, bots) {
   const ref = member?.member_ref;
@@ -52,7 +56,7 @@ function memberDisplayName(member, bots) {
     return botDisplayName(bot) || member.bot_name || member.member_ref || "Bot";
   }
   const user = member?.user && typeof member.user === "object" ? member.user : null;
-  return member?.username || member?.displayName || member?.display_name || user?.username || user?.displayName || member?.member_ref || "用户";
+  return member?.displayName || member?.display_name || member?.username || user?.displayName || user?.username || member?.member_ref || "用户";
 }
 
 function groupRoster(members, bots) {
@@ -64,15 +68,39 @@ function groupRoster(members, bots) {
     .join("\n");
 }
 
-function inputWithGroupContext(input, members, bots, bot) {
+function boundedContextText(value, maxLength) {
+  const text = String(value || "").trim();
+  return text.length > maxLength ? text.slice(0, maxLength) : text;
+}
+
+function groupSpeaker(message, members, bots) {
+  const kind = String(message?.sender_kind || message?.senderKind || "").trim();
+  const ref = String(message?.sender_ref || message?.senderRef || "").trim();
+  if (!kind && !ref) return "";
+  const member = (Array.isArray(members) ? members : []).find((item) => (
+    String(item?.member_kind || item?.memberKind || "") === kind
+      && String(item?.member_ref || item?.memberRef || "") === ref
+  ));
+  const name = member ? memberDisplayName(member, bots) : (kind === "system" ? "系统" : ref);
+  return `${name || "成员"} (${kind || "member"}:${ref})`;
+}
+
+function inputWithGroupContext(input, members, bots, bot, message = {}, conversation = {}) {
   const roster = groupRoster(members, bots);
-  if (!roster) return input;
   const name = String(botDisplayName(bot) || bot?.id || bot?.key || "Bot").trim();
+  const groupName = boundedContextText(conversation?.name, 80);
+  const background = boundedContextText(conversation?.decorations?.pinnedGoal, 500);
+  const speaker = groupSpeaker(message, members, bots);
+  const delegatedBy = String(message?.delegatedByBotName || message?.delegated_by_bot_name || "").trim();
   return [
-    `你是 ${name}，正在一个群聊里发言。`,
-    `群成员：\n${roster}`,
-    `用户消息：\n${input || ""}`
-  ].join("\n\n");
+    `你是 ${name}，正在${groupName ? `群聊「${groupName}」` : "一个群聊"}里发言。`,
+    speaker ? `当前发言者：${speaker}` : "",
+    roster ? `群成员：\n${roster}` : "",
+    background ? `群背景（由群成员明确设置）：${background}` : "",
+    "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。",
+    "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。",
+    delegatedBy ? `${delegatedBy} 委派给你的任务：\n${input || ""}` : `用户消息：\n${input || ""}`
+  ].filter(Boolean).join("\n\n");
 }
 
 function inputWithPrivateContext(input, bot) {
@@ -83,10 +111,21 @@ function inputWithPrivateContext(input, bot) {
   ].join("\n\n");
 }
 
-function inputWithConversationContext(input, { conversationType, members, bots, bot } = {}) {
+function inputWithConversationContext(input, { conversationType, members, bots, bot, message, conversation } = {}) {
   return conversationType === "group"
-    ? inputWithGroupContext(input, members, bots, bot)
+    ? inputWithGroupContext(input, members, bots, bot, message, conversation)
     : inputWithPrivateContext(input, bot);
+}
+
+function invocationConversationContext(conversation = null) {
+  if (!conversation) return null;
+  const background = boundedContextText(conversation?.decorations?.pinnedGoal, 500);
+  return {
+    id: conversation.id,
+    type: conversation.type,
+    name: boundedContextText(conversation.name, 80),
+    decorations: background ? { pinnedGoal: background } : null
+  };
 }
 
 function isScheduledFireMessage(message = {}) {
@@ -481,7 +520,8 @@ function createCloudAgentDispatcher(deps = {}) {
       invokedBy: invocationSender(message, ownerId),
       triggeringMessage: message,
       recentMessages: [],
-      members
+      members,
+      conversation: invocationConversationContext(socialStore.getConversation(conversationId))
     });
   }
 
@@ -586,15 +626,17 @@ function createCloudAgentDispatcher(deps = {}) {
           attachments: parseAttachmentsFromMessage(message)
         })
         : { attachments: [], input: inputText };
+      const conversation = socialStore.getConversation(conversationId);
       const conversationInput = inputWithConversationContext(materialized.input || inputText, {
         conversationType,
         members: rosterMembers,
         bots: rosterBots,
-        bot
+        bot,
+        message,
+        conversation
       });
       const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
       let activeNativeSessionId = await loadNativeSessionId(nativeDescriptor);
-      const conversation = socialStore.getConversation(conversationId);
       const memoryMode = String(conversation?.decorations?.memoryMode || "").trim().toLowerCase() === "native"
         ? "native"
         : "mia";
@@ -970,6 +1012,95 @@ function createCloudAgentDispatcher(deps = {}) {
     return null;
   }
 
+  function delegationFailure(message, statusCode = 400) {
+    const error = new Error(message);
+    error.statusCode = statusCode;
+    return error;
+  }
+
+  function delegationTargets(to, sourceBotId, context) {
+    const target = String(to || "").trim();
+    if (!target) throw delegationFailure("to is required");
+    const candidates = context.botMembers.filter((member) => member.member_ref !== sourceBotId);
+    if (target === "*") return candidates.slice(0, MAX_DELEGATION_TARGETS);
+    const exact = candidates.find((member) => member.member_ref === target);
+    if (exact) return [exact];
+    const normalized = target.toLocaleLowerCase();
+    const named = candidates.filter((member) => {
+      const bot = botForMember(member, context.bots);
+      return String(botDisplayName(bot) || "").trim().toLocaleLowerCase() === normalized;
+    });
+    if (named.length > 1) throw delegationFailure(`Bot name is ambiguous: ${target}`, 409);
+    if (named.length === 1) return named;
+    throw delegationFailure(`Bot is not in this group: ${target}`, 404);
+  }
+
+  async function delegateBot(args = {}) {
+    const userId = String(args.userId || "").trim();
+    const conversationId = String(args.conversationId || "").trim();
+    const sourceBotId = String(args.sourceBotId || args.fromBotId || "").trim();
+    const task = String(args.message || "").trim();
+    const depth = Number(args.delegationDepth || 0);
+    if (!userId || !conversationId || !sourceBotId || !task) {
+      throw delegationFailure("userId, conversationId, fromBotId, and message are required");
+    }
+    if (!Number.isInteger(depth) || depth < 0 || depth >= MAX_DELEGATION_DEPTH) {
+      throw delegationFailure(`delegation depth limit is ${MAX_DELEGATION_DEPTH}`, 409);
+    }
+    const conversation = socialStore.getConversation(conversationId);
+    if (!conversation) throw delegationFailure("conversation not found", 404);
+    if (conversation.type !== "group") throw delegationFailure("team_send_message is only available in group conversations", 409);
+    if (!socialStore.getConversationMember(conversationId, MemberKind.User, userId)) {
+      throw delegationFailure("not a member of this conversation", 403);
+    }
+    const context = groupRouter.groupContext(conversationId);
+    const sourceMember = context.botMembers.find((member) => (
+      member.member_ref === sourceBotId && String(member.owner_id || "") === userId
+    ));
+    if (!sourceMember) throw delegationFailure("the sending Bot is not owned in this group", 403);
+    const targets = delegationTargets(args.to, sourceBotId, context);
+    if (!targets.length) throw delegationFailure("there are no other Bots in this group", 409);
+
+    const sourceBot = botForMember(sourceMember, context.bots);
+    const sourceName = botDisplayName(sourceBot) || sourceBotId;
+    const rootOriginMessageId = String(args.originMessageId || "").trim();
+    const queued = [];
+    for (const member of targets) {
+      const targetBot = botForMember(member, context.bots);
+      const delegationMessage = {
+        id: `delegate_${randomUUID().replace(/-/g, "")}`,
+        sender_kind: BOT_SENDER_KIND,
+        sender_ref: sourceBotId,
+        body_md: task,
+        task_prompt: task,
+        delegatedByBotId: sourceBotId,
+        delegatedByBotName: sourceName,
+        delegationDepth: depth + 1,
+        rootOriginMessageId
+      };
+      const promise = dispatchBot({
+        ownerId: member.owner_id,
+        botId: member.member_ref,
+        conversationId,
+        conversationType: conversation.type,
+        message: delegationMessage,
+        members: context.members,
+        bots: context.bots,
+        runtimeBinding: null
+      });
+      pending.add(promise);
+      promise
+        .catch((error) => log(`[cloud-agent] delegated run failed: ${error?.message || error}`))
+        .finally(() => pending.delete(promise));
+      queued.push({
+        botId: member.member_ref,
+        name: botDisplayName(targetBot) || member.member_ref,
+        messageId: delegationMessage.id
+      });
+    }
+    return { ok: true, status: "queued", targets: queued, delegationDepth: depth + 1 };
+  }
+
   async function runInvocation(args = {}) {
     const userId = String(args.userId || "").trim();
     const conversationId = String(args.conversationId || "").trim();
@@ -1042,7 +1173,7 @@ function createCloudAgentDispatcher(deps = {}) {
     }
   }
 
-  return { handleUserMessage, invokeBot, respondApproval, stopRun, idle };
+  return { delegateBot, handleUserMessage, invokeBot, respondApproval, stopRun, idle };
 }
 
 module.exports = { createCloudAgentDispatcher };

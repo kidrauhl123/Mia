@@ -272,8 +272,19 @@ function normalizeMemoryMode(value = "") {
   return cleanText(value || "").toLowerCase() === "native" ? "native" : "mia";
 }
 
+function delegationDepth(message = {}) {
+  const value = Number(message?.delegationDepth ?? message?.delegation_depth ?? 0);
+  return Number.isInteger(value) && value > 0 ? value : 0;
+}
+
 function writeCloudMcpContext({ worker = {}, ownerId = "", botId = "", conversationId = "", message = {}, enabledIds = [], skills = [], memoryMode = "mia" } = {}) {
-  const dir = path.join(cloudMcpRoot(worker), "mia-cloud-mcp", safePathSegment(ownerId, "user"), safePathSegment(conversationId, "conversation"));
+  const dir = path.join(
+    cloudMcpRoot(worker),
+    "mia-cloud-mcp",
+    safePathSegment(ownerId, "user"),
+    safePathSegment(conversationId, "conversation"),
+    safePathSegment(botId, "bot")
+  );
   fs.mkdirSync(dir, { recursive: true });
   const contextPath = path.join(dir, "context.json");
   const payload = {
@@ -282,6 +293,7 @@ function writeCloudMcpContext({ worker = {}, ownerId = "", botId = "", conversat
     conversationId,
     sessionId: conversationId,
     originMessageId: cleanText(message?.id || ""),
+    delegationDepth: delegationDepth(message),
     memoryMode: normalizeMemoryMode(memoryMode),
     enabledSkillIds: enabledIds,
     skills,

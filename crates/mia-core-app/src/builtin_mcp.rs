@@ -4,6 +4,7 @@ use anyhow::{Context, bail};
 use mia_core_api_types::MemoryMode;
 use reqwest::{Client, Method};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +12,7 @@ struct MiaMcpContext {
     core_url: String,
     bot_id: String,
     conversation_id: String,
+    delegation_depth: u64,
     memory_mode: MemoryMode,
     origin_message_id: String,
     user_id: String,
@@ -26,6 +28,7 @@ impl MiaMcpContext {
             core_url: core_url.trim_end_matches('/').to_string(),
             bot_id: env_value("MIA_BOT_ID"),
             conversation_id: env_value("MIA_CONVERSATION_ID"),
+            delegation_depth: env_value("MIA_DELEGATION_DEPTH").parse().unwrap_or(0),
             memory_mode: match env_value("MIA_MEMORY_MODE").as_str() {
                 "mia" => MemoryMode::Mia,
                 _ => MemoryMode::Native,
@@ -117,7 +120,7 @@ async fn handle_request(client: &Client, context: &MiaMcpContext, request: Value
                 .filter(|value| value.is_object())
                 .cloned()
                 .unwrap_or_else(|| json!({}));
-            let result = call_tool(client, context, name, args).await;
+            let result = call_tool(client, context, name, args, &id).await;
             Some(match result {
                 Ok(value) => json!({
                     "jsonrpc":"2.0",
@@ -150,6 +153,7 @@ async fn call_tool(
     context: &MiaMcpContext,
     name: &str,
     args: Value,
+    request_id: &Value,
 ) -> anyhow::Result<Value> {
     match name {
         "context_snapshot" => {
@@ -163,6 +167,27 @@ async fn call_tool(
                 "/api/mia/context",
                 Some(&query),
                 None,
+            )
+            .await
+        }
+        "team_send_message" => {
+            core_json(
+                client,
+                context,
+                Method::POST,
+                "/api/mia/team/send-message",
+                None,
+                Some(json!({
+                    "context": {
+                        "botId": context.bot_id,
+                        "conversationId": context.conversation_id,
+                        "originMessageId": context.origin_message_id,
+                        "delegationDepth": context.delegation_depth,
+                    },
+                    "to": required_tool_text(&args, "to")?,
+                    "message": required_tool_text(&args, "message")?,
+                    "clientOpId": team_client_op_id(context, request_id),
+                })),
             )
             .await
         }
@@ -298,6 +323,17 @@ async fn call_tool(
     }
 }
 
+fn team_client_op_id(context: &MiaMcpContext, request_id: &Value) -> String {
+    let digest = Sha256::digest(
+        format!(
+            "{}\n{}\n{}\n{}",
+            context.conversation_id, context.bot_id, context.origin_message_id, request_id
+        )
+        .as_bytes(),
+    );
+    format!("mcp-team-{digest:x}")[..41].to_string()
+}
+
 #[derive(Debug, Clone)]
 struct SchedulerScope {
     bot_id: String,
@@ -383,6 +419,21 @@ fn tool_definitions(memory_mode: MemoryMode) -> Vec<Value> {
             "Read the current Mia bot and conversation context.",
             json!({"type":"object","properties":{}}),
             true,
+            false,
+        ),
+        tool(
+            "team_send_message",
+            "Delegate a task to another Bot in the current Mia group. Use the Bot name or ID; use * to ask every other Bot.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "to":{"type":"string","minLength":1},
+                    "message":{"type":"string","minLength":1}
+                },
+                "required":["to","message"],
+                "additionalProperties":false
+            }),
+            false,
             false,
         ),
         tool(
@@ -529,6 +580,7 @@ mod tests {
         assert!(names.contains(&"schedule_create".to_string()));
         assert!(names.contains(&"schedule_update".to_string()));
         assert!(names.contains(&"schedule_delete".to_string()));
+        assert!(names.contains(&"team_send_message".to_string()));
     }
 
     #[test]
@@ -537,6 +589,7 @@ mod tests {
             core_url: "http://127.0.0.1:1".into(),
             bot_id: "bot_a".into(),
             conversation_id: "conv_a".into(),
+            delegation_depth: 0,
             memory_mode: MemoryMode::Mia,
             origin_message_id: "msg_a".into(),
             user_id: "user_a".into(),
