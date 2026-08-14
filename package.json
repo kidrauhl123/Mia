@@ -90,7 +90,7 @@
   "engineBackups": {
     "manifestUrl": "https://mia.gifgif.cn/downloads/engine-backups/v1/manifest.json"
   },
-  "miaCoreVersion": "v0.1.7",
+  "miaCoreVersion": "v0.1.8",
   "miaCoreReleaseBaseUrl": "https://mia.gifgif.cn/downloads/mia-core",
   "devDependencies": {
     "@types/react": "^19.2.17",
