@@ -1,4 +1,4 @@
-const { randomUUID } = require("node:crypto");
+const { createHash, randomUUID } = require("node:crypto");
 
 const {
   parseAttachmentsFromMessage,
@@ -22,6 +22,8 @@ const ENGINE_IDENTITY_NAMES = ["Claude Code", "Codex", "Hermes"];
 const CLOUD_CLAUDE_CODE_RUNTIME_KIND = "cloud-claude-code";
 const MAX_DELEGATION_DEPTH = 3;
 const MAX_DELEGATION_TARGETS = 8;
+const MAX_GROUP_CONTEXT_MEMBERS = 24;
+const GROUP_CONTEXT_VERSION = 2;
 
 function botForMember(member, bots) {
   const ref = member?.member_ref;
@@ -59,15 +61,6 @@ function memberDisplayName(member, bots) {
   return member?.displayName || member?.display_name || member?.username || user?.displayName || user?.username || member?.member_ref || "用户";
 }
 
-function groupRoster(members, bots) {
-  return (Array.isArray(members) ? members : [])
-    .map((member) => {
-      const kind = member?.member_kind === BOT_MEMBER_KIND ? "bot" : "user";
-      return `- ${memberDisplayName(member, bots)} (${kind}:${member?.member_ref || ""})`;
-    })
-    .join("\n");
-}
-
 function boundedContextText(value, maxLength) {
   const text = String(value || "").trim();
   return text.length > maxLength ? text.slice(0, maxLength) : text;
@@ -85,22 +78,70 @@ function groupSpeaker(message, members, bots) {
   return `${name || "成员"} (${kind || "member"}:${ref})`;
 }
 
-function inputWithGroupContext(input, members, bots, bot, message = {}, conversation = {}) {
-  const roster = groupRoster(members, bots);
-  const name = String(botDisplayName(bot) || bot?.id || bot?.key || "Bot").trim();
-  const groupName = boundedContextText(conversation?.name, 80);
-  const background = boundedContextText(conversation?.decorations?.pinnedGoal, 500);
+function normalizedGroupMembers(members, bots) {
+  const rows = (Array.isArray(members) ? members : []).map((member, index) => {
+    const kind = member?.member_kind === BOT_MEMBER_KIND ? "bot" : "user";
+    const ref = boundedContextText(member?.member_ref || member?.memberRef, 96);
+    return {
+      kind,
+      ref,
+      name: boundedContextText(memberDisplayName(member, bots), 80),
+      priority: kind === "bot" ? 0 : 1,
+      index
+    };
+  });
+  rows.sort((left, right) => left.priority - right.priority || left.ref.localeCompare(right.ref) || left.index - right.index);
+  return {
+    members: rows.slice(0, MAX_GROUP_CONTEXT_MEMBERS).map(({ kind, ref, name }) => ({ kind, ref, name })),
+    omitted: Math.max(0, rows.length - MAX_GROUP_CONTEXT_MEMBERS)
+  };
+}
+
+function groupPromptContext(members, bots, bot, _message = {}, conversation = {}) {
+  const roster = normalizedGroupMembers(members, bots);
+  const data = {
+    version: GROUP_CONTEXT_VERSION,
+    bot: {
+      id: boundedContextText(bot?.id || bot?.key, 96),
+      name: boundedContextText(botDisplayName(bot) || bot?.id || bot?.key || "Bot", 80)
+    },
+    group: {
+      name: boundedContextText(conversation?.name, 80),
+      background: boundedContextText(conversation?.decorations?.pinnedGoal, 500)
+    },
+    members: roster.members,
+    omitted: roster.omitted
+  };
+  const rosterText = [
+    ...data.members.map((member) => `- ${member.name} (${member.kind}:${member.ref})`),
+    data.omitted ? `- 另有 ${data.omitted} 位成员未列出` : ""
+  ].filter(Boolean).join("\n");
+  const snapshot = [
+    `你是 ${data.bot.name}，正在${data.group.name ? `群聊「${data.group.name}」` : "一个群聊"}里发言。`,
+    rosterText ? `群成员：\n${rosterText}` : "",
+    data.group.background ? `群背景（由群成员明确设置）：${data.group.background}` : "",
+    "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。",
+    "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。"
+  ].filter(Boolean).join("\n\n");
+  return {
+    fingerprint: `group-context-v${GROUP_CONTEXT_VERSION}-${createHash("sha256").update(JSON.stringify(data)).digest("hex").slice(0, 24)}`,
+    snapshot
+  };
+}
+
+function inputWithGroupContext(input, members, bots, bot, message = {}, conversation = {}, includeSnapshot = true) {
+  const context = groupPromptContext(members, bots, bot, message, conversation);
   const speaker = groupSpeaker(message, members, bots);
   const delegatedBy = String(message?.delegatedByBotName || message?.delegated_by_bot_name || "").trim();
-  return [
-    `你是 ${name}，正在${groupName ? `群聊「${groupName}」` : "一个群聊"}里发言。`,
+  const turn = [
     speaker ? `当前发言者：${speaker}` : "",
-    roster ? `群成员：\n${roster}` : "",
-    background ? `群背景（由群成员明确设置）：${background}` : "",
-    "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。",
-    "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。",
     delegatedBy ? `${delegatedBy} 委派给你的任务：\n${input || ""}` : `用户消息：\n${input || ""}`
   ].filter(Boolean).join("\n\n");
+  return {
+    ...context,
+    turn,
+    input: [includeSnapshot ? context.snapshot : "", turn].filter(Boolean).join("\n\n")
+  };
 }
 
 function inputWithPrivateContext(input, bot) {
@@ -111,10 +152,10 @@ function inputWithPrivateContext(input, bot) {
   ].join("\n\n");
 }
 
-function inputWithConversationContext(input, { conversationType, members, bots, bot, message, conversation } = {}) {
+function inputWithConversationContext(input, { conversationType, members, bots, bot, message, conversation, includeGroupSnapshot = true } = {}) {
   return conversationType === "group"
-    ? inputWithGroupContext(input, members, bots, bot, message, conversation)
-    : inputWithPrivateContext(input, bot);
+    ? inputWithGroupContext(input, members, bots, bot, message, conversation, includeGroupSnapshot)
+    : { fingerprint: "", snapshot: "", turn: inputWithPrivateContext(input, bot), input: inputWithPrivateContext(input, bot) };
 }
 
 function invocationConversationContext(conversation = null) {
@@ -283,6 +324,8 @@ function createCloudAgentDispatcher(deps = {}) {
   const now = typeof deps.now === "function" ? deps.now : Date.now;
   const loadNativeSessionId = typeof deps.loadNativeSessionId === "function" ? deps.loadNativeSessionId : () => "";
   const saveNativeSessionId = typeof deps.saveNativeSessionId === "function" ? deps.saveNativeSessionId : () => {};
+  const loadNativeSessionEntry = typeof deps.loadNativeSessionEntry === "function" ? deps.loadNativeSessionEntry : null;
+  const saveNativeSessionEntry = typeof deps.saveNativeSessionEntry === "function" ? deps.saveNativeSessionEntry : null;
   const deleteNativeSessionId = typeof deps.deleteNativeSessionId === "function" ? deps.deleteNativeSessionId : () => {};
   const scheduledTasks = {
     list: typeof deps.listScheduledTasks === "function" ? deps.listScheduledTasks : () => [],
@@ -291,6 +334,7 @@ function createCloudAgentDispatcher(deps = {}) {
     delete: typeof deps.deleteScheduledTask === "function" ? deps.deleteScheduledTask : null
   };
   const pending = new Set();
+  const volatileSessionEntries = new Map();
   const groupRouter = createGroupRouter({
     socialStore,
     botsStore,
@@ -327,6 +371,51 @@ function createCloudAgentDispatcher(deps = {}) {
       conversationId,
       workspacePath: String(worker?.paths?.workspace || "").trim()
     };
+  }
+
+  function nativeDescriptorKey(descriptor = {}) {
+    return [descriptor.engineId, descriptor.botId, descriptor.conversationId, descriptor.workspacePath].join("\n");
+  }
+
+  async function readNativeSessionEntry(descriptor = {}) {
+    const key = nativeDescriptorKey(descriptor);
+    if (loadNativeSessionEntry) {
+      const entry = await loadNativeSessionEntry(descriptor);
+      const normalized = {
+        id: String(entry?.id || "").trim(),
+        fingerprint: String(entry?.fingerprint || "").trim()
+      };
+      volatileSessionEntries.set(key, normalized);
+      return normalized;
+    }
+    const cached = volatileSessionEntries.get(key);
+    if (cached) return cached;
+    const normalized = {
+      id: String(await loadNativeSessionId(descriptor) || "").trim(),
+      fingerprint: ""
+    };
+    volatileSessionEntries.set(key, normalized);
+    return normalized;
+  }
+
+  function writeNativeSessionEntry(descriptor = {}, nativeSessionId = "", fingerprint = "") {
+    const id = String(nativeSessionId || "").trim();
+    if (!id) return;
+    const normalizedFingerprint = String(fingerprint || "").trim();
+    const key = nativeDescriptorKey(descriptor);
+    const previous = volatileSessionEntries.get(key);
+    if (previous?.id === id && previous?.fingerprint === normalizedFingerprint) return;
+    volatileSessionEntries.set(key, { id, fingerprint: normalizedFingerprint });
+    if (saveNativeSessionEntry) {
+      saveNativeSessionEntry(descriptor, id, normalizedFingerprint);
+    } else {
+      saveNativeSessionId(descriptor, id);
+    }
+  }
+
+  function deleteNativeSessionEntry(descriptor = {}) {
+    volatileSessionEntries.delete(nativeDescriptorKey(descriptor));
+    deleteNativeSessionId(descriptor);
   }
 
   async function cancelActiveRunsForTarget({ ownerId, botId, conversationId }) {
@@ -509,6 +598,11 @@ function createCloudAgentDispatcher(deps = {}) {
   }
 
   function broadcastDesktopInvocation({ ownerId, botId, runtimeConfig, conversationId, conversationType, message, members }) {
+    const conversation = socialStore.getConversation(conversationId);
+    const bot = botsStore.getBot(botId);
+    const groupContext = conversationType === "group"
+      ? groupPromptContext(members, botsStore.listBots(ownerId), bot, message, conversation)
+      : { fingerprint: "", snapshot: "" };
     broadcastPersistedEvent(ownerId, {
       type: CloudEvent.ConversationBotInvocationRequested,
       conversationId,
@@ -521,7 +615,9 @@ function createCloudAgentDispatcher(deps = {}) {
       triggeringMessage: message,
       recentMessages: [],
       members,
-      conversation: invocationConversationContext(socialStore.getConversation(conversationId))
+      conversation: invocationConversationContext(conversation),
+      groupContextFingerprint: groupContext.fingerprint,
+      groupContextSnapshot: groupContext.snapshot
     });
   }
 
@@ -627,16 +723,25 @@ function createCloudAgentDispatcher(deps = {}) {
         })
         : { attachments: [], input: inputText };
       const conversation = socialStore.getConversation(conversationId);
-      const conversationInput = inputWithConversationContext(materialized.input || inputText, {
+      const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
+      const sessionEntry = await readNativeSessionEntry(nativeDescriptor);
+      let activeNativeSessionId = sessionEntry.id;
+      let knownNativeSessionId = sessionEntry.id;
+      const baseConversationContext = inputWithConversationContext(materialized.input || inputText, {
         conversationType,
         members: rosterMembers,
         bots: rosterBots,
         bot,
         message,
-        conversation
+        conversation,
+        includeGroupSnapshot: false
       });
-      const nativeDescriptor = nativeSessionDescriptor({ runtimeKind, botId, conversationId, worker });
-      let activeNativeSessionId = await loadNativeSessionId(nativeDescriptor);
+      const groupContextChanged = conversationType === "group"
+        && sessionEntry.fingerprint !== baseConversationContext.fingerprint;
+      const conversationInput = [
+        groupContextChanged ? baseConversationContext.snapshot : "",
+        baseConversationContext.turn
+      ].filter(Boolean).join("\n\n");
       const memoryMode = String(conversation?.decorations?.memoryMode || "").trim().toLowerCase() === "native"
         ? "native"
         : "mia";
@@ -660,6 +765,11 @@ function createCloudAgentDispatcher(deps = {}) {
       let finalRunEvents = [];
       let cronContinuationCount = 0;
       let turnInput = [runtimeAssembly.promptPrefix, conversationInput].filter(Boolean).join("\n\n");
+      let freshSessionInput = [
+        runtimeAssembly.memoryBlock,
+        baseConversationContext.snapshot,
+        baseConversationContext.turn
+      ].filter(Boolean).join("\n\n");
       for (let round = 0; round <= MAX_CRON_CONTINUATIONS; round += 1) {
         const roundRunEvents = [];
         const eventGate = createInternalControlEventGate((event) => {
@@ -694,6 +804,7 @@ function createCloudAgentDispatcher(deps = {}) {
           effortLevel: runtimeConfig.effortLevel || "medium",
           permissionMode: worker.permissionMode,
           input: turnInput,
+          freshSessionInput,
           attachments: materialized.attachments || [],
           onRunCreated(runtimeSessionId) {
             const runtimeRunId = formatRuntimeRunId(runtimeSessionId, agentClient);
@@ -713,7 +824,8 @@ function createCloudAgentDispatcher(deps = {}) {
           onSessionId(sessionId) {
             const id = String(sessionId || "").trim();
             if (!id) return;
-            saveNativeSessionId(nativeDescriptor, id);
+            knownNativeSessionId = id;
+            writeNativeSessionEntry(nativeDescriptor, id, sessionEntry.fingerprint);
             const runtimeRunId = formatRuntimeRunId(id, agentClient);
             const currentRun = cloudAgentRunsStore.getRun(run.id);
             if (runIsCancelled(currentRun) || runIsCancelling(currentRun)) return;
@@ -722,15 +834,22 @@ function createCloudAgentDispatcher(deps = {}) {
           onSessionReset(info = {}) {
             const staleSessionId = String(info.staleSessionId || "").trim();
             if (!staleSessionId) return;
-            deleteNativeSessionId(nativeDescriptor);
+            deleteNativeSessionEntry(nativeDescriptor);
           },
           onEvent(event) {
             roundRunEvents.push(event);
             eventGate.collect(event);
           }
         });
-        const roundSessionId = String(result?.sessionId || result?.nativeSessionId || result?.runId || "").trim();
-        if (roundSessionId) activeNativeSessionId = roundSessionId;
+        const persistedSessionId = String(result?.sessionId || result?.nativeSessionId || "").trim();
+        if (persistedSessionId) knownNativeSessionId = persistedSessionId;
+        const roundSessionId = String(persistedSessionId || result?.runId || "").trim();
+        if (roundSessionId) {
+          activeNativeSessionId = roundSessionId;
+        }
+        if (knownNativeSessionId) {
+          writeNativeSessionEntry(nativeDescriptor, knownNativeSessionId, baseConversationContext.fingerprint);
+        }
         const cronTurn = await processCloudCronTurn({
           assistantText: result?.content || "",
           continuationCount: cronContinuationCount,
@@ -756,6 +875,11 @@ function createCloudAgentDispatcher(deps = {}) {
         if (cronTurn.continuation) {
           eventGate.discard();
           turnInput = cronTurn.continuation;
+          freshSessionInput = [
+            runtimeAssembly.memoryBlock,
+            baseConversationContext.snapshot,
+            cronTurn.continuation
+          ].filter(Boolean).join("\n\n");
           continue;
         }
         finalRunEvents = roundRunEvents;

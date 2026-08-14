@@ -375,7 +375,11 @@ impl HermesGatewayTask {
     ) -> Result<Self> {
         let process = HermesGatewayProcess::spawn(plan).await?;
         let approval_options = discover_hermes_approval_options(plan).await;
-        let pending_initial_prompt = if plan.memory_mode == MemoryMode::Mia {
+        let has_group_context = plan
+            .environment
+            .get("MIA_GROUP_CONTEXT_SNAPSHOT")
+            .is_some_and(|value| !value.trim().is_empty());
+        let pending_initial_prompt = if plan.memory_mode == MemoryMode::Mia || has_group_context {
             match initial_prompt_provider.as_ref() {
                 Some(provider) => {
                     let prompt = provider.initial_prompt(plan).await?;

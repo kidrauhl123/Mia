@@ -940,7 +940,11 @@ async fn pending_initial_prompt_for_new_session(
     plan: &RuntimeTurnPlan,
     provider: Option<&Arc<dyn RuntimeInitialPromptProvider>>,
 ) -> Result<Option<String>> {
-    if plan.memory_mode != MemoryMode::Mia {
+    let has_group_context = plan
+        .environment
+        .get("MIA_GROUP_CONTEXT_SNAPSHOT")
+        .is_some_and(|value| !value.trim().is_empty());
+    if plan.memory_mode != MemoryMode::Mia && !has_group_context {
         return Ok(None);
     }
     let Some(provider) = provider else {
@@ -3214,7 +3218,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fresh_session_loads_initial_prompt_only_for_mia_mode() {
+    async fn fresh_session_loads_initial_prompt_for_mia_memory_or_group_context() {
         #[derive(Default)]
         struct CountingProvider {
             calls: std::sync::atomic::AtomicUsize,
@@ -3249,6 +3253,18 @@ mod tests {
             None
         );
         assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+        let mut native_group_plan = native_acp_test_plan();
+        native_group_plan
+            .environment
+            .insert("MIA_GROUP_CONTEXT_SNAPSHOT".into(), "group snapshot".into());
+        assert_eq!(
+            pending_initial_prompt_for_new_session(&native_group_plan, Some(&provider_trait))
+                .await
+                .unwrap(),
+            Some("latest frozen memory".into())
+        );
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]

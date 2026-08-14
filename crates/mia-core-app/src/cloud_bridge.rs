@@ -325,6 +325,22 @@ pub async fn start_cloud_bridge_run(
     request: CloudBridgeRunRequest,
 ) -> Result<StartedCloudBridgeRun, CloudError> {
     let prepared = cloud.prepare_bridge_run(request)?;
+    let existing = conversation
+        .get_conversation(&prepared.local_conversation_id)
+        .await
+        .ok()
+        .map(|response| response.conversation);
+    let group_context_snapshot = runtime_string(&prepared.runtime, "groupContextSnapshot");
+    let group_context_fingerprint = runtime_string(&prepared.runtime, "groupContextFingerprint");
+    let existing_group_context_fingerprint = existing.as_ref().and_then(|conversation| {
+        runtime_session_string(&conversation.metadata, "groupContextFingerprint")
+    });
+    let has_resumable_session = existing.as_ref().is_some_and(|conversation| {
+        runtime_session_string(&conversation.metadata, "resumeSessionKey").is_some()
+    });
+    let inject_group_context_now = has_resumable_session
+        && group_context_snapshot.is_some()
+        && group_context_fingerprint != existing_group_context_fingerprint;
     let bot_id = bot_id_from_metadata(&prepared.metadata);
     let conversation_row = conversation
         .ensure_external_conversation(
@@ -377,6 +393,25 @@ pub async fn start_cloud_bridge_run(
         }),
     );
     let mut runtime_plan = turn.runtime_plan.clone();
+    if let Some(snapshot) = group_context_snapshot.as_deref() {
+        if runtime_plan_uses_session_manager(&runtime_plan) {
+            runtime_plan
+                .environment
+                .insert("MIA_GROUP_CONTEXT_SNAPSHOT".into(), snapshot.to_string());
+            if inject_group_context_now {
+                runtime_plan.send_message.content =
+                    join_prompt(snapshot, &runtime_plan.send_message.content);
+            }
+        } else {
+            runtime_plan.send_message.content =
+                join_prompt(snapshot, &runtime_plan.send_message.content);
+        }
+    }
+    if let Some(fingerprint) = group_context_fingerprint {
+        runtime_plan
+            .environment
+            .insert("MIA_GROUP_CONTEXT_FINGERPRINT".into(), fingerprint);
+    }
     mia_runtime_proxies
         .prepare_plan(cloud, &prepared.runtime, &mut runtime_plan)
         .await?;
@@ -504,6 +539,17 @@ pub async fn complete_started_cloud_bridge_run(
             &runtime_plan.runtime_session,
             event_state.actual_session_id.as_deref(),
         );
+        let mut runtime_session_value = json!(runtime_session);
+        if let Some(fingerprint) = runtime_plan
+            .environment
+            .get("MIA_GROUP_CONTEXT_FINGERPRINT")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            runtime_session_value["groupContextFingerprint"] =
+                Value::String(fingerprint.to_string());
+        }
         let mut output = runtime_output_with_collected_events(
             &runtime_plan.engine,
             &result.stdout,
@@ -534,7 +580,7 @@ pub async fn complete_started_cloud_bridge_run(
                     "cancelled": result.cancelled,
                     "stderr": result.stderr,
                     "cloudBridgeRunId": prepared.run_id,
-                    "runtimeSession": runtime_session,
+                    "runtimeSession": runtime_session_value,
                     "trace": output.trace,
                     "contentBlocks": output.content_blocks,
                 }),
@@ -2165,6 +2211,29 @@ fn bot_id_from_metadata(metadata: &Value) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn runtime_string(runtime: &Value, key: &str) -> Option<String> {
+    runtime
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn runtime_session_string(metadata: &Value, key: &str) -> Option<String> {
+    metadata
+        .get("runtimeSession")
+        .and_then(|session| runtime_string(session, key))
+}
+
+fn join_prompt(prefix: &str, body: &str) -> String {
+    match (prefix.trim(), body.trim()) {
+        ("", _) => body.to_string(),
+        (_, "") => prefix.to_string(),
+        (prefix, body) => format!("{prefix}\n\n{body}"),
+    }
 }
 
 fn string_field(source: &Value, keys: &[&str]) -> Option<String> {

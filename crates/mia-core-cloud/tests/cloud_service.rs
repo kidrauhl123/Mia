@@ -1289,21 +1289,26 @@ async fn cloud_events_manager_runs_desktop_bot_invocations_and_posts_reply() {
     assert_eq!(runs[0].logical_message_id.as_deref(), Some("m_user"));
     assert_eq!(runs[0].bot_id, "bot_codex");
     assert_eq!(runs[0].bot_name, "Codex");
-    assert!(
-        runs[0]
-            .text
-            .contains("你是 Codex，正在群聊「毕业旅行群」里发言。")
-    );
     assert!(runs[0].text.contains("当前发言者：小林 (user:u_roommate)"));
+    assert!(runs[0].text.contains("主持人 委派给你的任务：\nhi"));
+    assert!(!runs[0].text.contains("群成员："));
+    let group_context = runs[0].runtime_config["groupContextSnapshot"]
+        .as_str()
+        .unwrap();
+    assert!(group_context.contains("你是 Codex，正在群聊「毕业旅行群」里发言。"));
+    assert!(group_context.contains("研究员 (bot:bot_research)"));
     assert!(
-        runs[0]
-            .text
+        group_context
             .contains("群背景（由群成员明确设置）：我们是大学室友，正在一起准备毕业旅行。")
     );
-    assert!(runs[0].text.contains("不要自行猜测谁是情侣、朋友或室友"));
-    assert!(runs[0].text.contains("研究员 (bot:bot_research)"));
-    assert!(runs[0].text.contains("team_send_message"));
-    assert!(runs[0].text.contains("主持人 委派给你的任务：\nhi"));
+    assert!(group_context.contains("不要自行猜测谁是情侣、朋友或室友"));
+    assert!(group_context.contains("team_send_message"));
+    assert!(
+        runs[0].runtime_config["groupContextFingerprint"]
+            .as_str()
+            .unwrap()
+            .starts_with("group-context-v2-")
+    );
     assert_eq!(runs[0].attachments, json!([{ "id": "att_1" }]));
     assert_eq!(runs[0].selected_skill_ids, vec!["mia:flashcards"]);
     assert_eq!(runs[0].runtime_config["agentEngine"], "codex");

@@ -5367,11 +5367,25 @@ function createMiaCloudServer(options = {}) {
         descriptor.conversationId,
         descriptor.workspacePath
       ) || "",
+      loadNativeSessionEntry: (descriptor = {}) => context.agentSessionStore?.getEntry(
+        descriptor.engineId,
+        descriptor.botId,
+        descriptor.conversationId,
+        descriptor.workspacePath
+      ) || { id: "", fingerprint: "" },
       saveNativeSessionId: (descriptor = {}, nativeSessionId = "") => context.agentSessionStore?.setId(
         descriptor.engineId,
         descriptor.botId,
         descriptor.conversationId,
         nativeSessionId,
+        descriptor.workspacePath
+      ),
+      saveNativeSessionEntry: (descriptor = {}, nativeSessionId = "", fingerprint = "") => context.agentSessionStore?.setEntry(
+        descriptor.engineId,
+        descriptor.botId,
+        descriptor.conversationId,
+        nativeSessionId,
+        fingerprint,
         descriptor.workspacePath
       ),
       deleteNativeSessionId: (descriptor = {}) => context.agentSessionStore?.deleteEntry(

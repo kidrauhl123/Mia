@@ -1787,6 +1787,7 @@ test("desktop-local refuses a contaminated bot binding owned by another user", a
 test("ordinary single-bot group messages are answered by the real Bot", async () => {
   const ctx = setup();
   const hermesCalls = [];
+  let sessionEntry = { id: "", fingerprint: "" };
   try {
     const roommate = createCloudUser(ctx.cloudStore, "Lin Roommate");
     const group = ctx.socialStore.createConversation({
@@ -1806,13 +1807,19 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
       config: { model: "hermes-agent" }
     });
     const dispatcher = makeDispatcher(ctx, {
+      loadNativeSessionEntry() {
+        return sessionEntry;
+      },
+      saveNativeSessionEntry(_descriptor, id, fingerprint) {
+        sessionEntry = { id, fingerprint };
+      },
       getUserPublic(userId) {
         return ctx.cloudStore.getUserPublic(userId);
       },
       hermesImClient: {
         async runChat(args) {
           hermesCalls.push(args);
-          return { runId: "hr_single", content: "got it", events: [] };
+          return { runId: "hr_single", sessionId: "sdk-group", content: "got it", events: [] };
         }
       }
     });
@@ -1836,6 +1843,40 @@ test("ordinary single-bot group messages are answered by the real Bot", async ()
     assert.match(hermesCalls[0].input, /Lin Roommate \(user:/);
     assert.match(hermesCalls[0].input, /群背景（由群成员明确设置）：我们是大学室友，正在一起准备毕业旅行。/);
     assert.match(hermesCalls[0].input, /不要自行猜测谁是情侣、朋友或室友/);
+    assert.match(hermesCalls[0].freshSessionInput, /群聊「毕业旅行群」/);
+
+    const nextMessage = ctx.messagesStore.appendMessage({
+      conversationId: group.id,
+      senderKind: "user",
+      senderRef: roommate.id,
+      bodyMd: "那周末出发"
+    });
+    await dispatcher.handleUserMessage({
+      userId: roommate.id,
+      conversationId: group.id,
+      message: nextMessage
+    });
+    assert.equal(hermesCalls.length, 2);
+    assert.match(hermesCalls[1].input, /当前发言者：Lin Roommate \(user:/);
+    assert.match(hermesCalls[1].input, /用户消息：\n那周末出发/);
+    assert.doesNotMatch(hermesCalls[1].input, /群成员：|群背景|不要自行猜测/);
+    assert.match(hermesCalls[1].freshSessionInput, /群背景（由群成员明确设置）/);
+
+    ctx.socialStore.updateConversation(group.id, {
+      decorations: { pinnedGoal: "我们是大学室友，毕业旅行改去杭州。" }
+    });
+    const changedMessage = ctx.messagesStore.appendMessage({
+      conversationId: group.id,
+      senderKind: "user",
+      senderRef: roommate.id,
+      bodyMd: "目的地确认了吗"
+    });
+    await dispatcher.handleUserMessage({
+      userId: roommate.id,
+      conversationId: group.id,
+      message: changedMessage
+    });
+    assert.match(hermesCalls[2].input, /群背景（由群成员明确设置）：我们是大学室友，毕业旅行改去杭州。/);
     assert.equal(ctx.messagesStore.listLatestMessages(group.id, 20).messages.some((item) => item.sender_ref === "group-orchestrator"), false);
   } finally {
     ctx.cleanup();

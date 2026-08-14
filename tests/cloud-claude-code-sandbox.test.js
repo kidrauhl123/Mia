@@ -582,6 +582,7 @@ test("cloud Claude Code client retries a stale native session without replaying 
     nativeSessionId: "stale-session",
     seedMessages: [{ role: "assistant", content: "old answer" }],
     input: "current only",
+    freshSessionInput: "fresh context\n\ncurrent only",
     onSessionReset(info) {
       resets.push(info.staleSessionId);
     }
@@ -592,7 +593,7 @@ test("cloud Claude Code client retries a stale native session without replaying 
   assert.equal(capture.paramsList.length, 2);
   assert.equal(capture.paramsList[0].options.resume, "stale-session");
   assert.equal(capture.paramsList[1].options.resume, undefined);
-  assert.equal(capture.paramsList[1].prompt, "current only");
+  assert.equal(capture.paramsList[1].prompt, "fresh context\n\ncurrent only");
   assert.doesNotMatch(capture.paramsList[1].prompt, /old answer/);
 });
 

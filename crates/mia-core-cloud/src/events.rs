@@ -8,6 +8,7 @@ use mia_core_api_types::{
     CloudMemorySyncRequest, CloudStatusResponse,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior, interval_at, sleep};
@@ -664,6 +665,23 @@ fn desktop_invocation_run_request(message: &Value) -> Result<CloudBridgeRunReque
     {
         runtime_config["delegationDepth"] = Value::Number(depth.into());
     }
+    if conversation_type
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("group"))
+    {
+        let snapshot = value_string(message, "groupContextSnapshot")
+            .or_else(|| value_string(message, "group_context_snapshot"))
+            .unwrap_or_else(|| desktop_group_context_snapshot(message));
+        let fingerprint = value_string(message, "groupContextFingerprint")
+            .or_else(|| value_string(message, "group_context_fingerprint"))
+            .unwrap_or_else(|| desktop_group_context_fingerprint(&snapshot));
+        if !snapshot.is_empty() {
+            runtime_config["groupContextSnapshot"] = Value::String(snapshot);
+        }
+        if !fingerprint.is_empty() {
+            runtime_config["groupContextFingerprint"] = Value::String(fingerprint);
+        }
+    }
     let run_id = invocation_run_id(message, triggering, &conversation_id, &bot_id);
     Ok(CloudBridgeRunRequest {
         run_id,
@@ -852,16 +870,20 @@ fn group_member_name(member: &Value, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
-fn desktop_invocation_text(message: &Value, triggering: &Value, text: &str) -> String {
-    let conversation_type = value_string(message, "conversationType")
-        .or_else(|| value_string(message, "conversation_type"))
-        .unwrap_or_default();
-    if !conversation_type.eq_ignore_ascii_case("group") {
-        return text.to_string();
+fn desktop_group_context_fingerprint(snapshot: &str) -> String {
+    if snapshot.trim().is_empty() {
+        return String::new();
     }
-    let bot_name = bot_display_name(message)
-        .or_else(|| value_string(message, "botId"))
-        .unwrap_or_else(|| "Bot".to_string());
+    let digest = Sha256::digest(snapshot.as_bytes());
+    format!("group-context-v2-{digest:x}")[..41].to_string()
+}
+
+fn desktop_group_context_snapshot(message: &Value) -> String {
+    let bot_name = bounded_text(
+        bot_display_name(message).or_else(|| value_string(message, "botId")),
+        80,
+    )
+    .unwrap_or_else(|| "Bot".to_string());
     let conversation = message.get("conversation").unwrap_or(&Value::Null);
     let group_name = bounded_text(value_string(conversation, "name"), 80);
     let background = bounded_text(
@@ -870,6 +892,77 @@ fn desktop_invocation_text(message: &Value, triggering: &Value, text: &str) -> S
             .and_then(|value| value_string(value, "pinnedGoal")),
         500,
     );
+    let all_members = message
+        .get("members")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut roster_members = all_members
+        .iter()
+        .enumerate()
+        .filter_map(|member| {
+            let (index, member) = member;
+            let kind = value_string(member, "member_kind")
+                .or_else(|| value_string(member, "memberKind"))?;
+            let kind = if kind.eq_ignore_ascii_case("bot") {
+                "bot"
+            } else {
+                "user"
+            };
+            let member_ref = bounded_text(
+                value_string(member, "member_ref").or_else(|| value_string(member, "memberRef")),
+                96,
+            )?;
+            let name = bounded_text(Some(group_member_name(member, &member_ref)), 80)
+                .unwrap_or_else(|| member_ref.clone());
+            Some((kind, member_ref, name, index))
+        })
+        .collect::<Vec<_>>();
+    roster_members.sort_by(|left, right| {
+        let left_priority = usize::from(left.0 != "bot");
+        let right_priority = usize::from(right.0 != "bot");
+        left_priority
+            .cmp(&right_priority)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.3.cmp(&right.3))
+    });
+    let omitted = roster_members.len().saturating_sub(24);
+    let roster = roster_members
+        .into_iter()
+        .take(24)
+        .map(|(kind, member_ref, name, _)| format!("- {name} ({kind}:{member_ref})"))
+        .chain((omitted > 0).then(|| format!("- 另有 {omitted} 位成员未列出")))
+        .collect::<Vec<_>>()
+        .join("\n");
+    [
+        format!(
+            "你是 {bot_name}，正在{}里发言。",
+            group_name
+                .map(|name| format!("群聊「{name}」"))
+                .unwrap_or_else(|| "一个群聊".to_string())
+        ),
+        (!roster.is_empty())
+            .then(|| format!("群成员：\n{roster}"))
+            .unwrap_or_default(),
+        background
+            .map(|value| format!("群背景（由群成员明确设置）：{value}"))
+            .unwrap_or_default(),
+        "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。".to_string(),
+        "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。".to_string(),
+    ]
+    .into_iter()
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n")
+}
+
+fn desktop_invocation_text(message: &Value, triggering: &Value, text: &str) -> String {
+    let conversation_type = value_string(message, "conversationType")
+        .or_else(|| value_string(message, "conversation_type"))
+        .unwrap_or_default();
+    if !conversation_type.eq_ignore_ascii_case("group") {
+        return text.to_string();
+    }
     let sender_kind =
         value_string(triggering, "sender_kind").or_else(|| value_string(triggering, "senderKind"));
     let sender_ref =
@@ -904,40 +997,12 @@ fn desktop_invocation_text(message: &Value, triggering: &Value, text: &str) -> S
                 });
             format!("{name} ({kind}:{reference})")
         });
-    let roster = message
-        .get("members")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|member| {
-            let kind = value_string(member, "member_kind")
-                .or_else(|| value_string(member, "memberKind"))?;
-            let member_ref =
-                value_string(member, "member_ref").or_else(|| value_string(member, "memberRef"))?;
-            let name = group_member_name(member, &member_ref);
-            Some(format!("- {name} ({kind}:{member_ref})"))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
     let delegated_by = value_string(triggering, "delegatedByBotName")
         .or_else(|| value_string(triggering, "delegated_by_bot_name"));
     [
-        format!(
-            "你是 {bot_name}，正在{}里发言。",
-            group_name
-                .map(|name| format!("群聊「{name}」"))
-                .unwrap_or_else(|| "一个群聊".to_string())
-        ),
         speaker
             .map(|value| format!("当前发言者：{value}"))
             .unwrap_or_default(),
-        (!roster.is_empty()).then(|| format!("群成员：\n{roster}"))
-            .unwrap_or_default(),
-        background
-            .map(|value| format!("群背景（由群成员明确设置）：{value}"))
-            .unwrap_or_default(),
-        "区分不同真人的身份和观点。只把群成员明确设置的背景和聊天内容当作关系依据，不要自行猜测谁是情侣、朋友或室友。".to_string(),
-        "你可以使用 team_send_message 将明确任务委派给群内其他 Bot。只有确实需要分工时才使用；不要用普通 @ 文本代替工具调用。".to_string(),
         delegated_by
             .map(|name| format!("{name} 委派给你的任务：\n{text}"))
             .unwrap_or_else(|| format!("用户消息：\n{text}")),

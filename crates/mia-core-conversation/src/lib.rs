@@ -2382,6 +2382,14 @@ fn runtime_session_metadata_from_runtime(
     if let Some(resumed) = session.get("resumed").and_then(Value::as_bool) {
         metadata["resumed"] = Value::Bool(resumed);
     }
+    if let Some(group_context_fingerprint) = session
+        .get("groupContextFingerprint")
+        .and_then(Value::as_str)
+        .map(clean_text)
+        .filter(|value| !value.is_empty())
+    {
+        metadata["groupContextFingerprint"] = Value::String(group_context_fingerprint);
+    }
     Some(metadata)
 }
 

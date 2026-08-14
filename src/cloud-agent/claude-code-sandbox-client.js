@@ -385,6 +385,11 @@ function createCloudClaudeCodeClient(deps = {}) {
     activeRuns.set(runId, { abortController, worker });
     if (typeof args.onRunCreated === "function") args.onRunCreated(runId);
     const prompt = buildPrompt({ ...args, worker });
+    const freshSessionPrompt = buildPrompt({
+      ...args,
+      worker,
+      input: String(args.freshSessionInput || args.input || "")
+    });
     const systemPromptAppend = buildSystemPromptAppend({ ...args, worker });
     const model = normalizeCloudClaudeCodeModel(args.model, { defaultModel: worker.model });
     const permissionMode = normalizeClaudePermissionMode(worker.permissionMode);
@@ -455,8 +460,8 @@ function createCloudClaudeCodeClient(deps = {}) {
       }
     }
 
-    async function executeQuery(query, attemptOptions) {
-      const stream = query({ prompt, options: attemptOptions });
+    async function executeQuery(query, attemptOptions, attemptPrompt = prompt) {
+      const stream = query({ prompt: attemptPrompt, options: attemptOptions });
       trackActiveRun(runId, stream);
       for await (const message of stream) {
         if (abortController.signal.aborted) break;
@@ -484,7 +489,7 @@ function createCloudClaudeCodeClient(deps = {}) {
         const freshOptions = { ...options };
         delete freshOptions.resume;
         delete freshOptions.continue;
-        await executeQuery(query, freshOptions);
+        await executeQuery(query, freshOptions, freshSessionPrompt);
       }
       if (abortController.signal.aborted) {
         return {
